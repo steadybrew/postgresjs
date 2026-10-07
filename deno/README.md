@@ -1,11 +1,15 @@
+# Postgres.js by Steady Brew
+
+This is an independently maintained fork of [Postgres.js](https://github.com/porsager/postgres), the PostgreSQL client for Node.js and Deno created by [Rasmus Porsager](https://github.com/porsager). [Steady Brew](https://github.com/steadybrew) aims to fix bugs and improve the library through community contributions, regression tests, and careful architectural review, while preserving its simple API.
+
+---
+
 <img align="left" width="440" height="180" alt="Fastest full PostgreSQL nodejs client" src="https://raw.githubusercontent.com/porsager/postgres/master/postgresjs.svg?sanitize=true">
 
 - [🚀 Fastest full-featured node & deno client](https://github.com/porsager/postgres-benchmarks#results)
 - 🏷 ES6 Tagged Template Strings at the core
 - 🏄‍♀️ Simple surface API
 - 🖊️ Dynamic query support
-- 💬 Chat and help on [Gitter](https://gitter.im/porsager/postgres)
-- 🐦 Follow on [Twitter](https://twitter.com/rporsager)
 
 <br>
 
@@ -20,7 +24,7 @@
 Create your `sql` database instance
 ```js
 // db.js
-import postgres from 'https://deno.land/x/postgresjs/mod.js'
+import postgres from 'https://raw.githubusercontent.com/steadybrew/postgresjs/master/deno/mod.js'
 
 const sql = postgres({ /* options */ }) // will use psql environment variables
 
@@ -63,7 +67,7 @@ async function insertUser({ name, age }) {
 The library can be used with ESM dynamic imports as well as shown here.
 
 ```js
-const { default: postgres } = await import('postgres')
+const { default: postgres } = await import('@steadybrew/postgresjs')
 ```
 
 ## Table of Contents
@@ -1109,7 +1113,7 @@ You can use Postgres.js directly in a Worker, or to benefit from connection pool
 
 ```ts
 // Requires Postgres.js 3.4.0 or later
-import postgres from 'postgres'
+import postgres from '@steadybrew/postgresjs'
 
 interface Env {
     HYPERDRIVE: Hyperdrive;

@@ -1,7 +1,7 @@
 {
-  "name": "postgres",
+  "name": "@steadybrew/postgresjs",
   "version": "3.4.9",
-  "description": "Fastest full featured PostgreSQL client for Node.js",
+  "description": "PostgreSQL client for Node.js and Deno, independently maintained by Steady Brew",
   "type": "module",
   "module": "src/index.js",
   "main": "cjs/src/index.js",
@@ -31,6 +31,7 @@
     "prepublishOnly": "npm run lint"
   },
   "files": [
+    "/UNLICENSE",
     "/cf/src",
     "/cf/polyfills.js",
     "/cjs/src",
@@ -39,14 +40,10 @@
     "/types"
   ],
   "author": "Rasmus Porsager <rasmus@porsager.com> (https://www.porsager.com)",
-  "funding": {
-    "type": "individual",
-    "url": "https://github.com/sponsors/porsager"
-  },
   "license": "Unlicense",
-  "repository": "porsager/postgres",
-  "homepage": "https://github.com/porsager/postgres",
-  "bugs": "https://github.com/porsager/postgres/issues",
+  "repository": "github:steadybrew/postgresjs",
+  "homepage": "https://github.com/steadybrew/postgresjs",
+  "bugs": "https://github.com/steadybrew/postgresjs/issues",
   "keywords": [
     "driver",
     "postgresql",
@@ -59,5 +56,8 @@
     "db",
     "pg",
     "database"
-  ]
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
 }

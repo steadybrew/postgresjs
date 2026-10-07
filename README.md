@@ -21,14 +21,14 @@ This is an independently maintained fork of [Postgres.js](https://github.com/por
 
 ### Installation
 ```bash
-$ npm install postgres
+$ npm install @steadybrew/postgresjs
 ```
 
 ### Usage
 Create your `sql` database instance
 ```js
 // db.js
-import postgres from 'postgres'
+import postgres from '@steadybrew/postgresjs'
 
 const sql = postgres({ /* options */ }) // will use psql environment variables
 
@@ -71,7 +71,7 @@ async function insertUser({ name, age }) {
 The library can be used with ESM dynamic imports as well as shown here.
 
 ```js
-const { default: postgres } = await import('postgres')
+const { default: postgres } = await import('@steadybrew/postgresjs')
 ```
 
 ## Table of Contents
@@ -1117,7 +1117,7 @@ You can use Postgres.js directly in a Worker, or to benefit from connection pool
 
 ```ts
 // Requires Postgres.js 3.4.0 or later
-import postgres from 'postgres'
+import postgres from '@steadybrew/postgresjs'
 
 interface Env {
     HYPERDRIVE: Hyperdrive;

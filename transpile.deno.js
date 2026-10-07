@@ -23,8 +23,8 @@ fs.writeFileSync(
   fs.readFileSync('README.md', 'utf8')
     .replace(/### Installation(\n.*){4}/, '')
     .replace(
-      'import postgres from \'postgres\'',
-      'import postgres from \'https://deno.land/x/postgresjs/mod.js\''
+      'import postgres from \'@steadybrew/postgresjs\'',
+      'import postgres from \'https://raw.githubusercontent.com/steadybrew/postgresjs/master/deno/mod.js\''
     )
 )
 
