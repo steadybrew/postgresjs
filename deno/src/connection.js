@@ -7,7 +7,7 @@ import crypto from 'https://deno.land/std@0.132.0/node/crypto.ts'
 import Stream from 'https://deno.land/std@0.132.0/node/stream.ts'
 
 
-import { stringify, handleValue, arrayParser, arraySerializer } from './types.js'
+import { stringify, handleValue, addArrayType } from './types.js'
 import { Errors } from './errors.js'
 import Result from './result.js'
 import Queue from './queue.js'
@@ -778,16 +778,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
       group by b.oid, b.typarray
       order by b.oid
     `], [], execute)
-    types.forEach(({ oid, typarray }) => addArrayType(oid, typarray))
-  }
-
-  function addArrayType(oid, typarray) {
-    if (!!options.parsers[typarray] && !!options.serializers[typarray]) return
-    const parser = options.parsers[oid]
-    options.shared.typeArrayMap[oid] = typarray
-    options.parsers[typarray] = (xs) => arrayParser(xs, parser, typarray)
-    options.parsers[typarray].array = true
-    options.serializers[typarray] = (xs) => arraySerializer(xs, options.serializers[oid], options, typarray)
+    types.forEach(({ oid, typarray }) => addArrayType(options, oid, typarray))
   }
 
   function tryNext(x, xs) {

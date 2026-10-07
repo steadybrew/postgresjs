@@ -118,6 +118,79 @@ t('implicit jsonb', async() => {
   return ['hello,42', [x.a, x.b].join()]
 })
 
+const builtInArrays = [[16, 1000], [17, 1001], [18, 1002], [19, 1003], [20, 1016], [21, 1005], [23, 1007], [25, 1009],
+                       [26, 1028], [114, 199], [700, 1021], [701, 1022], [1042, 1014], [1043, 1015], [1082, 1182],
+                       [1083, 1183], [1114, 1115], [1184, 1185], [1186, 1187], [1700, 1231], [2950, 2951], [3802, 3807]]
+
+for (const fetch_types of [false]) {
+  t('Built-in array mappings match PostgreSQL with fetch_types=' + fetch_types, async() => {
+    const client = postgres({ ...options, fetch_types })
+    try {
+      const catalog = await client`select oid, typarray from pg_catalog.pg_type where oid = any(${ client.array(builtInArrays.map(x => x[0]), 26) })`
+      return [JSON.stringify(builtInArrays), JSON.stringify(builtInArrays.map(([oid]) => {
+        const row = catalog.find(x => x.oid === oid)
+        if (!row || row.typarray !== client.options.shared.typeArrayMap[oid])
+          throw new Error('Missing or incorrect built-in array mapping for ' + oid)
+        return [oid, row.typarray]
+      }))]
+    } finally { await client.end() }
+  })
+
+  t('Built-in array roundtrips with fetch_types=' + fetch_types, async() => {
+    const client = postgres({ ...options, fetch_types })
+    const text = [['quote"', 'slash\\'], ['NULL', null]]
+    const date = new Date('2020-01-02T03:04:05.000Z')
+    const uuid = '00000000-0000-0000-0000-000000000001'
+    try {
+      const [row] = await client`select ${ client.array(text, 25) } as texts, ${ client.array([], 25) } as empty,
+        ${ client.array([1, 2, 3], 23) } as ints, ${ client.array([true, false], 16) } as bools,
+        ${ client.array([{ a: 1 }, null], 3802) } as jsons, ${ client.array([date], 1184) } as dates,
+        ${ client.array([uuid], 2950) } as uuids, ${ client.array([Buffer.from([0, 255])], 17) } as bytes`
+      return [JSON.stringify({ text, empty: [], ints: [1, 2, 3], bools: [true, false], jsons: [{ a: 1 }, null],
+                               dates: [date.toISOString()], uuids: [uuid], bytes: [0, 255] }),
+              JSON.stringify({ text: row.texts, empty: row.empty, ints: row.ints, bools: row.bools, jsons: row.jsons,
+                               dates: row.dates.map(x => x.toISOString()), uuids: row.uuids, bytes: Array.from(row.bytes[0]) })]
+    } finally { await client.end() }
+  })
+
+  t('Array SQL null values with fetch_types=' + fetch_types, async() => {
+    const client = postgres({ ...options, fetch_types })
+    try {
+      const [row] = await client`select array[null, 'a', null, 'NULL', null]::text[] as texts,
+        array[null, 1, null, 3, null]::int[] as ints, array[null, true, null, false, null]::bool[] as bools,
+        array[null, '{"a":1}', null, '{"b":2}', null]::jsonb[] as jsons, array[null]::text[] as only,
+        array[array[null, 1], array[2, null]]::int[] as nested`
+      for (const key of ['texts', 'ints', 'bools', 'jsons']) {
+        if ([0, 2, 4].some(index => row[key][index] !== null))
+          throw new Error('SQL NULL was not preserved in ' + key)
+      }
+      return [JSON.stringify({ texts: [null, 'a', null, 'NULL', null], ints: [null, 1, null, 3, null],
+                               bools: [null, true, null, false, null], jsons: [null, { a: 1 }, null, { b: 2 }, null],
+                               only: [null], nested: [[null, 1], [2, null]] }), JSON.stringify(row)]
+    } finally { await client.end() }
+  })
+
+  for (const mode of ['parse', 'serialize', 'both']) {
+    t('Explicit array ' + mode + ' handler with fetch_types=' + fetch_types, async() => {
+      const parse = x => 'parsed:' + x
+      const serialize = () => '{override}'
+      const client = postgres({ ...options, fetch_types, types: { custom: {
+        ...(mode !== 'serialize' ? { from: 1009, parse } : {}),
+        ...(mode !== 'parse' ? { to: 1009, serialize } : {})
+      } } })
+      try {
+        const [row] = await client`select ${ client.array(['a', 'b'], 25) } as value`
+        if (client.options.shared.typeArrayMap[25] !== 1009
+            || (mode !== 'serialize' && (client.options.parsers[1009] !== parse || parse.array))
+            || (mode !== 'parse' && client.options.serializers[1009] !== serialize))
+          throw new Error('Explicit handlers or element-to-array map were overwritten')
+        return [JSON.stringify(mode === 'parse' ? 'parsed:{a,b}' : mode === 'both' ? 'parsed:{override}' : ['override']),
+                JSON.stringify(row.value)]
+      } finally { await client.end() }
+    })
+  }
+}
+
 t('Empty array', async() =>
   [true, Array.isArray((await sql`select ${ sql.array([], 1009) } as x`)[0].x)]
 )

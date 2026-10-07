@@ -1139,11 +1139,13 @@ compatibility_flags = ["nodejs_compat"]
 
 ### Auto fetching of array types
 
-Postgres.js will automatically fetch table/array-type information when it first connects to a database.
+Postgres.js automatically fetches array-type information when each connection initializes.
 
 If you have revoked access to `pg_catalog` this feature will no longer work and will need to be disabled.
 
-You can disable this feature by setting `fetch_types` to `false`.
+You can disable catalog discovery by setting `fetch_types` to `false`. A fixed set of 22 common built-in array types still supports parsing and serialization, including text, numeric, boolean, JSON, date, UUID, and byte arrays. This changes earlier `fetch_types: false` behavior, which returned built-in arrays as raw strings. Other built-in, user-defined, and extension arrays still require discovery or explicit type handlers.
+
+SQL `NULL` elements are returned as JavaScript `null`; a quoted text element `"NULL"` remains a string. Explicit array parsers and serializers are preserved independently. Catalog discovery with `fetch_types: true` remains per connection; this change does not cache catalog metadata.
 
 ### Environmental variables
 

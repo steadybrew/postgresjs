@@ -4,6 +4,7 @@ import fs from 'https://deno.land/std@0.132.0/node/fs.ts'
 
 import {
   mergeUserTypes,
+  addDefaultArrayTypes,
   inferType,
   Parameter,
   Identifier,
@@ -463,7 +464,7 @@ function parseOptions(a, b) {
     target_session_attrs: null
   }
 
-  return {
+  const options = {
     host            : Array.isArray(host) ? host : host.split(',').map(x => x.split(':')[0]),
     port            : Array.isArray(port) ? port : host.split(',').map(x => parseInt(x.split(':')[1] || port)),
     path            : o.path || host.indexOf('/') > -1 && host + '/.s.PGSQL.' + port,
@@ -499,6 +500,9 @@ function parseOptions(a, b) {
     shared          : { retries: 0, typeArrayMap: {} },
     ...mergeUserTypes(o.types)
   }
+
+  !options.fetch_types && addDefaultArrayTypes(options)
+  return options
 }
 
 function tsa(o, url, env) {

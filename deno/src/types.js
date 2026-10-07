@@ -191,6 +191,25 @@ function firstIsString(x) {
   return typeof x === 'string' ? 1009 : 0
 }
 
+const builtInArrays = [[16, 1000], [17, 1001], [18, 1002], [19, 1003], [20, 1016], [21, 1005], [23, 1007], [25, 1009],
+                       [26, 1028], [114, 199], [700, 1021], [701, 1022], [1042, 1014], [1043, 1015], [1082, 1182],
+                       [1083, 1183], [1114, 1115], [1184, 1185], [1186, 1187], [1700, 1231], [2950, 2951], [3802, 3807]]
+
+export function addDefaultArrayTypes(options) {
+  builtInArrays.forEach(([oid, typarray]) => addArrayType(options, oid, typarray))
+}
+
+export function addArrayType(options, oid, typarray) {
+  options.shared.typeArrayMap[oid] = typarray
+  if (!options.parsers[typarray]) {
+    const parser = options.parsers[oid]
+    options.parsers[typarray] = xs => arrayParser(xs, parser, typarray)
+    options.parsers[typarray].array = true
+  }
+  if (!options.serializers[typarray])
+    options.serializers[typarray] = xs => arraySerializer(xs, options.serializers[oid], options, typarray)
+}
+
 export const mergeUserTypes = function(types) {
   const user = typeHandlers(types || {})
   return {
@@ -279,6 +298,10 @@ export const arrayParser = function arrayParser(x, parser, typarray) {
   return arrayParserLoop(arrayParserState, x, parser, typarray)
 }
 
+function parseArrayValue(value, parser) {
+  return value === 'NULL' ? null : parser ? parser(value) : value
+}
+
 function arrayParserLoop(s, x, parser, typarray) {
   const xs = []
   // Only _box (1020) has the ';' delimiter for arrays, all other types use the ',' delimiter
@@ -303,16 +326,16 @@ function arrayParserLoop(s, x, parser, typarray) {
       xs.push(arrayParserLoop(s, x, parser, typarray))
     } else if (s.char === '}') {
       s.quoted = false
-      s.last < s.i && xs.push(parser ? parser(x.slice(s.last, s.i)) : x.slice(s.last, s.i))
+      s.last < s.i && xs.push(parseArrayValue(x.slice(s.last, s.i), parser))
       s.last = s.i + 1
       break
     } else if (s.char === delimiter && s.p !== '}' && s.p !== '"') {
-      xs.push(parser ? parser(x.slice(s.last, s.i)) : x.slice(s.last, s.i))
+      xs.push(parseArrayValue(x.slice(s.last, s.i), parser))
       s.last = s.i + 1
     }
     s.p = s.char
   }
-  s.last < s.i && xs.push(parser ? parser(x.slice(s.last, s.i + 1)) : x.slice(s.last, s.i + 1))
+  s.last < s.i && xs.push(parseArrayValue(x.slice(s.last, s.i + 1), parser))
   return xs
 }
 

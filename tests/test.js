@@ -3,6 +3,7 @@
 import util from 'util'
 
 let done = 0
+let registered = 0
 let only = false
 let ignored = 0
 let failed = false
@@ -24,7 +25,8 @@ async function test(o, name, options, fn) {
   if (only && !o)
     return
 
-  tests[line] = { fn, line, name }
+  const id = ++registered
+  tests[id] = { fn, line, name }
   promise = promise.then(() => Promise.race([
     new Promise((resolve, reject) =>
       fn.timer = setTimeout(() => reject('Timed out'), (options.timeout || t.timeout) * 1000)
@@ -47,12 +49,12 @@ async function test(o, name, options, fn) {
         throw new Error(util.inspect(expected) + ' != ' + util.inspect(got))
       }
 
-      tests[line].succeeded = true
+      tests[id].succeeded = true
       process.stdout.write('✅')
     })
     .catch(err => {
-      tests[line].failed = failed = true
-      tests[line].error = err instanceof Error ? err : new Error(util.inspect(err))
+      tests[id].failed = failed = true
+      tests[id].error = err instanceof Error ? err : new Error(util.inspect(err))
     })
     .then(() => {
       ++done === Object.keys(tests).length && exit()

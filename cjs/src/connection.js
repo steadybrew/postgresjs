@@ -4,7 +4,7 @@ const crypto = require('crypto')
 const Stream = require('stream')
 const { performance } = require('perf_hooks')
 
-const { stringify, handleValue, arrayParser, arraySerializer } = require('./types.js')
+const { stringify, handleValue, addArrayType } = require('./types.js')
 const { Errors } = require('./errors.js')
 const Result = require('./result.js')
 const Queue = require('./queue.js')
@@ -775,16 +775,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
       group by b.oid, b.typarray
       order by b.oid
     `], [], execute)
-    types.forEach(({ oid, typarray }) => addArrayType(oid, typarray))
-  }
-
-  function addArrayType(oid, typarray) {
-    if (!!options.parsers[typarray] && !!options.serializers[typarray]) return
-    const parser = options.parsers[oid]
-    options.shared.typeArrayMap[oid] = typarray
-    options.parsers[typarray] = (xs) => arrayParser(xs, parser, typarray)
-    options.parsers[typarray].array = true
-    options.serializers[typarray] = (xs) => arraySerializer(xs, options.serializers[oid], options, typarray)
+    types.forEach(({ oid, typarray }) => addArrayType(options, oid, typarray))
   }
 
   function tryNext(x, xs) {
