@@ -52,3 +52,9 @@ TLS, logical WAL, and prepared transactions as CI does. Nothing is mounted
 writable and no host server is altered. Supply another command after the script
 path to run CommonJS tests/builds or focused startup controls in the same setup.
 Run supported image/runtime versions when recording compatibility coverage.
+
+## Next-release CI policy
+
+The configured core matrix is Node 24/26 × PostgreSQL 15/16/17/18 (eight jobs), with a separate Deno 1.46.3/PostgreSQL 17 job. Node jobs run the startup controls in both formats and ESM/CJS integration with strict unhandled rejections. The shared CI-only setup action configures the primary cluster's authentication, TLS, logical WAL and prepared transactions; Node/Deno jobs retain their secondary PostgreSQL service on port 5433.
+
+Node 26's Linux binary needs `libatomic.so.1`; `libatomic1` is included in the checked-in image recipe. The shared host setup is checked syntactically but has not run on a GitHub-hosted Ubuntu 24.04 runner. This policy update changes no library runtime sources and introduces no Deno 2 or Bun certification.

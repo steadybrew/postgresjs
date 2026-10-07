@@ -13,6 +13,21 @@ This is an independently maintained fork of [Postgres.js](https://github.com/por
 
 <br>
 
+## Compatibility policy
+
+The next release raises the npm package's minimum Node.js version to **24**. This is a breaking compatibility change for applications using older Node versions. The minimum stays at Node 24 until an explicit policy change; newly maintained Node majors are tested before compatibility is claimed.
+
+| Runtime | PostgreSQL target | CI jobs | Validation status |
+| --- | --- | ---: | --- |
+| Node 24, ESM and CJS | 15, 16, 17, 18 | 4 | Locally validated |
+| Node 26, ESM and CJS | 15, 16, 17, 18 | 4 | Configured; local execution pending |
+| Deno 1.46.3 | 17 | 1 | Validated legacy runtime; no Deno 2 claim |
+| Bun export | No dedicated target | 0 | Retained as best effort; unverified, without dedicated CI |
+
+The core Node matrix has eight jobs. Deno runs independently, so it does not multiply that matrix. PostgreSQL versions below 15 are outside the next release's supported matrix.
+
+Supabase PostgreSQL and Supabase Edge are separate environments. Deno 1.46.3 coverage does not imply Deno 2 or hosted Supabase Edge certification.
+
 ## Getting started
 
 <br>

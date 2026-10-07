@@ -1,0 +1,13 @@
+name: Set up test PostgreSQL
+description: Configure the primary CI cluster; the job supplies its secondary service.
+inputs:
+  version:
+    description: PostgreSQL major version
+    required: true
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        CI_POSTGRES_VERSION: ${{ inputs.version }}
+      run: bash .github/actions/setup-postgres/setup.sh

@@ -2,15 +2,21 @@ name: test
 
 on: [push, pull_request]
 
+env:
+  NODE_OPTIONS: --unhandled-rejections=strict
+  PGUSER: postgres
+  PGSOCKET: /var/run/postgresql
+
 jobs:
-  test:
+  node:
     name: Node v${{ matrix.node }} on PostgreSQL v${{ matrix.postgres }}
     strategy:
       fail-fast: false
       matrix:
-        node: ['12', '14', '16', '18', '20', '21', '22', '23', '24']
-        postgres: ['12', '13', '14', '15', '16', '17']
-    runs-on: ubuntu-latest
+        node: ['24', '26']
+        postgres: ['15', '16', '17', '18']
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
     services:
       postgres:
         image: postgres:${{ matrix.postgres }}
@@ -26,32 +32,45 @@ jobs:
           --health-retries 5
     steps:
       - uses: actions/checkout@v4
-      - run: |
-          date
-          sudo apt purge postgresql-16
-          sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
-          wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
-          sudo apt-get update
-          sudo apt-get -y install "postgresql-${{ matrix.postgres }}"
-          sudo cp ./tests/pg_hba.conf /etc/postgresql/${{ matrix.postgres }}/main/pg_hba.conf
-          sudo sed -i 's/.*wal_level.*/wal_level = logical/' /etc/postgresql/${{ matrix.postgres }}/main/postgresql.conf
-          sudo sed -i 's/.*max_prepared_transactions.*/max_prepared_transactions = 100/' /etc/postgresql/${{ matrix.postgres }}/main/postgresql.conf
-          sudo sed -i 's/.*ssl = .*/ssl = on/' /etc/postgresql/${{ matrix.postgres }}/main/postgresql.conf
-          openssl req -new -x509 -nodes -days 365 -text -subj "/CN=localhost" -extensions v3_req -config <(cat /etc/ssl/openssl.cnf <(printf "\n[v3_req]\nbasicConstraints=critical,CA:TRUE\nkeyUsage=nonRepudiation,digitalSignature,keyEncipherment\nsubjectAltName=DNS:localhost")) -keyout server.key -out server.crt
-          sudo cp server.key /etc/postgresql/${{ matrix.postgres }}/main/server.key
-          sudo cp server.crt /etc/postgresql/${{ matrix.postgres }}/main/server.crt
-          sudo chmod og-rwx /etc/postgresql/${{ matrix.postgres }}/main/server.key
-          sudo systemctl start postgresql.service
-          sudo systemctl status postgresql.service
-          pg_isready
-          sudo -u postgres psql -c "SHOW hba_file;"
-      - uses: denoland/setup-deno@v1
+      - uses: ./.github/actions/setup-postgres
         with:
-          deno-version: v1.x
+          version: ${{ matrix.postgres }}
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
-      - run: npm test
+      - run: |
+          npm run build
+          npm run test:startup
+          node tests-startup/run.js --cjs
+          npm run test:esm
+          npm run test:cjs
+
+  deno:
+    name: Deno 1.46.3 on PostgreSQL 17
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17
         env:
-          PGUSER: postgres
-          PGSOCKET: /var/run/postgresql
+          POSTGRES_USER: postgres
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-postgres
+        with:
+          version: '17'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: denoland/setup-deno@v1
+        with:
+          deno-version: v1.46.3
+      - run: npm run test:deno

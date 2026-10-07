@@ -3,7 +3,7 @@ ARG POSTGRES_VERSION=17.11
 FROM postgres:${POSTGRES_VERSION}-bookworm
 ARG NODE_VERSION=24.21.0
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates curl openssl xz-utils coreutils \
+    && apt-get install -y --no-install-recommends ca-certificates curl openssl xz-utils coreutils libatomic1 \
     && rm -rf /var/lib/apt/lists/* \
     && case "$(dpkg --print-architecture)" in \
          amd64) task_arch=x64 ;; \
