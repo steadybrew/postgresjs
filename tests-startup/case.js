@@ -3,6 +3,7 @@ import { frames, message, peer } from './peer.js'
 import { startup, selection, lifecycle, phases } from './startup.js'
 import { integration } from './integration.js'
 import { ownership } from './ownership.js'
+import { leases } from './lease.js'
 
 const name = process.argv[2]
 const finish = () => process.send({ completed: name })
@@ -52,6 +53,11 @@ async function main() {
   }
   if (name === 'integration') {
     await integration(postgres)
+    finish()
+    return
+  }
+  if (name.startsWith('lease:')) {
+    await leases(name.slice(6), postgres, event => process.send({ event }))
     finish()
     return
   }

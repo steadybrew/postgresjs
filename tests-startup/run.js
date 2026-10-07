@@ -2,6 +2,7 @@
 import assert from 'assert'
 import { fork } from 'child_process'
 import { fileURLToPath } from 'url'
+import { leaseNames } from './lease.js'
 
 const ownershipNames = ['capacity', 'no-fetch-capacity', 'mixed-1-fetch', 'mixed-3-fetch', 'mixed-1-no-fetch', 'mixed-3-no-fetch',
                         'queued-reconnect', 'queued-drain', 'assigned-order', 'startup-drain', 'creation-failure',
@@ -75,6 +76,14 @@ async function main() {
     console.log('PASS real PostgreSQL ownership matrix')
     return
   }
+  if (process.argv.includes('--leases')) {
+    for (const name of leaseNames) {
+      const result = await run('lease:' + name)
+      console.log(JSON.stringify({ name, passed: result.passed, elapsed: result.elapsed, output: result.output.slice(0, 300) }))
+      !result.passed && (process.exitCode = 1)
+    }
+    return
+  }
   if (process.argv.includes('--ownership')) {
     for (const name of ownershipNames) {
       const result = await run('ownership:' + name)
@@ -84,7 +93,7 @@ async function main() {
     return
   }
   if (process.argv.includes('--regressions')) {
-    for (const name of [...startupNames.map(x => 'startup:' + x), ...phaseNames.map(x => 'phase:' + x)]) {
+    for (const name of [...startupNames.map(x => 'startup:' + x), ...phaseNames.map(x => 'phase:' + x), ...leaseNames.map(x => 'lease:' + x)]) {
       const result = await run(name)
       console.log(JSON.stringify(result))
       !result.passed && (process.exitCode = 1)
@@ -93,7 +102,7 @@ async function main() {
   }
   for (const name of ['frames', 'cold-query', 'cold-query-no-fetch', 'cold-reserve', 'cold-reserve-no-fetch',
                       ...ownershipNames.map(x => 'ownership:' + x), ...startupNames.map(x => 'startup:' + x),
-                      ...phaseNames.map(x => 'phase:' + x)]) {
+                      ...phaseNames.map(x => 'phase:' + x), ...leaseNames.map(x => 'lease:' + x)]) {
     const result = await run(name)
     assert(result.passed, JSON.stringify(result))
     console.log('PASS ' + name)

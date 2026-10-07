@@ -457,7 +457,6 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
         && !q.describeFirst
         && !q.cursorFn
         && sent.length < max_pipeline
-        && (!q.options.onexecute || q.options.onexecute(connection))
     } catch (error) {
       sent.length === 0 && write(Sync)
       errored(error)
@@ -671,9 +670,12 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     if (phase === Phase.Closing)
       return socket.destroy()
 
-    phase === Phase.Ready || phase === Phase.Draining
-      ? (resetSocketState(destroyed), enterClosed())
-      : enterClosed(destroyed)
+    if (phase !== Phase.Ready && phase !== Phase.Draining)
+      return enterClosed(destroyed)
+
+    const inflight = !idle()
+    resetSocketState(destroyed)
+    enterClosed(inflight ? destroyed : undefined)
   }
 
   function release() {

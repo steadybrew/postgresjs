@@ -330,16 +330,16 @@ export async function lifecycle(name, postgres, onEvent) {
   }
 }
 
-const settle = (promise, ms = 3000) => {
+export const settle = (promise, ms = 3000) => {
   let timer
   return Promise.race([
     Promise.resolve(promise).then(() => 'resolved', error => 'rejected:' + (error.code || error.message)),
     new Promise(resolve => { timer = setTimeout(resolve, ms, 'hang') })
   ]).finally(() => clearTimeout(timer))
 }
-const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
-const startups = server => server.events.filter(x => x.type === 'startup').length
-const until = async(check, ms = 2000) => {
+export const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
+export const startups = server => server.events.filter(x => x.type === 'startup').length
+export const until = async(check, ms = 2000) => {
   const start = Date.now()
   while (!check() && Date.now() - start < ms)
     await sleep(5)
@@ -356,7 +356,7 @@ const tracked = server => {
     }
   }
 }
-const marker = async client => (await client.unsafe('select 42 as marker', [], { simple: true }))[0].marker
+export const marker = async client => (await client.unsafe('select 42 as marker', [], { simple: true }))[0].marker
 
 export async function phases(name, postgres, onEvent) {
   const refused = await new Promise(resolve => {

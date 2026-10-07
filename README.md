@@ -1346,6 +1346,8 @@ This error is thrown if the connection was closed without an error. This should 
 
 This error is thrown if the user has called [`sql.end()`](#teardown--cleanup) and performed a query afterward.
 
+A reserved `sql` used after `release()`, or a transaction `sql` used after `begin()` has committed, rolled back or prepared, also rejects with `CONNECTION_ENDED`.
+
 ##### CONNECTION_DESTROYED
 > write CONNECTION_DESTROYED host:port
 

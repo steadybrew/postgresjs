@@ -27,7 +27,7 @@ export function message(type, body = Buffer.alloc(0)) {
   return Buffer.concat([header, body])
 }
 
-const ready = () => message('Z', Buffer.from('I'))
+const ready = (status = 'I') => message('Z', Buffer.from(status))
 const complete = command => message('C', Buffer.from(command + '\0'))
 
 function rowset(columns, values) {
@@ -66,9 +66,19 @@ export async function peer({ catalogError = false, holdStartup = false, failAuth
     const authenticated = () => {
       const key = Buffer.alloc(8)
       key.writeUInt32BE(pid, 0)
-      socket.write(Buffer.concat([message('R', Buffer.alloc(4)), message('K', key), ready()]))
+      socket.write(Buffer.concat([message('R', Buffer.alloc(4)), message('K', key), rdy()]))
     }
     let statement = ''
+    let status = 'I'
+    const rdy = () => ready(status)
+    const tag = text => {
+      const word = text.trim().toLowerCase()
+      if (word.startsWith('begin'))
+        return status = 'T', 'BEGIN'
+      if (word.startsWith('commit') || word === 'rollback')
+        return status = 'I', word.toUpperCase()
+      return ''
+    }
     let parameters = Buffer.from([0, 0])
     let parse
     const onFrame = (type, frame) => {
@@ -87,6 +97,7 @@ export async function peer({ catalogError = false, holdStartup = false, failAuth
         const queryEnd = frame.indexOf(0, end + 1)
         statement = frame.subarray(end + 1, queryEnd).toString()
         parameters = frame.subarray(queryEnd + 1)
+        events[events.length - 1].text = statement
         socket.write(message('1'))
       } else if (type === 'B') {
         socket.write(message('2'))
@@ -107,11 +118,11 @@ export async function peer({ catalogError = false, holdStartup = false, failAuth
           const result = rowset([['oid', 23], ['typarray', 23]], catalogRows)
           socket.write(result.subarray(1 + result.readUInt32BE(1)))
         } else {
-          socket.write(complete('SELECT 0'))
+          socket.write(complete(tag(statement) || 'SELECT 0'))
         }
       } else if (type === 'S') {
         if (!holdCatalog && !socket.destroyed && !(closeAfterError && catalogError && (catalogError === true || pid === 1)) && pid > closeCatalog)
-          socket.write(ready())
+          socket.write(rdy())
       } else if (type === 'startup') {
         const reply = authenticated
         if (pid <= closeStartup)
@@ -134,17 +145,20 @@ export async function peer({ catalogError = false, holdStartup = false, failAuth
           return
         const session = frame.subarray(5, -1).toString().includes('transaction_read_only')
         const catalog = frame.subarray(5, -1).toString().includes('pg_catalog.pg_type')
+        const command = session || catalog ? '' : tag(frame.subarray(5, -1).toString().replace(/\0$/, ''))
         if (session) {
           if (holdSession)
             return
           socket.write(sessionError
-            ? Buffer.concat([message('E', Buffer.from('SERROR\0C42501\0Msession denied\0\0')), ready()])
+            ? Buffer.concat([message('E', Buffer.from('SERROR\0C42501\0Msession denied\0\0')), rdy()])
             : Buffer.concat([rowset([['transaction_read_only', 25]], [[readOnly ? 'on' : 'off']]),
-                             rowset([['pg_is_in_recovery', 16]], [['f']]), ready()]))
+                             rowset([['pg_is_in_recovery', 16]], [['f']]), rdy()]))
         } else if (catalog && catalogError) {
-          socket.write(Buffer.concat([message('E', Buffer.from('SERROR\0C42501\0Mcatalog denied\0\0')), ready()]))
+          socket.write(Buffer.concat([message('E', Buffer.from('SERROR\0C42501\0Mcatalog denied\0\0')), rdy()]))
         } else if (catalog) {
-          socket.write(Buffer.concat([complete('SELECT 0'), ready()]))
+          socket.write(Buffer.concat([complete('SELECT 0'), rdy()]))
+        } else if (command) {
+          socket.write(Buffer.concat([complete(command), rdy()]))
         } else {
           const column = Buffer.alloc(18)
           column.writeUInt32BE(23, 6)
@@ -152,7 +166,7 @@ export async function peer({ catalogError = false, holdStartup = false, failAuth
           column.writeInt32BE(-1, 12)
           socket.write(Buffer.concat([
             message('T', Buffer.concat([Buffer.from([0, 1]), Buffer.from('marker\0'), column])),
-            message('D', Buffer.from([0, 1, 0, 0, 0, 2, 52, 50])), complete('SELECT 1'), ready()
+            message('D', Buffer.from([0, 1, 0, 0, 0, 2, 52, 50])), complete('SELECT 1'), rdy()
           ]))
         }
       } else if (type === 'X') {
