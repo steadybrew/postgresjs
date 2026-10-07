@@ -1,11 +1,15 @@
+# Postgres.js by Steady Brew
+
+This is an independently maintained fork of [Postgres.js](https://github.com/porsager/postgres), the PostgreSQL client for Node.js and Deno created by [Rasmus Porsager](https://github.com/porsager). [Steady Brew](https://github.com/steadybrew) aims to fix bugs and improve the library through community contributions, regression tests, and careful architectural review, while preserving its simple API.
+
+---
+
 <img align="left" width="440" height="180" alt="Fastest full PostgreSQL nodejs client" src="https://raw.githubusercontent.com/porsager/postgres/master/postgresjs.svg?sanitize=true">
 
 - [🚀 Fastest full-featured node & deno client](https://github.com/porsager/postgres-benchmarks#results)
 - 🏷 ES6 Tagged Template Strings at the core
 - 🏄‍♀️ Simple surface API
 - 🖊️ Dynamic query support
-- 💬 Chat and help on [Gitter](https://gitter.im/porsager/postgres)
-- 🐦 Follow on [Twitter](https://twitter.com/rporsager)
 
 <br>
 
