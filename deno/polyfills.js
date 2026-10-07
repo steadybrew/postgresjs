@@ -110,24 +110,35 @@ function createSocket() {
   }
 
   function close() {
+    if (socket.readyState === 'closed')
+      return
+
+    if (!socket.raw)
+      return closed(true)
+
     try {
-      socket.raw && socket.raw.close()
+      socket.raw.close()
     } catch (e) {
       if (e instanceof Deno.errors.BadResource === false)
         call(socket.events.error, e)
     }
   }
 
-  function closed() {
+  function closed(defer = false) {
     if (socket.readyState === 'closed')
       return
 
     socket.break = socket.encrypted = false
     socket.readyState = 'closed'
-    call(socket.events.close)
+    defer
+      ? queueMicrotask(() => call(socket.events.close))
+      : call(socket.events.close)
   }
 
   function error(err) {
+    if (socket.readyState === 'closed')
+      return
+
     call(socket.events.error, err)
     socket.raw
       ? close()

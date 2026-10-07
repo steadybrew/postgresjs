@@ -1,5 +1,8 @@
 import assert from 'assert'
 import { frames, message, peer } from './peer.js'
+import { startup, selection, lifecycle, phases } from './startup.js'
+import { integration } from './integration.js'
+import { ownership } from './ownership.js'
 
 const name = process.argv[2]
 const finish = () => process.send({ completed: name })
@@ -32,21 +35,46 @@ async function main() {
     finish()
     return
   }
+  if (name.startsWith('startup:')) {
+    const scenario = name.slice(8)
+    const run = ['failover', 'session-select'].includes(scenario) ? selection
+      : scenario === 'budget-reset' || scenario === 'end-backoff' || scenario.startsWith('graceful-') || scenario.startsWith('forced-')
+          || scenario.startsWith('backoff-')
+        ? lifecycle : startup
+    await run(scenario, postgres, event => process.send({ event }))
+    finish()
+    return
+  }
+  if (name.startsWith('phase:')) {
+    await phases(name.slice(6), postgres, event => process.send({ event }))
+    finish()
+    return
+  }
+  if (name === 'integration') {
+    await integration(postgres)
+    finish()
+    return
+  }
+  if (name.startsWith('ownership:')) {
+    await ownership(name.slice(10), postgres, event => process.send({ event }))
+    finish()
+    return
+  }
   const server = await peer({ catalogError: name === 'catalog-error', onEvent: event => process.send({ event }) })
   const sql = postgres({ host: '127.0.0.1', port: server.port, user: 'fixture', database: 'fixture',
-                         ssl: false, prepare: false, max: 1, fetch_types: name !== 'cold-reserve-no-fetch', connect_timeout: 1 })
+                         ssl: false, prepare: false, max: 1, fetch_types: !name.includes('no-fetch'), connect_timeout: 1 })
   try {
     if (name === 'catalog-error') {
       await assert.rejects(sql.reserve(), error => error.code === '42501' && error.message === 'catalog denied')
       assert.strictEqual(server.events.filter(x => x.type === 'Q' && !x.sql.includes('pg_catalog.pg_type')).length, 0)
     } else {
-      assert(['cold-query', 'cold-reserve', 'cold-reserve-no-fetch'].includes(name), 'Unknown scenario ' + name)
-      const reserved = name === 'cold-query' ? sql : await sql.reserve()
+      assert(['cold-query', 'cold-query-no-fetch', 'cold-reserve', 'cold-reserve-no-fetch'].includes(name), 'Unknown scenario ' + name)
+      const reserved = name.startsWith('cold-query') ? sql : await sql.reserve()
       assert.strictEqual((await reserved.unsafe('select 42 as marker', [], { simple: true }))[0].marker, 42)
       reserved !== sql && reserved.release()
       assert.strictEqual((await sql.unsafe('select 42 as marker', [], { simple: true }))[0].marker, 42)
       assert.strictEqual(server.events.filter(x => x.type === 'P').length,
-        name === 'cold-reserve-no-fetch' ? 0 : 1)
+        name.includes('no-fetch') ? 0 : 1)
     }
   } finally {
     await sql.end({ timeout: 0 })

@@ -5,14 +5,22 @@ watchdog itself. Each child runs with strict unhandled rejections, a parent
 wall-clock deadline, and an explicit completion message. A zero exit code alone
 cannot pass. Children must exit naturally; deadline kills always fail.
 
-`node tests-startup/run.js --regressions` runs cold reservation without fetching
-and catalog-error propagation. This command intentionally fails on the original
-library. It is separate from the passing controls, not skipped coverage. After
-fixing each defect, promote its scenario into the default list.
+`node tests-startup/run.js --startup-failures` (also `--regressions`) runs the
+startup/type discovery/reconnect scenarios separately. These cases now pass and
+are included in the default suite. `--ownership` isolates acquisition cases.
+The scenarios reject uncaught internal-query failures, premature ownership,
+stale backend state, unbounded retries, and late socket-factory completion.
 
 Add `--cjs` to either command to test the generated CommonJS library after
 `npm run build:cjs`. The fixture and watchdog stay in Node; the existing Deno
 suite is the Deno integration gate.
+
+`node tests-startup/run.js --integration` runs the real PostgreSQL acquisition
+matrix against the disposable primary cluster (with `--cjs` for CommonJS).
+It covers pool sizes 1/3, fetching on/off, prepared/unprepared queries, concurrent
+cold acquisitions, backend termination with queued reservations, and two rounds
+of exclusive full-capacity acquisition after recovery. Both `test:esm` and
+`test:cjs` run this matrix before their existing integration suites.
 
 The peer parses startup and tagged PostgreSQL frames, including split/coalesced
 TCP chunks. It implements only the simple-query path and empty catalog results
@@ -53,8 +61,33 @@ writable and no host server is altered. Supply another command after the script
 path to run CommonJS tests/builds or focused startup controls in the same setup.
 Run supported image/runtime versions when recording compatibility coverage.
 
+Graceful `end()` runs every query accepted before the call, including plain queries still queued in the pool, which an idle draining connection takes before it closes. A reservation owner that is still starting, or a queued reservation, rejects with `CONNECTION_ENDED`, as do queued items rejected when the last connection closes during shutdown. A connection backing off after a failed attempt rejects a query owner with the last attempt error. If a connection is lost during startup the owner rejects with the error that ended the attempt, usually `CONNECTION_CLOSED`. Forced shutdown (`end({ timeout })` expiring) rejects remaining and queued work with `CONNECTION_DESTROYED`; new queries submitted after shutdown reject with `CONNECTION_ENDED`.
+
+The portable integration suite checks all 22 built-in element/array OID pairs against PostgreSQL, roundtrips built-in arrays with fetching on/off, preserves independent custom parser/serializer overrides, and covers transforms, SQL NULL positions, quoted NULL text, and user-defined arrays. Numeric NULL assertions use strict null checks so JSON serialization cannot hide NaN. Before this change, discovery returned text NULL as a string, integer NULL as NaN, and JSON NULL threw; the shared parser now recognizes unquoted NULL before applying scalar parsers.
+
+`npm run test:workerd -- . <isolated-postgres-port>` runs the actual generated Cloudflare library in local workerd through pinned Wrangler 4.123.0 (requires Node 22 or newer). It covers cold reservation, built-in arrays/NULL values with fetching on/off, and handled catalog failure. Each scenario uses a dedicated worker process, bounded requests, an external watchdog, and an observation window that rejects unhandled worker errors. The runner retains logs under its printed temporary artifact directory. Workerd is an HTTP server, so the parent stops its process after assertions. Explicit `sql.end()` is excluded because the independent [#1202](https://github.com/porsager/postgres/issues/1202) stream-cancellation defect remains outside this startup gate.
+
+The scope follows [#1219](https://github.com/porsager/postgres/issues/1219), [#751](https://github.com/porsager/postgres/issues/751), and [#1203](https://github.com/porsager/postgres/issues/1203) reservation ownership; [#1195](https://github.com/porsager/postgres/issues/1195) queued reconnect; [#789](https://github.com/porsager/postgres/issues/789) first-query type registration; [#1192](https://github.com/porsager/postgres/issues/1192) and [#1205](https://github.com/porsager/postgres/issues/1205) internal rejection handling; [#1223](https://github.com/porsager/postgres/issues/1223), [#1193](https://github.com/porsager/postgres/issues/1193), and [#1226](https://github.com/porsager/postgres/issues/1226) retry/state isolation; and [#1164](https://github.com/porsager/postgres/issues/1164) built-in arrays without discovery. Catalog traffic/caching from [#903](https://github.com/porsager/postgres/issues/903) is deferred. Transaction/handle lifecycle reports [#1199](https://github.com/porsager/postgres/issues/1199), [#1208](https://github.com/porsager/postgres/issues/1208), and [#1242](https://github.com/porsager/postgres/issues/1242) require separate work.
+
+Internal catalog/session initialization keeps PostgreSQL column/value/row shapes independently of user transforms; ordinary query results still use those transforms. The protocol suite verifies both paths. For workerd, a disposable local server can be started with `docker run --rm -d --name postgresjs-workerd-pg -p 127.0.0.1:55432:5432 -e POSTGRES_HOST_AUTH_METHOD=trust postgres:17.11-bookworm`; run the gate with port `55432`, then clean up with `docker stop postgresjs-workerd-pg`.
+
+## Validation recorded on 2026-10-07
+
+The integration matrix used Node 12.22.12, 14.21.3, 16.20.2, 18.20.8, 20.20.2, 21.7.3, 22.23.3, 23.11.1, and 24.21.0 against PostgreSQL 12.22, 13.23, 14.24, 15.19, 16.15, and 17.11 in disposable containers.
+
+- All 54 Node/PostgreSQL combinations passed ESM and CJS: 558 assertions and two real ownership matrices per combination. The protocol/watchdog suite also passed in both formats on all nine Node versions.
+- Deno 1.46.3 passed all six PostgreSQL versions: 279 integration assertions plus four pending-socket controls each, with natural exits in 14.3–17.5 seconds. `npm run test:deno-socket` enforces a 10-second parent deadline and requires all four tests to complete; `test:deno` includes this gate. Pending TCP/TLS success and rejection cannot revive destroyed sockets; established connection EOF/close ordering stays unchanged.
+- Actual workerd passed four scenarios through Wrangler 4.123.0: cold reservation, built-in arrays with fetching off/on, and catalog failure. Explicit worker `sql.end()` remains excluded for #1202 as described above.
+- On Node 24.21.0, 15 selected acquisition/startup races passed 100 repetitions in each format: 3,000 checks. Six disposable mutations independently removed reservation handoff, synchronous type registration, rejection observation, stale-response reset, startup deadline, and successful retry-history reset; the corresponding regression assertions rejected every mutation.
+
+The unchanged baseline at `ca6c610` exited successfully in 50/54 Node combinations and 5/6 Deno combinations. One nominally successful Node 14/PostgreSQL 14 run also emitted an unhandled rejection warning. Baseline failures and warnings are retained separately; the final matrix passes with strict unhandled rejection detection. The deterministic authentication timeout replaces a baseline test that depended on a 1 ms SCRAM exchange being slow enough.
+
+Reproduce the local gates with the Docker build/run commands above, `node tests-startup/run.js` (also `--cjs`), `npm run test:esm`, `npm run test:cjs`, `npm run test:deno`, and the documented workerd command. Builds, lint including `.mjs` harness files and the Deno adapter, and `git diff --check` passed.
+
+Session evidence is retained in `/tmp/postgresjs-final-matrix/results.json`, `/tmp/postgresjs-final-corrected-deno/results.json`, `/tmp/postgresjs-final-repeat100.log`, and `/tmp/postgresjs-final-workerd.log`; baseline results are under `/tmp/postgresjs-baseline-matrix` and `/tmp/postgresjs-baseline-deno`. The tested code/test snapshot's manifest is `/tmp/postgresjs-final-corrected-source-manifest.sha256`, SHA-256 `70af34b2aabf4c7b98a0c276babf9acee1687750ba77d8c56c6c568fdc1c82ac`, recorded before this documentation-only validation update. Node/Cloudflare inputs are byte-identical to their successful matrix/repetition/workerd snapshot; the final Deno adapter has its separate six-version validation.
+
 ## Next-release CI policy
 
-The configured core matrix is Node 24/26 × PostgreSQL 15/16/17/18 (eight jobs), with a separate Deno 1.46.3/PostgreSQL 17 job. Node jobs run the startup controls in both formats and ESM/CJS integration with strict unhandled rejections. The shared CI-only setup action configures the primary cluster's authentication, TLS, logical WAL and prepared transactions; Node/Deno jobs retain their secondary PostgreSQL service on port 5433.
+The configured core matrix is Node 24/26 × PostgreSQL 15/16/17/18 (eight jobs), with separate Deno 1.46.3/PostgreSQL 17 and workerd/PostgreSQL 17 jobs. Node jobs run both startup formats and ESM/CJS integration with strict unhandled rejections. The shared CI-only setup action configures the primary cluster's authentication, TLS, logical WAL and prepared transactions; Node/Deno jobs retain their secondary PostgreSQL service on port 5433. The workerd gate uses its own PostgreSQL service on host port 55432, avoiding the runner’s preinstalled primary cluster.
 
-Node 26's Linux binary needs `libatomic.so.1`; `libatomic1` is included in the checked-in image recipe. The shared host setup is checked syntactically but has not run on a GitHub-hosted Ubuntu 24.04 runner. This policy update changes no library runtime sources and introduces no Deno 2 or Bun certification.
+Node 24's four new-matrix combinations passed locally. Node 26's Linux binary failed to launch without `libatomic.so.1`; `libatomic1` is now included in the checked-in image recipe. The current sandbox cannot access the Docker daemon, so the corrected recipe and Node 26 cells remain unverified locally and must run in CI. The workerd gate passed locally against PostgreSQL 16; its new PostgreSQL 17 CI target has not been executed locally. The shared host setup is checked syntactically but has not run on a GitHub-hosted Ubuntu 24.04 runner. This policy update changes no library runtime sources, introduces no Deno 2 or Bun certification, and does not publish a release. Earlier validation records above describe the completed startup fix's broader historical matrix.

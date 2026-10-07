@@ -64,7 +64,7 @@ function Postgres(a, b) {
       , full = Queue()
       , queues = { connecting, reserved, closed, ended, open, busy, full }
 
-  const connections = [...Array(options.max)].map(() => Connection(options, queues, { onopen, onend, onclose }))
+  const connections = [...Array(options.max)].map(() => Connection(options, queues, { onopen, onend, onclose, ondrain }))
 
   const sql = Sql(handler)
 
@@ -208,8 +208,9 @@ function Postgres(a, b) {
       ? open.shift()
       : await new Promise((resolve, reject) => {
         const query = { reserve: resolve, reject }
-        queries.push(query)
-        closed.length && connect(closed.shift(), query)
+        closed.length
+          ? connect(closed.shift(), query)
+          : queries.push(query)
       })
 
     move(c, reserved)
@@ -221,7 +222,7 @@ function Postgres(a, b) {
     const sql = Sql(handler)
     sql.release = () => {
       c.reserved = null
-      onopen(c)
+      c.release()
     }
 
     return sql
@@ -370,13 +371,17 @@ function Postgres(a, b) {
 
     await 1
     let timer
-    return ending = Promise.race([
+    return ending = Promise.resolve().then(() => Promise.race([
       new Promise(r => timeout !== null && (timer = setTimeout(destroy, timeout * 1000, r))),
       Promise.all(connections.map(c => c.end()).concat(
         listen.sql ? listen.sql.end({ timeout: 0 }) : [],
         subscribe.sql ? subscribe.sql.end({ timeout: 0 }) : []
       ))
-    ]).then(() => clearTimeout(timer))
+    ])).then(() => {
+      clearTimeout(timer)
+      while (queries.length)
+        queries.shift().reject(Errors.connection('CONNECTION_CLOSED', options))
+    })
   }
 
   async function close() {
@@ -384,9 +389,9 @@ function Postgres(a, b) {
   }
 
   async function destroy(resolve) {
-    await Promise.all(connections.map(c => c.terminate()))
     while (queries.length)
       queries.shift().reject(Errors.connection('CONNECTION_DESTROYED', options))
+    await Promise.all(connections.map(c => c.terminate()))
     resolve()
   }
 
@@ -400,7 +405,10 @@ function Postgres(a, b) {
     move(c, ended)
   }
 
-  function onopen(c) {
+  function onopen(c, initial) {
+    if (initial && initial.reserve)
+      return initial.reserve(move(c, reserved))
+
     if (queries.length === 0)
       return move(c, open)
 
@@ -410,7 +418,7 @@ function Postgres(a, b) {
     while (ready && queries.length && max-- > 0) {
       const query = queries.shift()
       if (query.reserve)
-        return query.reserve(c)
+        return query.reserve(move(c, reserved))
 
       ready = c.execute(query)
     }
@@ -420,12 +428,32 @@ function Postgres(a, b) {
       : move(c, full)
   }
 
+  function ondrain(c) {
+    if (!ending)
+      return false
+
+    let drained = false
+    let ready = true
+    while (ready && queries.length) {
+      const query = queries.shift()
+      query.reserve
+        ? query.reject(Errors.connection('CONNECTION_ENDED', options))
+        : (drained = true, ready = c.execute(query))
+    }
+    return drained
+  }
+
   function onclose(c, e) {
     move(c, closed)
     c.reserved = null
     c.onclose && (c.onclose(e), c.onclose = null)
     options.onclose && options.onclose(c.id)
-    queries.length && connect(c, queries.shift())
+    if (ending) {
+      while (queries.length)
+        queries.shift().reject(e)
+    } else if (queries.length && c.queue === closed) {
+      connect(c, queries.shift())
+    }
   }
 }
 

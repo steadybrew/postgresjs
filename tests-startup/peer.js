@@ -30,39 +30,118 @@ export function message(type, body = Buffer.alloc(0)) {
 const ready = () => message('Z', Buffer.from('I'))
 const complete = command => message('C', Buffer.from(command + '\0'))
 
-export async function peer({ catalogError = false, onEvent = () => { /* Optional protocol observer. */ } } = {}) {
+function rowset(columns, values) {
+  const descriptions = columns.map(([name, oid]) => {
+    const column = Buffer.alloc(18)
+    column.writeUInt32BE(oid, 6)
+    column.writeInt16BE(-1, 10)
+    column.writeInt32BE(-1, 12)
+    return Buffer.concat([Buffer.from(name + '\0'), column])
+  })
+  const count = Buffer.alloc(2)
+  count.writeUInt16BE(columns.length)
+  const rows = values.map(row => message('D', Buffer.concat([count, ...row.map(value => {
+    const data = Buffer.from(String(value))
+    const length = Buffer.alloc(4)
+    length.writeUInt32BE(data.length)
+    return Buffer.concat([length, data])
+  })])))
+  return Buffer.concat([message('T', Buffer.concat([count, ...descriptions])), ...rows, complete('SELECT ' + values.length)])
+}
+
+export async function peer({ catalogError = false, holdStartup = false, failAuthentication = false, catalogRows = [],
+                             closeStartup = 0, closeCatalog = 0, holdCatalog = false, holdSession = false,
+                             closeAfterError = false, sessionError = false, readOnly = false, passwordAuth = false, allowHalfOpen = false,
+                             holdQuery = '', sslReply = '', port = 0,
+                             onStartup = () => { /* Optional startup barrier. */ }, onEvent = () => { /* Optional protocol observer. */ } } = {}) {
   const events = []
   const sockets = new Set()
-  const server = net.createServer(socket => {
+  const startupReplies = []
+  let connections = 0
+  const server = net.createServer({ allowHalfOpen }, socket => {
     sockets.add(socket)
+    const pid = ++connections
     socket.on('close', () => sockets.delete(socket))
     socket.on('error', error => events.push({ error: error.code }))
+    const authenticated = () => {
+      const key = Buffer.alloc(8)
+      key.writeUInt32BE(pid, 0)
+      socket.write(Buffer.concat([message('R', Buffer.alloc(4)), message('K', key), ready()]))
+    }
     let statement = ''
-    socket.on('data', frames((type, frame) => {
-      events.push({ type, sql: type === 'Q' ? frame.subarray(5, -1).toString() : undefined })
+    let parameters = Buffer.from([0, 0])
+    let parse
+    const onFrame = (type, frame) => {
+      if (type === 'startup' && frame.length === 8 && frame.readUInt32BE(4) === 80877103) {
+        events.push({ type: 'ssl', pid })
+        socket.write(sslReply || 'N')
+        parse = frames(onFrame, true)
+        return
+      }
+      events.push({ type, pid, sql: type === 'Q' ? frame.subarray(5, -1).toString() : undefined })
       onEvent(events[events.length - 1])
-      if (type === 'P') {
+      if (type === 'p') {
+        authenticated()
+      } else if (type === 'P') {
         const end = frame.indexOf(0, 5)
-        statement = frame.subarray(end + 1, frame.indexOf(0, end + 1)).toString()
+        const queryEnd = frame.indexOf(0, end + 1)
+        statement = frame.subarray(end + 1, queryEnd).toString()
+        parameters = frame.subarray(queryEnd + 1)
         socket.write(message('1'))
       } else if (type === 'B') {
         socket.write(message('2'))
       } else if (type === 'D') {
-        socket.write(message('n'))
+        socket.write(message('t', parameters))
+        socket.write(statement.includes('pg_catalog.pg_type') && catalogRows.length
+          ? rowset([['oid', 23], ['typarray', 23]], []).subarray(0, 1 + rowset([['oid', 23], ['typarray', 23]], []).readUInt32BE(1))
+          : message('n'))
       } else if (type === 'E') {
-        if (catalogError && statement.includes('pg_catalog.pg_type'))
-          socket.write(message('E', Buffer.from('SERROR\0C42501\0Mcatalog denied\0\0')))
-        else
+        if (holdCatalog && statement.includes('pg_catalog.pg_type')) {
+          return
+        } else if (statement.includes('pg_catalog.pg_type') && pid <= closeCatalog) {
+          socket.destroy()
+        } else if (catalogError && statement.includes('pg_catalog.pg_type') && (catalogError === true || pid === 1)) {
+          const error = message('E', Buffer.from('SERROR\0C42501\0Mcatalog denied\0\0'))
+          closeAfterError ? socket.end(error) : socket.write(error)
+        } else if (statement.includes('pg_catalog.pg_type') && catalogRows.length) {
+          const result = rowset([['oid', 23], ['typarray', 23]], catalogRows)
+          socket.write(result.subarray(1 + result.readUInt32BE(1)))
+        } else {
           socket.write(complete('SELECT 0'))
+        }
       } else if (type === 'S') {
-        socket.write(ready())
+        if (!holdCatalog && !socket.destroyed && !(closeAfterError && catalogError && (catalogError === true || pid === 1)) && pid > closeCatalog)
+          socket.write(ready())
       } else if (type === 'startup') {
-        const key = Buffer.alloc(8)
-        key.writeUInt32BE(100 + events.length, 0)
-        socket.write(Buffer.concat([message('R', Buffer.alloc(4)), message('K', key), ready()]))
+        const reply = authenticated
+        if (pid <= closeStartup)
+          socket.destroy()
+        else if (failAuthentication && pid === 1)
+          socket.end(message('E', Buffer.from('SFATAL\0C28P01\0Mauthentication denied\0\0')))
+        else if (passwordAuth && (passwordAuth === true || pid === 1))
+          socket.write(message('R', Buffer.from([0, 0, 0, 3])))
+        else if (holdStartup)
+          startupReplies.push(reply)
+        else
+          reply()
+        onStartup(socket)
       } else if (type === 'Q') {
+        if (frame.subarray(5, -1).toString().startsWith('copy ')) {
+          socket.write(message(frame.subarray(5, -1).toString().includes('from stdin') ? 'G' : 'H', Buffer.from([0, 0, 1, 0, 0])))
+          return
+        }
+        if (holdQuery && frame.subarray(5, -1).toString().includes(holdQuery))
+          return
+        const session = frame.subarray(5, -1).toString().includes('transaction_read_only')
         const catalog = frame.subarray(5, -1).toString().includes('pg_catalog.pg_type')
-        if (catalog && catalogError) {
+        if (session) {
+          if (holdSession)
+            return
+          socket.write(sessionError
+            ? Buffer.concat([message('E', Buffer.from('SERROR\0C42501\0Msession denied\0\0')), ready()])
+            : Buffer.concat([rowset([['transaction_read_only', 25]], [[readOnly ? 'on' : 'off']]),
+                             rowset([['pg_is_in_recovery', 16]], [['f']]), ready()]))
+        } else if (catalog && catalogError) {
           socket.write(Buffer.concat([message('E', Buffer.from('SERROR\0C42501\0Mcatalog denied\0\0')), ready()]))
         } else if (catalog) {
           socket.write(Buffer.concat([complete('SELECT 0'), ready()]))
@@ -77,17 +156,24 @@ export async function peer({ catalogError = false, onEvent = () => { /* Optional
           ]))
         }
       } else if (type === 'X') {
-        socket.end()
+        !allowHalfOpen && socket.end()
       }
-    }, true))
+    }
+    parse = frames(onFrame, true)
+    socket.on('data', chunk => parse(chunk))
   })
   await new Promise((resolve, reject) => {
     server.once('error', reject)
-    server.listen(0, '127.0.0.1', resolve)
+    server.listen(port, '127.0.0.1', resolve)
   })
   return {
     port: server.address().port,
     events,
+    releaseStartup: () => startupReplies.splice(0).forEach(reply => reply()),
+    disconnect: () => sockets.forEach(socket => socket.destroy()),
+    reset: () => sockets.forEach(socket => socket.resetAndDestroy()),
+    fatal: () => sockets.forEach(socket => socket.end(message('E', Buffer.from('SFATAL\0C57P01\0Mterminating connection\0\0')))),
+    sockets,
     close: () => new Promise(resolve => {
       sockets.forEach(socket => socket.destroy())
       server.close(resolve)

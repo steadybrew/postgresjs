@@ -22,9 +22,10 @@ The next release raises the npm package's minimum Node.js version to **24**. Thi
 | Node 24, ESM and CJS | 15, 16, 17, 18 | 4 | Locally validated |
 | Node 26, ESM and CJS | 15, 16, 17, 18 | 4 | Configured; local execution pending |
 | Deno 1.46.3 | 17 | 1 | Validated legacy runtime; no Deno 2 claim |
+| Cloudflare workerd, Wrangler 4.123.0 | 17 | 1 | Configured; startup/array gate validated on PG16; explicit `sql.end()` excluded for #1202 |
 | Bun export | No dedicated target | 0 | Retained as best effort; unverified, without dedicated CI |
 
-The core Node matrix has eight jobs. Deno runs independently, so it does not multiply that matrix. PostgreSQL versions below 15 are outside the next release's supported matrix.
+The core Node matrix has eight jobs. Deno and Cloudflare run independently, so they do not multiply that matrix. PostgreSQL versions below 15 are outside the next release's supported matrix.
 
 Supabase PostgreSQL and Supabase Edge are separate environments. Deno 1.46.3 coverage does not imply Deno 2 or hosted Supabase Edge certification.
 
@@ -1158,6 +1159,8 @@ You can disable catalog discovery by setting `fetch_types` to `false`. A fixed s
 
 SQL `NULL` elements are returned as JavaScript `null`; a quoted text element `"NULL"` remains a string. Explicit array parsers and serializers are preserved independently. Catalog discovery with `fetch_types: true` remains per connection; this change does not cache catalog metadata.
 
+Column, value, and row transforms apply to application query results; initialization metadata retains its original shape.
+
 ### Environmental variables
 
 It is also possible to connect to the database without a connection string or any options. Postgres.js will fall back to the common environment variables used by `psql` as in the table below:
@@ -1347,7 +1350,9 @@ This error is thrown for any queries that were pending when the timeout to [`sql
 ##### CONNECT_TIMEOUT
 > write CONNECT_TIMEOUT host:port
 
-This error is thrown if the startup phase of the connection (tcp, protocol negotiation, and auth) took more than the default 30 seconds or what was specified using `connect_timeout` or `PGCONNECT_TIMEOUT`.
+The timeout applies to each connection attempt and covers socket creation, TCP and TLS negotiation, authentication, session checks and type discovery. When an attempt times out, the next host is tried. The acquisition as a whole is bounded by `connect_timeout` multiplied by the number of hosts, measured from the first attempt; time spent waiting on an inherited reconnect delay is not counted. Set it with `connect_timeout` or `PGCONNECT_TIMEOUT` (30 seconds by default); zero disables both limits.
+
+If the only attempt times out, the error is `CONNECT_TIMEOUT`. Once earlier attempts have failed, exhausting the overall budget reports the earlier error, such as the last server error or `CONNECTION_CLOSED`. With a single host, a socket or socket factory error rejects the query once; with several hosts, errors keep cycling through the hosts with backoff until the budget is spent. Queries already sent to the server are not replayed.
 
 ##### COPY_IN_PROGRESS
 > You cannot execute queries during copy

@@ -74,3 +74,28 @@ jobs:
         with:
           deno-version: v1.46.3
       - run: npm run test:deno
+
+  cloudflare:
+    name: Cloudflare workerd on PostgreSQL 17
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 55432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: npm run build:cf
+      - run: npm run test:workerd -- . 55432

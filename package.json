@@ -23,13 +23,15 @@
     "build:deno": "node transpile.deno.js",
     "build:cf": "node transpile.cf.js",
     "test": "npm run test:startup && npm run test:esm && npm run test:cjs && npm run test:deno",
-    "test:esm": "node tests/index.js",
+    "test:esm": "node tests-startup/run.js --integration && node tests/index.js",
     "test:startup": "node tests-startup/run.js",
-    "test:cjs": "npm run build:cjs && cd cjs/tests && node index.js && cd ../../",
-    "test:deno": "npm run build:deno && cd deno/tests && deno run --no-lock --allow-all --unsafely-ignore-certificate-errors index.js && cd ../../",
-    "lint": "eslint src && eslint tests && eslint tests-startup",
+    "test:cjs": "npm run build:cjs && node tests-startup/run.js --integration --cjs && cd cjs/tests && node index.js && cd ../../",
+    "test:deno": "npm run test:deno-socket && npm run build:deno && cd deno/tests && deno run --no-lock --allow-all --unsafely-ignore-certificate-errors index.js && cd ../../",
+    "lint": "eslint src && eslint tests && eslint tests-startup --ext .js,.mjs",
     "prepare": "npm run build",
-    "prepublishOnly": "npm run lint"
+    "prepublishOnly": "npm run lint",
+    "test:workerd": "npm exec --yes --package=wrangler@4.123.0 -- node tests-startup/workerd-run.mjs",
+    "test:deno-socket": "node tests-startup/deno-run.js"
   },
   "files": [
     "/UNLICENSE",

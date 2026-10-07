@@ -24,6 +24,8 @@ const Sync = b().S().end()
     , DescribeUnnamed = b().D().str('S').str(b.N).end()
     , noop = () => { /* noop */ }
 
+const Phase = { Closed: 0, Backoff: 1, Opening: 2, Negotiating: 3, Authenticating: 4, Initializing: 5, Ready: 6, Draining: 7, Closing: 8 }
+
 const retryRoutines = new Set([
   'FetchPreparedStatement',
   'RevalidateCachedQuery',
@@ -51,7 +53,7 @@ const errorFields = {
   82  : 'routine'            // R
 }
 
-function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose = noop } = {}) {
+function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose = noop, ondrain = noop } = {}) {
   const {
     sslnegotiation,
     ssl,
@@ -76,10 +78,16 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
       , backend = { pid: null, secret: null }
       , idleTimer = timer(end, options.idle_timeout)
       , lifeTimer = timer(end, options.max_lifetime)
-      , connectTimer = timer(connectTimedOut, options.connect_timeout)
 
   let socket = null
-    , cancelMessage
+    , phase = Phase.Closed
+    , generation = 0
+    , acquisition = null
+    , endRequested = false
+    , endWaiters = []
+    , inheritedBackoff = null
+    , backoffTimer = null
+    , connectTimer = null
     , errorResponse = null
     , result = new Result()
     , incoming = Buffer.alloc(0)
@@ -88,23 +96,16 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     , statements = {}
     , statementId = Math.random().toString(36).slice(2)
     , statementCount = 1
-    , closedTime = 0
     , remaining = 0
     , hostIndex = 0
-    , retries = 0
     , length = 0
-    , delay = 0
     , rows = 0
     , serverSignature = null
     , nextWriteTimer = null
-    , terminated = false
     , incomings = null
     , results = null
-    , initial = null
-    , ending = null
     , stream = null
     , chunk = null
-    , ended = null
     , nonce = null
     , query = null
     , final = null
@@ -112,13 +113,11 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
   const connection = {
     queue: queues.closed,
     idleTimer,
-    connect(query) {
-      initial = query
-      reconnect()
-    },
+    connect: acquire,
     terminate,
     execute,
     cancel,
+    release,
     end,
     count: 0,
     id
@@ -128,36 +127,320 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
 
   return connection
 
-  async function createSocket() {
-    let x
-    try {
-      x = options.socket
-        ? (await Promise.resolve(options.socket(options)))
-        : new net.Socket()
-    } catch (e) {
-      error(e)
-      return
+  function transition(next) {
+    generation++
+    phase = next
+  }
+
+  function starting() {
+    return phase >= Phase.Opening && phase <= Phase.Initializing
+  }
+
+  function held() {
+    return connection.reserved || connection.queue === queues.reserved
+  }
+
+  function drained() {
+    ondrain(connection) || closing(true)
+  }
+
+  function idle() {
+    return !query && sent.length === 0
+  }
+
+  function backoffMs() {
+    return (typeof backoff === 'function' ? backoff(options.shared.retries) : backoff) * 1000
+  }
+
+  function acquire(owner) {
+    if (phase !== Phase.Closed)
+      return queryError(owner, Errors.connection('CONNECTION_CLOSED', options))
+
+    acquisition = { owner, attempts: 0, hostsTried: 0, lastError: null, deadline: null, expired: false }
+    const wait = inheritedBackoff ? inheritedBackoff.at + inheritedBackoff.delay - performance.now() : 0
+    inheritedBackoff = null
+    wait > 0 ? enterBackoff(wait) : enterOpening()
+  }
+
+  function enterBackoff(ms) {
+    transition(Phase.Backoff)
+    const a = acquisition
+    const attempt = generation
+    const left = a.deadline === null ? Infinity : Math.max(0, a.deadline - performance.now())
+    a.expired = left <= ms
+    backoffTimer = setTimeout(() => {
+      backoffTimer = null
+      attempt === generation && (a.expired
+        ? enterClosed(a.lastError || Errors.connection('CONNECT_TIMEOUT', options))
+        : enterOpening())
+    }, Math.min(ms, left))
+  }
+
+  function enterOpening() {
+    transition(Phase.Opening)
+    const a = acquisition
+    const attempt = generation
+    const ms = options.connect_timeout * 1000
+    if (ms) {
+      const now = performance.now()
+      a.deadline === null && (a.deadline = now + ms * host.length)
+      const left = a.deadline - now
+      connectTimer = setTimeout(connectTimedOut, Math.min(ms, left), left <= ms)
     }
-    x.on('error', error)
-    x.on('close', closed)
-    x.on('drain', drain)
-    return x
+    a.hostsTried++
+    backendParameters = {}
+    Promise.resolve()
+      .then(() => options.socket ? options.socket(options) : new net.Socket())
+      .then(created => attempt === generation ? attach(created) : dispose(created))
+      .catch(err => attempt === generation && fail(err))
+  }
+
+  function dispose(created) {
+    created.on('error', noop)
+    created.destroy()
+  }
+
+  function attach(created) {
+    socket = created
+    created.on('error', error)
+    created.on('close', closed)
+    created.on('drain', drain)
+
+    if (options.socket)
+      return ssl ? negotiate() : authenticate()
+
+    created.on('connect', ssl ? negotiate : authenticate)
+
+    if (options.path)
+      return created.connect(options.path)
+
+    created.ssl = ssl
+    created.connect(port[hostIndex], host[hostIndex])
+    created.host = host[hostIndex]
+    created.port = port[hostIndex]
+
+    hostIndex = (hostIndex + 1) % port.length
+  }
+
+  function negotiate() {
+    transition(Phase.Negotiating)
+    if (sslnegotiation === 'direct')
+      return upgrade()
+
+    const attempt = generation
+    socket.once('data', x => attempt === generation && (
+      x[0] === 83
+        ? upgrade()
+        : ssl === 'prefer'
+          ? authenticate()
+          : fail(Errors.generic('SSL_NOT_SUPPORTED', 'The server does not support SSL connections'))
+    ))
+    write(SSLRequest)
+  }
+
+  function upgrade() {
+    try {
+      const raw = socket
+      const config = tlsConfig(raw)
+      raw.removeAllListeners()
+      socket = tls.connect(config)
+      socket.on('secureConnect', authenticate)
+      socket.on('error', error)
+      socket.on('close', closed)
+      socket.on('drain', drain)
+    } catch (err) {
+      fail(err)
+    }
+  }
+
+  function tlsConfig(raw) {
+    const config = {
+      socket: raw,
+      servername: net.isIP(raw.host) ? undefined : raw.host
+    }
+
+    if (sslnegotiation === 'direct')
+      config.ALPNProtocols = ['postgresql']
+
+    if (ssl === 'require' || ssl === 'allow' || ssl === 'prefer')
+      config.rejectUnauthorized = false
+    else if (typeof ssl === 'object')
+      Object.assign(config, ssl)
+
+    return config
+  }
+
+  function authenticate() {
+    transition(Phase.Authenticating)
+    try {
+      statements = {}
+      needsTypes = options.fetch_types
+      statementId = Math.random().toString(36).slice(2)
+      statementCount = 1
+      lifeTimer.start()
+      socket.on('data', data)
+      keep_alive && socket.setKeepAlive && socket.setKeepAlive(true, 1000 * keep_alive)
+      write(StartupMessage())
+    } catch (err) {
+      fail(err)
+    }
+  }
+
+  function connectTimedOut(expiring) {
+    connectTimer = null
+    if (!starting())
+      return
+    expiring && (acquisition.expired = true)
+    fail(Errors.connection('CONNECT_TIMEOUT', options, socket), true)
+  }
+
+  function fail(err, persist = host.length > 1) {
+    const a = acquisition
+    a.attempts++
+    a.lastError = err && err.code === 'CONNECT_TIMEOUT' && a.lastError ? a.lastError : err
+    clearTimeout(connectTimer)
+    connectTimer = null
+    detach()
+    resetSocketState(err)
+
+    if (endRequested)
+      return enterClosed(err)
+
+    if (a.expired || (a.deadline !== null && performance.now() >= a.deadline))
+      return enterClosed(a.lastError)
+
+    if (a.hostsTried < host.length)
+      return enterBackoff(0)
+
+    options.shared.retries++
+    if (!persist) {
+      inheritedBackoff = { at: performance.now(), delay: backoffMs() }
+      return enterClosed(err)
+    }
+
+    a.hostsTried = 0
+    enterBackoff(backoffMs())
+  }
+
+  function detach() {
+    clearTimeout(connectTimer)
+    connectTimer = null
+    idleTimer.cancel()
+    lifeTimer.cancel()
+    incoming = Buffer.alloc(0)
+    remaining = 0
+    incomings = null
+    if (socket) {
+      socket.removeAllListeners()
+      socket.on('error', noop)
+      socket.destroy()
+      socket = null
+    }
+  }
+
+  function enterClosed(err = Errors.connection('CONNECTION_CLOSED', options, socket)) {
+    if (phase === Phase.Closed)
+      return
+
+    const a = acquisition
+    const waiters = endWaiters
+    clearTimeout(backoffTimer)
+    backoffTimer = null
+    detach()
+    resetSocketState(err)
+    acquisition = null
+    endRequested = false
+    endWaiters = []
+    transition(Phase.Closed)
+    a && queryError(a.owner, err)
+    waiters.forEach(resolve => resolve())
+    onclose(connection, err)
+  }
+
+  function closing(quit) {
+    transition(Phase.Closing)
+    idleTimer.cancel()
+    lifeTimer.cancel()
+    quit && socket.readyState === 'open'
+      ? socket.end(b().X().end())
+      : socket.destroy()
+  }
+
+  function handoff() {
+    const owner = acquisition.owner
+    transition(Phase.Ready)
+    clearTimeout(connectTimer)
+    connectTimer = null
+    acquisition = null
+    options.shared.retries = 0
+
+    if (endRequested) {
+      endRequested = false
+      if (owner.reserve)
+        return (queryError(owner, Errors.connection('CONNECTION_ENDED', options)), closing(true))
+      if (owner.cancelled)
+        return closing(true)
+      transition(Phase.Draining)
+      return execute(owner)
+    }
+
+    owner.reserve
+      ? onopen(connection, owner)
+      : owner.cancelled
+        ? onopen(connection)
+        : execute(owner)
   }
 
   async function cancel({ pid, secret }, resolve, reject) {
+    let timeout = null
     try {
-      cancelMessage = b().i32(16).i32(80877102).i32(pid).i32(secret).end(16)
-      await connect()
-      socket.once('error', reject)
-      socket.once('close', resolve)
+      let s = await Promise.resolve(options.socket ? options.socket(options) : new net.Socket())
+      const request = b().i32(16).i32(80877102).i32(pid).i32(secret).end(16)
+      const watch = x => {
+        x.once('error', reject)
+        x.on('error', noop)
+        x.once('close', () => (clearTimeout(timeout), resolve()))
+      }
+      const upgrade = () => {
+        const raw = s
+        const config = tlsConfig(raw)
+        raw.removeAllListeners()
+        s = tls.connect(config)
+        watch(s)
+        s.once('secureConnect', () => s.write(request))
+      }
+      const start = !ssl
+        ? () => s.write(request)
+        : sslnegotiation === 'direct'
+          ? upgrade
+          : () => {
+            s.once('data', x => x[0] === 83 || ssl !== 'prefer' ? upgrade() : s.write(request))
+            s.write(SSLRequest)
+          }
+
+      watch(s)
+      options.connect_timeout && (timeout = setTimeout(() => s.destroy(), options.connect_timeout * 1000))
+
+      if (options.socket)
+        return start()
+
+      s.once('connect', start)
+
+      if (options.path)
+        return s.connect(options.path)
+
+      s.ssl = ssl
+      s.connect(port[0], host[0])
+      s.host = host[0]
+      s.port = port[0]
     } catch (error) {
       reject(error)
     }
   }
 
   function execute(q) {
-    if (terminated)
-      return queryError(q, Errors.connection('CONNECTION_DESTROYED', options))
+    if (phase !== Phase.Ready && phase !== Phase.Draining && !(phase === Phase.Initializing && q.initialization))
+      return queryError(q, Errors.connection('CONNECTION_CLOSED', options))
 
     if (stream)
       return queryError(q, Errors.generic('COPY_IN_PROGRESS', 'You cannot execute queries during copy'))
@@ -254,50 +537,28 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
   }
 
   function nextWrite(fn) {
-    const x = socket.write(chunk, fn)
+    const x = socket ? socket.write(chunk, fn) : false
     nextWriteTimer !== null && clearImmediate(nextWriteTimer)
     chunk = nextWriteTimer = null
     return x
   }
 
-  function connectTimedOut() {
-    errored(Errors.connection('CONNECT_TIMEOUT', options, socket))
-    socket.destroy()
-  }
-
-  async function secure() {
-    if (sslnegotiation !== 'direct') {
-      write(SSLRequest)
-      const canSSL = await new Promise(r => socket.once('data', x => r(x[0] === 83))) // S
-
-      if (!canSSL && ssl === 'prefer')
-        return connected()
-    }
-
-    const options = {
-      socket,
-      servername: net.isIP(socket.host) ? undefined : socket.host
-    }
-
-    if (sslnegotiation === 'direct')
-      options.ALPNProtocols = ['postgresql']
-
-    if (ssl === 'require' || ssl === 'allow' || ssl === 'prefer')
-      options.rejectUnauthorized = false
-    else if (typeof ssl === 'object')
-      Object.assign(options, ssl)
-
-    socket.removeAllListeners()
-    socket = tls.connect(options)
-    socket.on('secureConnect', connected)
-    socket.on('error', error)
-    socket.on('close', closed)
-    socket.on('drain', drain)
+  function resetSocketState(err) {
+    clearImmediate(nextWriteTimer)
+    stream && (stream.destroy(err), stream = null)
+    final && (final(err), final = null)
+    query && queryError(query, err)
+    while (sent.length)
+      queryError(sent.shift(), err)
+    query = results = errorResponse = chunk = nextWriteTimer = null
+    result = new Result()
+    rows = 0
+    nonce = serverSignature = null
   }
 
   /* c8 ignore next 3 */
   function drain() {
-    !query && onopen(connection)
+    phase === Phase.Ready && !query && !held() && onopen(connection)
   }
 
   function data(x) {
@@ -314,6 +575,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
         ? x
         : Buffer.concat([incoming, x], incoming.length + x.length)
 
+    const source = socket
     while (incoming.length > 4) {
       length = incoming.readUInt32BE(1)
       if (length >= incoming.length) {
@@ -326,73 +588,37 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
         handle(incoming.subarray(0, length + 1))
       } catch (e) {
         query && (query.cursorFn || query.describeFirst) && write(Sync)
-        errored(e)
+        starting() ? fail(e) : errored(e)
       }
+      if (socket !== source)
+        return
       incoming = incoming.subarray(length + 1)
       remaining = 0
       incomings = null
     }
   }
 
-  async function connect() {
-    terminated = false
-    backendParameters = {}
-    socket || (socket = await createSocket())
-
-    if (!socket)
-      return
-
-    connectTimer.start()
-
-    if (options.socket)
-      return ssl ? secure() : connected()
-
-    socket.on('connect', ssl ? secure : connected)
-
-    if (options.path)
-      return socket.connect(options.path)
-
-    socket.ssl = ssl
-    socket.connect(port[hostIndex], host[hostIndex])
-    socket.host = host[hostIndex]
-    socket.port = port[hostIndex]
-
-    hostIndex = (hostIndex + 1) % port.length
-  }
-
-  function reconnect() {
-    setTimeout(connect, closedTime ? Math.max(0, closedTime + delay - performance.now()) : 0)
-  }
-
-  function connected() {
-    try {
-      statements = {}
-      needsTypes = options.fetch_types
-      statementId = Math.random().toString(36).slice(2)
-      statementCount = 1
-      lifeTimer.start()
-      socket.on('data', data)
-      keep_alive && socket.setKeepAlive && socket.setKeepAlive(true, 1000 * keep_alive)
-      const s = StartupMessage()
-      write(s)
-    } catch (err) {
-      error(err)
-    }
-  }
-
   function error(err) {
-    if (connection.queue === queues.connecting && options.host[retries + 1])
-      return
+    if (starting())
+      return fail(err)
 
+    if (phase === Phase.Ready || phase === Phase.Draining)
+      socketFailed(err)
+  }
+
+  function socketFailed(err) {
     errored(err)
     while (sent.length)
       queryError(sent.shift(), err)
+    query = null
+    options.shared.retries++
+    inheritedBackoff = { at: performance.now(), delay: backoffMs() }
+    closing(false)
   }
 
   function errored(err) {
     stream && (stream.destroy(err), stream = null)
     query && queryError(query, err)
-    initial && (queryError(initial, err), initial = null)
   }
 
   function queryError(query, err) {
@@ -413,51 +639,63 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
   }
 
   function end() {
-    return ending || (
-      !connection.reserved && onend(connection),
-      !connection.reserved && !initial && !query && sent.length === 0
-        ? (terminate(), new Promise(r => socket && socket.readyState !== 'closed' ? socket.once('close', r) : r()))
-        : ending = new Promise(r => ended = r)
-    )
+    if (phase === Phase.Closed)
+      return Promise.resolve()
+
+    const done = new Promise(resolve => endWaiters.push(resolve))
+
+    if (phase === Phase.Closing || phase === Phase.Draining)
+      return done
+
+    if (phase === Phase.Ready) {
+      !held() && onend(connection)
+      idle() && !held()
+        ? closing(true)
+        : transition(Phase.Draining)
+      return done
+    }
+
+    if (acquisition.owner.reserve)
+      enterClosed(Errors.connection('CONNECTION_ENDED', options))
+    else if (phase === Phase.Backoff && acquisition.attempts > 0)
+      enterClosed(acquisition.lastError)
+    else if (!endRequested)
+      (endRequested = true, onend(connection))
+
+    return done
   }
 
   function terminate() {
-    terminated = true
-    if (stream || query || initial || sent.length)
-      error(Errors.connection('CONNECTION_DESTROYED', options))
+    if (phase === Phase.Closed)
+      return
 
-    clearImmediate(nextWriteTimer)
-    if (socket) {
-      socket.removeListener('data', data)
-      socket.removeListener('connect', connected)
-      socket.readyState === 'open' && socket.end(b().X().end())
+    const destroyed = Errors.connection('CONNECTION_DESTROYED', options, socket)
+    if (phase === Phase.Closing)
+      return socket.destroy()
+
+    phase === Phase.Ready || phase === Phase.Draining
+      ? (resetSocketState(destroyed), enterClosed())
+      : enterClosed(destroyed)
+  }
+
+  function release() {
+    phase === Phase.Ready
+      ? onopen(connection)
+      : phase === Phase.Draining && idle() && drained()
+  }
+
+  function closed(hadError) {
+    const err = Errors.connection('CONNECTION_CLOSED', options, socket)
+    if (starting())
+      return fail(errorResponse || err, true)
+
+    if (!inheritedBackoff && (phase !== Phase.Closing || hadError)) {
+      hadError && options.shared.retries++
+      inheritedBackoff = { at: performance.now(), delay: backoffMs() }
     }
-    ended && (ended(), ending = ended = null)
+    enterClosed(err)
   }
 
-  async function closed(hadError) {
-    incoming = Buffer.alloc(0)
-    remaining = 0
-    incomings = null
-    clearImmediate(nextWriteTimer)
-    socket.removeListener('data', data)
-    socket.removeListener('connect', connected)
-    idleTimer.cancel()
-    lifeTimer.cancel()
-    connectTimer.cancel()
-
-    socket.removeAllListeners()
-    socket = null
-
-    if (initial)
-      return reconnect()
-
-    !hadError && (query || sent.length) && error(Errors.connection('CONNECTION_CLOSED', options, socket))
-    closedTime = performance.now()
-    hadError && options.shared.retries++
-    delay = (typeof backoff === 'function' ? backoff(options.shared.retries) : backoff) * 1000
-    onclose(connection, Errors.connection('CONNECTION_CLOSED', options, socket))
-  }
 
   /* Handlers */
   function handle(xs, x = xs[0]) {
@@ -497,6 +735,8 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     let column
     let value
 
+    const valueFrom = !query.initialization && transform.value.from
+    const rowFrom = !query.initialization && transform.row.from
     const row = query.isRaw ? new Array(query.statement.columns.length) : {}
     for (let i = 0; i < query.statement.columns.length; i++) {
       column = query.statement.columns[i]
@@ -516,13 +756,13 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
       query.isRaw
         ? (row[i] = query.isRaw === true
           ? value
-          : transform.value.from ? transform.value.from(value, column) : value)
-        : (row[column.name] = transform.value.from ? transform.value.from(value, column) : value)
+          : valueFrom ? transform.value.from(value, column) : value)
+        : (row[column.name] = valueFrom ? transform.value.from(value, column) : value)
     }
 
     query.forEachFn
-      ? query.forEachFn(transform.row.from ? transform.row.from(row) : row, result)
-      : (result[rows++] = transform.row.from ? transform.row.from(row) : row)
+      ? query.forEachFn(rowFrom ? transform.row.from(row) : row, result)
+      : (result[rows++] = rowFrom ? transform.row.from(row) : row)
   }
 
   function ParameterStatus(x) {
@@ -537,12 +777,15 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
   function ReadyForQuery(x) {
     if (query) {
       if (errorResponse) {
+        if (query.initialization)
+          return enterClosed(errorResponse)
         query.retried
           ? errored(query.retried)
           : query.prepared && retryRoutines.has(errorResponse.routine)
             ? retry(query, errorResponse)
             : errored(errorResponse)
       } else {
+        query.initialization && query.initialization(results || result)
         query.resolve(results || result)
       }
     } else if (errorResponse) {
@@ -551,42 +794,44 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
 
     query = results = errorResponse = null
     result = new Result()
-    connectTimer.cancel()
 
-    if (initial) {
-      if (target_session_attrs) {
-        if (!backendParameters.in_hot_standby || !backendParameters.default_transaction_read_only)
-          return fetchState()
-        else if (tryNext(target_session_attrs, backendParameters))
-          return terminate()
-      }
+    if (phase === Phase.Authenticating || phase === Phase.Initializing)
+      return initialized()
 
-      if (needsTypes) {
-        initial.reserve && (initial = null)
-        return fetchArrayTypes()
-      }
-
-      initial && !initial.reserve && execute(initial)
-      options.shared.retries = retries = 0
-      initial = null
+    if (phase === Phase.Closing)
       return
-    }
 
     while (sent.length && (query = sent.shift()) && (query.active = true, query.cancelled))
       Connection(options).cancel(query.state, query.cancelled.resolve, query.cancelled.reject)
 
     if (query)
-      return // Consider opening if able and sent.length < 50
+      return
 
     connection.reserved
-      ? !connection.reserved.release && x[5] === 73 // I
-        ? ending
-          ? terminate()
+      ? !connection.reserved.release && x[5] === 73
+        ? phase === Phase.Draining
+          ? drained()
           : (connection.reserved = null, onopen(connection))
         : connection.reserved()
-      : ending
-        ? terminate()
+      : phase === Phase.Draining
+        ? drained()
         : onopen(connection)
+  }
+
+  function initialized() {
+    if (target_session_attrs) {
+      if (!backendParameters.in_hot_standby || !backendParameters.default_transaction_read_only)
+        return fetchState()
+      if (tryNext(target_session_attrs, backendParameters)) {
+        acquisition.mismatch = true
+        return fail(Errors.connection('CONNECTION_CLOSED', options, socket), true)
+      }
+    }
+
+    if (needsTypes)
+      return fetchArrayTypes()
+
+    handoff()
   }
 
   function CommandComplete(x) {
@@ -656,7 +901,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
       const number = x.readUInt16BE(index + 4)
       const type = x.readUInt32BE(index + 6)
       query.statement.columns[i] = {
-        name: transform.column.from
+        name: !query.initialization && transform.column.from
           ? transform.column.from(x.toString('utf8', start, index - 1))
           : x.toString('utf8', start, index - 1),
         parser: parsers[type],
@@ -672,8 +917,9 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
       return (query.resolve(query.statement), write(Sync))
   }
 
-  async function Authentication(x, type = x.readUInt32BE(5)) {
-    (
+  function Authentication(x, type = x.readUInt32BE(5)) {
+    const attempt = generation
+    Promise.resolve((
       type === 3 ? AuthenticationCleartextPassword :
       type === 5 ? AuthenticationMD5Password :
       type === 10 ? SASL :
@@ -681,18 +927,20 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
       type === 12 ? SASLFinal :
       type !== 0 ? UnknownAuth :
       noop
-    )(x, type)
+    )(x, type, attempt)).catch(err => attempt === generation && enterClosed(err))
   }
 
   /* c8 ignore next 5 */
-  async function AuthenticationCleartextPassword() {
+  async function AuthenticationCleartextPassword(x, type, attempt) {
     const payload = await Pass()
+    if (attempt !== generation)
+      return
     write(
       b().p().str(payload).z(1).end()
     )
   }
 
-  async function AuthenticationMD5Password(x) {
+  async function AuthenticationMD5Password(x, type, attempt) {
     const payload = 'md5' + (
       await md5(
         Buffer.concat([
@@ -701,19 +949,25 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
         ])
       )
     )
+    if (attempt !== generation)
+      return
     write(
       b().p().str(payload).z(1).end()
     )
   }
 
-  async function SASL() {
-    nonce = (await crypto.randomBytes(18)).toString('base64')
+  async function SASL(x, type, attempt) {
+    const nextNonce = (await crypto.randomBytes(18)).toString('base64')
+    if (attempt !== generation)
+      return
+    nonce = nextNonce
     b().p().str('SCRAM-SHA-256' + b.N)
     const i = b.i
     write(b.inc(4).str('n,,n=*,r=' + nonce).i32(b.i - i - 4, i).end())
   }
 
-  async function SASLContinue(x) {
+  async function SASLContinue(x, type, attempt) {
+    const clientNonce = nonce
     const res = x.toString('utf8', 9).split(',').reduce((acc, x) => (acc[x[0]] = x.slice(2), acc), {})
 
     const saltedPassword = await crypto.pbkdf2Sync(
@@ -725,16 +979,19 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
 
     const clientKey = await hmac(saltedPassword, 'Client Key')
 
-    const auth = 'n=*,r=' + nonce + ','
+    const auth = 'n=*,r=' + clientNonce + ','
                + 'r=' + res.r + ',s=' + res.s + ',i=' + res.i
                + ',c=biws,r=' + res.r
 
-    serverSignature = (await hmac(await hmac(saltedPassword, 'Server Key'), auth)).toString('base64')
+    const signature = (await hmac(await hmac(saltedPassword, 'Server Key'), auth)).toString('base64')
 
     const payload = 'c=biws,r=' + res.r + ',p=' + xor(
       clientKey, Buffer.from(await hmac(await sha256(clientKey), auth))
     ).toString('base64')
 
+    if (attempt !== generation)
+      return
+    serverSignature = signature
     write(
       b().p().str(payload).end()
     )
@@ -744,8 +1001,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     if (x.toString('utf8', 9).split(b.N, 1)[0].slice(2) === serverSignature)
       return
     /* c8 ignore next 5 */
-    errored(Errors.generic('SASL_SIGNATURE_MISMATCH', 'The server did not return the correct signature'))
-    socket.destroy()
+    enterClosed(Errors.generic('SASL_SIGNATURE_MISMATCH', 'The server did not return the correct signature'))
   }
 
   function Pass() {
@@ -767,17 +1023,16 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     backend.secret = x.readUInt32BE(9)
   }
 
-  async function fetchArrayTypes() {
+  function fetchArrayTypes() {
     needsTypes = false
-    const types = await new Query([`
+    initialize(`
       select b.oid, b.typarray
       from pg_catalog.pg_type a
       left join pg_catalog.pg_type b on b.oid = a.typelem
       where a.typcategory = 'A'
       group by b.oid, b.typarray
       order by b.oid
-    `], [], execute)
-    types.forEach(({ oid, typarray }) => addArrayType(options, oid, typarray))
+    `, types => types.forEach(({ oid, typarray }) => addArrayType(options, oid, typarray)))
   }
 
   function tryNext(x, xs) {
@@ -786,20 +1041,28 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
       (x === 'read-only' && xs.default_transaction_read_only === 'off') ||
       (x === 'primary' && xs.in_hot_standby === 'on') ||
       (x === 'standby' && xs.in_hot_standby === 'off') ||
-      (x === 'prefer-standby' && xs.in_hot_standby === 'off' && options.host[retries])
+      (x === 'prefer-standby' && xs.in_hot_standby === 'off' && host.length > 1 && !acquisition.mismatch)
     )
   }
 
   function fetchState() {
-    const query = new Query([`
+    initialize(`
       show transaction_read_only;
       select pg_catalog.pg_is_in_recovery()
-    `], [], execute, null, { simple: true })
-    query.resolve = ([[a], [b]]) => {
+    `, ([[a], [b]]) => {
       backendParameters.default_transaction_read_only = a.transaction_read_only
       backendParameters.in_hot_standby = b.pg_is_in_recovery ? 'on' : 'off'
-    }
-    query.execute()
+    }, true)
+  }
+
+  function initialize(string, resolve, simple = false) {
+    transition(Phase.Initializing)
+    const attempt = generation
+    const q = new Query([string], [], q => attempt === generation
+      ? execute(q)
+      : queryError(q, Errors.connection('CONNECTION_CLOSED', options)), null, { simple })
+    q.initialization = resolve
+    q.catch(noop)
   }
 
   function ErrorResponse(x) {
@@ -807,7 +1070,10 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
       (query.cursorFn || query.describeFirst) && write(Sync)
       errorResponse = Errors.postgres(parseError(x))
     } else {
-      errored(Errors.postgres(parseError(x)))
+      const err = Errors.postgres(parseError(x))
+      phase === Phase.Ready || phase === Phase.Draining
+        ? socketFailed(err)
+        : phase === Phase.Authenticating && fail(err)
     }
   }
 
@@ -830,15 +1096,19 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
   }
 
   async function PortalSuspended() {
+    const current = query
+    const source = socket
     try {
-      const x = await Promise.resolve(query.cursorFn(result))
+      const x = await Promise.resolve(current.cursorFn(result))
+      if (query !== current || socket !== source)
+        return
       rows = 0
       x === CLOSE
-        ? write(Close(query.portal))
-        : (result = new Result(), write(Execute('', query.cursorRows)))
+        ? write(Close(current.portal))
+        : (result = new Result(), write(Execute('', current.cursorRows)))
     } catch (err) {
-      write(Sync)
-      query.reject(err)
+      query === current && socket === source && write(Sync)
+      current.reject(err)
     }
   }
 
@@ -855,7 +1125,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
       },
       destroy(error, callback) {
         callback(error)
-        socket.write(b().f().str(error + b.N).end())
+        socket && socket.readyState === 'open' && socket.write(b().f().str(error + b.N).end())
         stream = null
       },
       final(callback) {
@@ -885,7 +1155,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
       },
       destroy(error, callback) {
         callback(error)
-        socket.write(b().f().str(error + b.N).end())
+        socket && socket.readyState === 'open' && socket.write(b().f().str(error + b.N).end())
         stream = null
       },
       final(callback) {
@@ -987,7 +1257,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
   }
 
   function StartupMessage() {
-    return cancelMessage || b().inc(4).i16(3).z(2).str(
+    return b().inc(4).i16(3).z(2).str(
       Object.entries(Object.assign({
         user,
         database,
@@ -1049,7 +1319,7 @@ function timer(fn, seconds) {
   }
 
   function done(args) {
-    fn.apply(null, args)
     timer = null
+    fn.apply(null, args)
   }
 }

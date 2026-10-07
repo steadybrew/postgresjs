@@ -120,7 +120,7 @@ const builtInArrays = [[16, 1000], [17, 1001], [18, 1002], [19, 1003], [20, 1016
                        [26, 1028], [114, 199], [700, 1021], [701, 1022], [1042, 1014], [1043, 1015], [1082, 1182],
                        [1083, 1183], [1114, 1115], [1184, 1185], [1186, 1187], [1700, 1231], [2950, 2951], [3802, 3807]]
 
-for (const fetch_types of [false]) {
+for (const fetch_types of [false, true]) {
   t('Built-in array mappings match PostgreSQL with fetch_types=' + fetch_types, async() => {
     const client = postgres({ ...options, fetch_types })
     try {
@@ -168,6 +168,28 @@ for (const fetch_types of [false]) {
     } finally { await client.end() }
   })
 
+  t('Array transforms with fetch_types=' + fetch_types, async() => {
+    const transform = { undefined: null,
+                        column: { from(x) {
+                          if (this !== client.options.transform.column) throw new Error('Column transform receiver changed')
+                          return x.toUpperCase()
+                        } },
+                        value: { from(x) {
+                          if (this !== client.options.transform.value) throw new Error('Value transform receiver changed')
+                          return Array.isArray(x) ? x.concat('transformed') : typeof x === 'number' ? x + 1 : x
+                        } },
+                        row: { from(x) {
+                          if (this !== client.options.transform.row) throw new Error('Row transform receiver changed')
+                          return { value: x.VALUES }
+                        } }
+    }
+    const client = postgres({ ...options, fetch_types, transform })
+    try {
+      const [row] = await client`select ${ client.array(['a', undefined], 25) } as values`
+      return [JSON.stringify(['a', null, 'transformed']), JSON.stringify(row.value)]
+    } finally { await client.end() }
+  })
+
   for (const mode of ['parse', 'serialize', 'both']) {
     t('Explicit array ' + mode + ' handler with fetch_types=' + fetch_types, async() => {
       const parse = x => 'parsed:' + x
@@ -188,6 +210,28 @@ for (const fetch_types of [false]) {
     })
   }
 }
+
+t('User-defined arrays require discovery or explicit handlers', async() => {
+  await sql`create type startup_array_enum as enum ('a', 'b')`
+  const clients = []
+  try {
+    const [{ oid, typarray }] = await sql`select oid, typarray from pg_catalog.pg_type where typname = 'startup_array_enum'`
+    const disabled = postgres({ ...options, fetch_types: false })
+    const enabled = postgres({ ...options })
+    const explicit = postgres({ ...options, fetch_types: false, types: { enumArray: {
+      to: typarray, from: typarray, serialize: xs => '{' + xs.join(',') + '}', parse: x => x.slice(1, -1).split(',')
+    } } })
+    clients.push(disabled, enabled, explicit)
+    const raw = (await disabled`select array['a','b']::startup_array_enum[] as value`)[0].value
+    const parsed = (await enabled`select ${ enabled.array(['a', 'b'], oid) } as value`)[0].value
+    const supplied = (await explicit`select ${ explicit.typed(['a', 'b'], typarray) } as value`)[0].value
+    return [JSON.stringify(['{a,b}', ['a', 'b'], ['a', 'b'], undefined]),
+            JSON.stringify([raw, parsed, supplied, disabled.options.shared.typeArrayMap[oid]])]
+  } finally {
+    await Promise.all(clients.map(client => client.end()))
+    await sql`drop type startup_array_enum`
+  }
+})
 
 t('Empty array', async() =>
   [true, Array.isArray((await sql`select ${ sql.array([], 1009) } as x`)[0].x)]
@@ -1739,14 +1783,22 @@ t('connect_timeout', { timeout: 20 }, async() => {
   return [connect_timeout, Math.floor((end - start) / 100) / 10]
 })
 
-t('connect_timeout throws proper error', async() => [
-  'CONNECT_TIMEOUT',
-  await postgres({
-    ...options,
-    ...login_scram,
-    connect_timeout: 0.001
-  })`select 1`.catch(e => e.code)
-])
+t('connect_timeout throws proper error', async() => {
+  let passwordRequested = false
+  const sql = postgres({ ...options, ...login_scram, connect_timeout: 0.5,
+                         pass: () => {
+                           passwordRequested = true
+                           return new Promise(() => { /* Deliberately unresolved authentication. */ })
+                         } })
+  try {
+    const code = await sql`select 1`.catch(e => e.code)
+    if (!passwordRequested)
+      throw new Error('Timeout occurred before the controlled authentication stall')
+    return ['CONNECT_TIMEOUT', code]
+  } finally {
+    await sql.end({ timeout: 0 })
+  }
+})
 
 t('connect_timeout error message includes host:port', { timeout: 20 }, async() => {
   const connect_timeout = 0.2

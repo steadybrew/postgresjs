@@ -3,9 +3,29 @@ import assert from 'assert'
 import { fork } from 'child_process'
 import { fileURLToPath } from 'url'
 
+const ownershipNames = ['capacity', 'no-fetch-capacity', 'mixed-1-fetch', 'mixed-3-fetch', 'mixed-1-no-fetch', 'mixed-3-no-fetch',
+                        'queued-reconnect', 'queued-drain', 'assigned-order', 'startup-drain', 'creation-failure',
+                        'authentication-failure', 'startup-end']
+
+const startupNames = ['first-types', 'first-types-no-fetch', 'first-types-transform', 'session-transform',
+                      'catalog-error-reserve', 'catalog-error-query', 'session-error', 'catalog-close',
+                      'stale-error', 'retry-bound', 'retry-stalled', 'long-backoff', 'server-budget', 'retry-zero', 'stalled', 'catalog-stalled',
+                      'session-stalled', 'factory-timeout', 'factory-reject', 'factory-end', 'factory-multi',
+                      'pending-write', 'password-late', 'password-reject', 'failure-drain', 'failover', 'session-select',
+                      'budget-reset', 'end-backoff', 'graceful-startup-close', 'copy-close', 'copy-close-in',
+                      'copy-final-close', 'password-close', 'half-open-end', 'graceful-queued-query', 'graceful-queued-reserve',
+                      'graceful-first-query', 'forced-queued-query', 'forced-queued-reserve',
+                      'backoff-end-query', 'backoff-end-reserve', 'backoff-close']
+
+const phaseNames = ['stale-ending-lifetime', 'stale-ending-close', 'stale-ending-rst', 'backoff-budget', 'tls-throw', 'reserve-end',
+                    'cancel-initial', 'factory-backoff', 'fin-inflight', 'rst-inflight', 'gap-query', 'all-down', 'churn',
+                    'failover-timeout', 'late-error', 'drain-pipeline', 'drain-reserved', 'drain-reservation-queued', 'release-closed',
+                    'prefer-standby-first', 'prefer-standby-last', 'outage-recover', 'forced-queued', 'reentrant-onclose', 'fatal-storm',
+                    'cancel-errors', 'fatal-backoff']
+
 const childPath = fileURLToPath(new URL('./case.js', import.meta.url))
 
-async function run(name, deadline = 5000) {
+async function run(name, deadline = name.startsWith('phase:') ? 8000 : 5000) {
   const start = Date.now()
   const child = fork(childPath, [name, process.argv.includes('--cjs') ? 'cjs' : 'esm'], { execArgv: ['--unhandled-rejections=strict'], silent: true })
   let output = ''
@@ -33,15 +53,47 @@ async function run(name, deadline = 5000) {
 }
 
 async function main() {
+  if (process.argv.includes('--phases')) {
+    for (const name of phaseNames) {
+      const result = await run('phase:' + name, 8000)
+      console.log(JSON.stringify({ name, passed: result.passed, elapsed: result.elapsed, output: result.output.slice(0, 300) }))
+      !result.passed && (process.exitCode = 1)
+    }
+    return
+  }
+  if (process.argv.includes('--startup-failures')) {
+    for (const name of startupNames) {
+      const result = await run('startup:' + name)
+      console.log(JSON.stringify(result))
+      !result.passed && (process.exitCode = 1)
+    }
+    return
+  }
+  if (process.argv.includes('--integration')) {
+    const result = await run('integration', 30000)
+    assert(result.passed, JSON.stringify(result))
+    console.log('PASS real PostgreSQL ownership matrix')
+    return
+  }
+  if (process.argv.includes('--ownership')) {
+    for (const name of ownershipNames) {
+      const result = await run('ownership:' + name)
+      console.log(JSON.stringify(result))
+      !result.passed && (process.exitCode = 1)
+    }
+    return
+  }
   if (process.argv.includes('--regressions')) {
-    for (const name of ['cold-reserve-no-fetch', 'catalog-error']) {
+    for (const name of [...startupNames.map(x => 'startup:' + x), ...phaseNames.map(x => 'phase:' + x)]) {
       const result = await run(name)
       console.log(JSON.stringify(result))
       !result.passed && (process.exitCode = 1)
     }
     return
   }
-  for (const name of ['frames', 'cold-query', 'cold-reserve']) {
+  for (const name of ['frames', 'cold-query', 'cold-query-no-fetch', 'cold-reserve', 'cold-reserve-no-fetch',
+                      ...ownershipNames.map(x => 'ownership:' + x), ...startupNames.map(x => 'startup:' + x),
+                      ...phaseNames.map(x => 'phase:' + x)]) {
     const result = await run(name)
     assert(result.passed, JSON.stringify(result))
     console.log('PASS ' + name)
