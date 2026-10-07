@@ -3,6 +3,7 @@ import { Buffer } from 'node:buffer'
 
 const Crypto = globalThis.crypto
 
+const noop = () => undefined
 let ids = 1
 const tasks = new Set()
 
@@ -115,8 +116,8 @@ export const tls = {
     tcp.readyState = 'upgrading'
     tcp.raw = tcp.raw.startTls({ servername })
     tcp.raw.closed.then(
-      () => tcp.emit('close'),
-      (e) => tcp.emit('error', e)
+      () => tcp.close(),
+      (e) => (tcp.closing || tcp.emit('error', e), tcp.close())
     )
     tcp.writer = tcp.raw.writable.getWriter()
     tcp.reader = tcp.raw.readable.getReader()
@@ -139,7 +140,8 @@ function Socket() {
     write,
     end,
     destroy,
-    read
+    read,
+    close
   })
 
   return tcp
@@ -148,14 +150,19 @@ function Socket() {
     try {
       tcp.readyState = 'opening'
       const { connect } = await import('cloudflare:sockets')
-      tcp.raw = connect(host + ':' + port, tcp.ssl ? { secureTransport: 'starttls' } : {})
+      const raw = connect(host + ':' + port, tcp.ssl ? { secureTransport: 'starttls' } : {})
+      if (tcp.destroyed || tcp.closing) {
+        raw.closed.catch(noop)
+        return Promise.resolve(raw.close()).catch(noop)
+      }
+      tcp.raw = raw
       tcp.raw.closed.then(
         () => {
           tcp.readyState !== 'upgrade'
             ? close()
             : ((tcp.readyState = 'open'), tcp.emit('secureConnect'))
         },
-        (e) => tcp.emit('error', e)
+        (e) => (tcp.closing || tcp.emit('error', e), close())
       )
       tcp.writer = tcp.raw.writable.getWriter()
       tcp.reader = tcp.raw.readable.getReader()
@@ -184,6 +191,10 @@ function Socket() {
   }
 
   function end(data) {
+    tcp.closing = true
+    if (!tcp.raw)
+      return close()
+
     return data
       ? tcp.write(data, () => tcp.raw.close())
       : tcp.raw.close()
@@ -206,13 +217,20 @@ function Socket() {
   }
 
   async function readFirst() {
-    const { value } = await tcp.reader.read()
-    tcp.emit('data', Buffer.from(value))
+    try {
+      const { done, value } = await tcp.reader.read()
+      if (done)
+        return close()
+
+      tcp.emit('data', Buffer.from(value))
+    } catch (err) {
+      error(err)
+    }
   }
 
   function error(err) {
-    tcp.emit('error', err)
-    tcp.emit('close')
+    tcp.closing || tcp.emit('error', err)
+    close()
   }
 }
 

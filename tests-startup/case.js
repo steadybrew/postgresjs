@@ -4,6 +4,8 @@ import { startup, selection, lifecycle, phases } from './startup.js'
 import { integration } from './integration.js'
 import { ownership } from './ownership.js'
 import { leases } from './lease.js'
+import { compat } from './compat.js'
+import { cf } from './cf.js'
 
 const name = process.argv[2]
 const finish = () => process.send({ completed: name })
@@ -53,6 +55,16 @@ async function main() {
   }
   if (name === 'integration') {
     await integration(postgres)
+    finish()
+    return
+  }
+  if (name.startsWith('compat:')) {
+    await compat(name.slice(7), postgres)
+    finish()
+    return
+  }
+  if (name.startsWith('cf:')) {
+    await cf(name.slice(3))
     finish()
     return
   }

@@ -294,7 +294,12 @@ function Postgres(a, b) {
     async function scope(fn, name) {
       const sql = Sql(handler)
       sql.savepoint = savepoint
-      sql.prepare = x => prepare = x.replace(/[^a-z0-9$-_. ]/gi)
+      sql.prepare = x => {
+        if (typeof x !== 'string' || !x || x.includes('\0'))
+          throw Errors.generic('INVALID_TRANSACTION_NAME', 'sql.prepare requires a non-empty string without null bytes')
+
+        prepare = 'E\'' + x.replace(/\\/g, '\\\\').replace(/'/g, '\'\'') + '\''
+      }
       let uncaughtError
         , result
 
@@ -321,7 +326,7 @@ function Postgres(a, b) {
 
       if (!name) {
         prepare
-          ? await sql`prepare transaction '${ sql.unsafe(prepare) }'`
+          ? await sql`prepare transaction ${ sql.unsafe(prepare) }`
           : await sql`commit`
         settled = true
       }
@@ -407,7 +412,7 @@ function Postgres(a, b) {
     await 1
     let timer
     return ending = Promise.resolve().then(() => Promise.race([
-      new Promise(r => timeout !== null && (timer = setTimeout(destroy, timeout * 1000, r))),
+      new Promise(r => timeout !== null && (timer = setTimeout(() => destroy(r), timeout * 1000))),
       Promise.all(connections.map(c => c.end()).concat(
         listen.sql ? listen.sql.end({ timeout: 0 }) : [],
         subscribe.sql ? subscribe.sql.end({ timeout: 0 }) : []

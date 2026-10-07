@@ -1,11 +1,13 @@
 import assert from 'assert'
 import net from 'net'
+import { prepareName } from './compat.js'
 
 export async function integration(postgres) {
   await firstTypes(postgres)
   await cursorReconnect(postgres)
   await preferStandby(postgres)
   await leases(postgres)
+  await prepareName(postgres)
   for (const max of [1, 3]) {
     for (const fetch_types of [true, false]) {
       for (const prepare of [true, false])

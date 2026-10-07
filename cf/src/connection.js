@@ -185,7 +185,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
       const now = performance.now()
       a.deadline === null && (a.deadline = now + ms * host.length)
       const left = a.deadline - now
-      connectTimer = setTimeout(connectTimedOut, Math.min(ms, left), left <= ms)
+      connectTimer = setTimeout(() => connectTimedOut(left <= ms), Math.min(ms, left))
     }
     a.hostsTried++
     backendParameters = {}
@@ -1314,9 +1314,9 @@ function timer(fn, seconds) {
     cancel() {
       timer && (clearTimeout(timer), timer = null)
     },
-    start() {
+    start(...args) {
       timer && clearTimeout(timer)
-      timer = setTimeout(done, seconds * 1000, arguments)
+      timer = setTimeout(() => done(args), seconds * 1000)
     }
   }
 
