@@ -1,6 +1,6 @@
 # Changelog
 
-## v4.0.0-rc1 - Unreleased
+## v4.0.0-rc1 - 2026-10-08
 
 First release candidate for the next major version of `@steadybrew/postgresjs`, the independently maintained Steady Brew fork of Postgres.js. These changes are relative to `@steadybrew/postgresjs@3.4.9`.
 
@@ -45,11 +45,12 @@ Related upstream proposals include [#1220](https://github.com/porsager/postgres/
 
 ### Compatibility and validation
 
-- The release baseline at `260d036` has a [passing CI run](https://github.com/steadybrew/postgresjs/actions/runs/37765563597): Node 24/26 with PostgreSQL 15/16/17/18, plus separate Deno 1.46.3 and Cloudflare workerd jobs against PostgreSQL 17.
+- The candidate at `f9dbd1d` passed [all ten CI jobs](https://github.com/steadybrew/postgresjs/actions/runs/37812371141): Node 24/26 with PostgreSQL 15/16/17/18, plus separate Deno 1.46.3 and Cloudflare workerd jobs against PostgreSQL 17.
 - Regression coverage includes bounded startup/ownership protocol tests, real PostgreSQL integration tests, pending Deno socket tests, and workerd timer, shutdown and TLS scenarios. See [the test guide](tests-startup/README.md) for commands and coverage limits.
 - Local package checks passed on Node 26.7.0 with npm 11.19.0: all generated builds matched the checked-in files, lint passed, and the packed tarball installed offline into a clean consumer. ESM and CommonJS imports, client creation/shutdown without a database, and strict TypeScript consumer checks passed.
 - Candidate runtime checks passed on Node 24.21.0 / PostgreSQL 17.11 (Linux ARM64) in disposable Docker containers, run by the maintainer on 2026-10-08: regenerated builds, startup/protocol regressions and watchdog self-checks in ESM and CommonJS, and both real PostgreSQL ownership matrices and integration suites. Both test commands exited successfully; the checkout was mounted read-only and test execution used isolated networking.
-- The remaining Node/PostgreSQL combinations, Deno and actual workerd have not been rerun for this candidate. Cloudflare adapter tests in the Node protocol suite are separate from actual workerd coverage. The earlier baseline CI result remains separate evidence. Noise application validation is pending.
+- Additional Docker validation passed on Node 26.7.0 / PostgreSQL 16.15. The `connect_timeout` timing assertion now accepts a bounded elapsed-time window to avoid rounding failures under CI scheduling.
+- The Noise application passed 990 unit tests, typechecking and a production build using the packed candidate, plus 349 integration tests across 28 files on Node 24.21.0 against its isolated PostgreSQL test database. Deployment validation against the published package remains pending.
 
 ### Known limitations
 
@@ -62,7 +63,7 @@ Related upstream proposals include [#1220](https://github.com/porsager/postgres/
 
 ### Release scope
 
-This draft uses `main` at `260d036` as its code baseline. The later phase-table and lease-state refactors, and uncommitted work on the `lifecycle` branch, are deferred. The startup and ownership fixes already in that baseline remain included.
+This candidate uses `main` at `260d036` as its runtime code baseline. The later phase-table and lease-state refactors, and uncommitted work on the `lifecycle` branch, are deferred. The startup and ownership fixes already in that baseline remain included.
 
 ## v3.4.9 - Steady Brew package baseline
 
