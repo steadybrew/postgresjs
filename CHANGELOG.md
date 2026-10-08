@@ -1,5 +1,74 @@
 # Changelog
 
+## v4.0.0-rc1 - Unreleased
+
+First release candidate for the next major version of `@steadybrew/postgresjs`, the independently maintained Steady Brew fork of Postgres.js. These changes are relative to `@steadybrew/postgresjs@3.4.9`.
+
+### Breaking changes and migration
+
+- **Node.js 24 or newer is required**, up from Node.js 12. Upgrade the runtime before installing this release. The supported PostgreSQL matrix is now versions 15–18.
+- Reserved handles used after `release()`, and transaction handles used after their transaction finishes, reject with `CONNECTION_ENDED`. Handles whose connection has closed reject rather than running statements on a reconnected session. Keep statements within the reservation or transaction that owns them.
+- Transaction `sql.prepare(name)` requires a non-empty string without NUL characters; invalid names throw `INVALID_TRANSACTION_NAME`. Names containing quotes or backslashes are preserved correctly.
+- With `fetch_types: false`, supported built-in PostgreSQL arrays are now decoded as JavaScript arrays instead of raw strings. SQL `NULL` array elements become JavaScript `null`; quoted `"NULL"` text remains a string. Review code that depended on the previous representations.
+
+### Fixes
+
+- **Reservations and startup:** cold and queued `reserve()` calls acquire a connection without a warm-up query. Discovered array types are registered before the first user query, and internal catalog/session queries are isolated from user transforms. Internal initialization rejections are handled. See [c064619](https://github.com/steadybrew/postgresjs/commit/c064619).
+- **Reconnects and timeouts:** startup attempts discard stale asynchronous results, failed attempts back off, and multi-host connection timeouts advance to the next host. `prefer-standby` can fall back to a primary. See [c064619](https://github.com/steadybrew/postgresjs/commit/c064619).
+- **Shutdown:** disconnects during startup or queries no longer leave shutdown waiting indefinitely in the covered cases. Graceful shutdown drains accepted plain queries; forced shutdown rejects remaining work with `CONNECTION_DESTROYED`. See [c064619](https://github.com/steadybrew/postgresjs/commit/c064619) and [3d3f7b4](https://github.com/steadybrew/postgresjs/commit/3d3f7b4).
+- **Reservation and transaction ownership:** stale handles cannot execute on another session, queued statements settle when their handle closes, and repeated or late `release()` calls cannot return a connection owned by someone else. `begin()` works with `max_pipeline: 0` and write backpressure. A failed rollback closes the connection instead of returning an open transaction to the pool. See [3d3f7b4](https://github.com/steadybrew/postgresjs/commit/3d3f7b4).
+- **Arrays without catalog discovery:** register 22 built-in element/array type pairs locally, preserve explicit parser and serializer overrides independently, and handle SQL `NULL` elements before scalar parsing. See [47854d1](https://github.com/steadybrew/postgresjs/commit/47854d1).
+- **Prepared transaction names:** escape quotes and backslashes correctly regardless of `standard_conforming_strings`, and reject invalid names. See [713f8a5](https://github.com/steadybrew/postgresjs/commit/713f8a5).
+- **Cloudflare timers and socket cleanup:** timers no longer pass extra arguments to `setTimeout`. The socket adapter emits close once, closes sockets that arrive after destruction, and handles EOF during TLS negotiation. The cancellation rejection described below remains unresolved. See [713f8a5](https://github.com/steadybrew/postgresjs/commit/713f8a5) and its validation correction in [260d036](https://github.com/steadybrew/postgresjs/commit/260d036).
+- **Deno socket cleanup:** pending TCP/TLS connections cannot revive a socket after it has been destroyed. See [c064619](https://github.com/steadybrew/postgresjs/commit/c064619).
+
+### Upstream issue cross-check
+
+Checked against `porsager/postgres` on 2026-10-08, with upstream `master` at [`411429e`](https://github.com/porsager/postgres/commit/411429e7bd7a3d61155ca9a70a97c111823702ea). The issue reports and related pull requests below remain open upstream. These links identify matching reported failures; they do not imply upstream has merged or endorsed this fork's implementation. The test references describe coverage in this release baseline, not a fresh execution of every upstream reproduction.
+
+| Included behavior | Upstream reports | Evidence in this fork |
+| --- | --- | --- |
+| Cold reservations work with `fetch_types: false` | [#751](https://github.com/porsager/postgres/issues/751), reservation portion of [#1219](https://github.com/porsager/postgres/issues/1219), [#1203](https://github.com/porsager/postgres/issues/1203) | `cold-reserve-no-fetch`, ownership tests and workerd cold-reservation coverage. Catalog caching/egress optimization with fetching enabled is not included. |
+| Queued reservations survive reconnect | [#1195](https://github.com/porsager/postgres/issues/1195) | `ownership:queued-reconnect` and real PostgreSQL backend-termination tests. |
+| First-query array types are ready; failed catalog queries do not escape as unhandled rejections | [#789](https://github.com/porsager/postgres/issues/789), [#1192](https://github.com/porsager/postgres/issues/1192), [#1205](https://github.com/porsager/postgres/issues/1205) | `startup:first-types`, `catalog-error-query`, `catalog-error-reserve` and workerd catalog-failure coverage. |
+| Failed startup settles and stale backend errors do not leak into the next session | [#1193](https://github.com/porsager/postgres/issues/1193), [#1223](https://github.com/porsager/postgres/issues/1223), [#1226](https://github.com/porsager/postgres/issues/1226) | Startup retry-budget/stale-error cases and real PostgreSQL reconnect coverage. |
+| Shutdown settles after disconnect, including inside a transaction | [#1097](https://github.com/porsager/postgres/issues/1097), [#1130](https://github.com/porsager/postgres/issues/1130), [#1242](https://github.com/porsager/postgres/issues/1242) | `phase:fin-inflight`, `phase:rst-inflight`, `lease:begin-end`. |
+| Work arriving between socket error and close does not strand the pool | [#1246](https://github.com/porsager/postgres/issues/1246) | `phase:gap-query`. |
+| Multi-host timeouts fail over; `prefer-standby` can accept a primary | [#1174](https://github.com/porsager/postgres/issues/1174), [#988](https://github.com/porsager/postgres/issues/988), [#815](https://github.com/porsager/postgres/issues/815) | `phase:all-down`, `failover-timeout`, `prefer-standby-first` and `prefer-standby-last`, plus PostgreSQL session-selection tests. |
+| Releasing a terminated reservation keeps the pool usable | [#1199](https://github.com/porsager/postgres/issues/1199) | `lease:reserve-release-close` and `staleReservation()` integration coverage. |
+| Statements from a disconnected transaction reject; queued statements settle | [#1248](https://github.com/porsager/postgres/issues/1248), [#1186](https://github.com/porsager/postgres/issues/1186) | `lease:begin-stale`, `begin-queued` and `staleTransaction()` integration coverage. |
+| `begin()` reserves ownership despite pipeline limits or write backpressure | [#1210](https://github.com/porsager/postgres/issues/1210), [#1189](https://github.com/porsager/postgres/issues/1189) | `lease:begin-pipeline-zero`, `begin-backpressure` and `ownedTransaction()` integration coverage. |
+| Built-in arrays work without catalog discovery | [#1164](https://github.com/porsager/postgres/issues/1164) | Built-in OID mapping, roundtrip, NULL and custom-handler tests in `tests/index.js`. |
+| Timers use the Cloudflare-compatible `setTimeout` signature | [#1088](https://github.com/porsager/postgres/issues/1088) | Strict timer shim in the compatibility and workerd suites; local workerd accepts extra arguments, so the restriction is emulated. |
+
+Related upstream proposals include [#1220](https://github.com/porsager/postgres/pull/1220), [#1229](https://github.com/porsager/postgres/pull/1229), [#1230](https://github.com/porsager/postgres/pull/1230), [#1231](https://github.com/porsager/postgres/pull/1231), [#1241](https://github.com/porsager/postgres/pull/1241), [#1240](https://github.com/porsager/postgres/pull/1240), [#1215](https://github.com/porsager/postgres/pull/1215), [#1218](https://github.com/porsager/postgres/pull/1218) and [#1247](https://github.com/porsager/postgres/pull/1247). Matching scope does not mean the patches are identical.
+
+### Compatibility and validation
+
+- The release baseline at `260d036` has a [passing CI run](https://github.com/steadybrew/postgresjs/actions/runs/37765563597): Node 24/26 with PostgreSQL 15/16/17/18, plus separate Deno 1.46.3 and Cloudflare workerd jobs against PostgreSQL 17.
+- Regression coverage includes bounded startup/ownership protocol tests, real PostgreSQL integration tests, pending Deno socket tests, and workerd timer, shutdown and TLS scenarios. See [the test guide](tests-startup/README.md) for commands and coverage limits.
+- Local package checks passed on Node 26.7.0 with npm 11.19.0: all generated builds matched the checked-in files, lint passed, and the packed tarball installed offline into a clean consumer. ESM and CommonJS imports, client creation/shutdown without a database, and strict TypeScript consumer checks passed.
+- Full candidate runtime validation remains pending: the local protocol suite stopped at `listen EPERM` because the session cannot open loopback listeners, and Docker access is denied. Database, Deno and workerd suites were not rerun in this session. The earlier baseline CI result is separate evidence, not a fresh candidate test run.
+
+### Known limitations
+
+- Cloudflare workerd can still emit an unhandled `"Stream was cancelled"` rejection on socket close. The workerd gate tolerates that exact message; this release does not claim to fix upstream [#1196](https://github.com/porsager/postgres/issues/1196) or [#1202](https://github.com/porsager/postgres/issues/1202).
+- Bun remains best effort without dedicated CI. Deno 1.46.3 coverage does not establish Deno 2 or hosted Supabase Edge compatibility.
+- Startup retries now back off, addressing the tight-loop mechanism in [#1179](https://github.com/porsager/postgres/issues/1179). Pool-wide single-probe throttling and the `reject_throttle` option proposed in [#1180](https://github.com/porsager/postgres/pull/1180) are not implemented; this is not a claim to eliminate every connection storm.
+- The stale-handle fix addresses the connection-reuse mechanism behind [#1216](https://github.com/porsager/postgres/issues/1216), but this baseline does not include that report's exact RLS reproduction. The production incident in [#1204](https://github.com/porsager/postgres/issues/1204) is not independently reproduced here.
+- The null-socket reports [#1208](https://github.com/porsager/postgres/issues/1208), [#1133](https://github.com/porsager/postgres/issues/1133), [#1154](https://github.com/porsager/postgres/issues/1154) and [#1066](https://github.com/porsager/postgres/issues/1066), and the concurrent-transaction report [#823](https://github.com/porsager/postgres/issues/823), describe related failure paths covered by the ownership changes. Their exact runtime/production scenarios are not all independently reproduced here; in particular, no Bun validation is claimed.
+- Catalog discovery caching from [#903](https://github.com/porsager/postgres/issues/903) and the egress portion of [#1219](https://github.com/porsager/postgres/issues/1219) are not implemented. Using `fetch_types: false` avoids discovery for applications that can use built-in or explicitly configured types.
+
+### Release scope
+
+This draft uses `main` at `260d036` as its code baseline. The later phase-table and lease-state refactors, and uncommitted work on the `lifecycle` branch, are deferred. The startup and ownership fixes already in that baseline remain included.
+
+## v3.4.9 - Steady Brew package baseline
+
+Initial `@steadybrew/postgresjs` package based on upstream Postgres.js 3.4.9. Includes Nikita Glazunov's upstream fix that preserves original query parameters when retrying a prepared query, avoiding double serialization of JSON, booleans and byte buffers. See upstream [411429e](https://github.com/porsager/postgres/commit/411429e7bd7a3d61155ca9a70a97c111823702ea). This is inherited upstream work already included in the Steady Brew 3.4.9 package, not a new 4.0.0 fix.
+
+The entries below are retained from the upstream changelog; they are not a complete history of the intervening upstream releases.
+
 ## v3.2.4 - 25 May 2022
 - Allow setting keep_alive: false  bee62f3
 - Fix support for null in arrays - fixes #371  b04c853
