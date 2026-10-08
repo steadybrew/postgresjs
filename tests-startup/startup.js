@@ -591,9 +591,9 @@ export async function phases(name, postgres, onEvent) {
       assert.strictEqual(await reentrant, 'resolved')
       await sql.end({ timeout: 0 })
     } else if (name === 'fatal-storm') {
-      let attempts = 0
+      const attempts = []
       const fatal = net.createServer(socket => {
-        attempts++
+        attempts.push(performance.now())
         socket.on('error', () => { /* Peer reset. */ })
         socket.once('data', () => socket.end(message('E', Buffer.from('SFATAL\0C57P03\0Mthe database system is starting up\0\0'))))
       })
@@ -604,14 +604,15 @@ export async function phases(name, postgres, onEvent) {
       const second = await settle(marker(sql), 4000)
       const burst = Promise.all(Array.from({ length: 10 }, () => settle(marker(sql), 4000)))
       await sleep(300)
-      const seen = attempts
       await sql.end({ timeout: 0 })
       await burst
       await new Promise(resolve => fatal.close(resolve))
       assert.strictEqual(first, 'rejected:57P03')
       assert.strictEqual(second, 'rejected:57P03')
       assert(Date.now() - start >= 200, 'Consecutive fatal startups must be paced')
-      assert(seen <= 4, 'Attempts must be paced, saw ' + seen)
+      const gaps = attempts.slice(1).map((x, i) => x - attempts[i])
+      assert(attempts.length >= 3, 'Burst must reconnect, saw ' + attempts.length)
+      assert(Math.min(...gaps) >= 90, 'Attempts must be paced, gaps ' + gaps.map(Math.round).join(','))
     } else if (name === 'cancel-errors') {
       const created = []
       const sql = make({ connect_timeout: 2, socket: async() => {
