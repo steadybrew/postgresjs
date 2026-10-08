@@ -1,5 +1,12 @@
 # Changelog
 
+## v4.0.0 - 2026-10-08
+
+Promotes the runtime changes validated in `4.0.0-rc1`; see the candidate entry below for fixes, migration instructions and known limitations. Node.js 24 or newer is required. Later lifecycle refactors remain deferred.
+
+- All ten release-candidate tag CI jobs passed: Node 24/26 × PostgreSQL 15–18, Deno 1.46.3 and workerd.
+- Noise passed 992 unit tests, 349 integration tests, typechecking and a Vercel preview build using the candidate tarball. Deployed login and repeated read-only database lookup smoke checks passed. Full authenticated application flows have not been exercised.
+
 ## v4.0.0-rc1 - 2026-10-08
 
 First release candidate for the next major version of `@steadybrew/postgresjs`, the independently maintained Steady Brew fork of Postgres.js. These changes are relative to `@steadybrew/postgresjs@3.4.9`.
