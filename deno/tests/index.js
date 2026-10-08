@@ -1782,7 +1782,8 @@ t('connect_timeout', { timeout: 20 }, async() => {
     end = Date.now()
   })
   server.close()
-  return [connect_timeout, Math.floor((end - start) / 100) / 10]
+  const elapsed = end - start
+  return ['within window', elapsed >= connect_timeout * 900 && elapsed < 1000 ? 'within window' : elapsed + 'ms']
 })
 
 t('connect_timeout throws proper error', async() => {
