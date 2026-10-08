@@ -22,7 +22,7 @@ The next release raises the npm package's minimum Node.js version to **24**. Thi
 | Node 24, ESM and CJS | 15, 16, 17, 18 | 4 | Locally validated |
 | Node 26, ESM and CJS | 15, 16, 17, 18 | 4 | Configured; local execution pending |
 | Deno 1.46.3 | 17 | 1 | Validated legacy runtime; no Deno 2 claim |
-| Cloudflare workerd, Wrangler 4.123.0 | 17 | 1 | Configured; startup/array gate validated on PG16; explicit `sql.end()` excluded for #1202 |
+| Cloudflare workerd, Wrangler 4.123.0 | 17 | 1 | Configured; startup/array, timer, `sql.end()` and TLS gates; #1202 "Stream was cancelled" still open |
 | Bun export | No dedicated target | 0 | Retained as best effort; unverified, without dedicated CI |
 
 The core Node matrix has eight jobs. Deno and Cloudflare run independently, so they do not multiply that matrix. PostgreSQL versions below 15 are outside the next release's supported matrix.

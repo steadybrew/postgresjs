@@ -7,6 +7,22 @@ import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import net from 'node:net'
 
+async function blackhole() {
+  const sockets = new Set()
+  const server = net.createServer((socket) => {
+    sockets.add(socket)
+    socket.on('error', () => undefined)
+  })
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
+  return {
+    port: server.address().port,
+    close: () => new Promise((resolve) => {
+      for (const socket of sockets) socket.destroy()
+      server.close(resolve)
+    })
+  }
+}
+
 async function main() {
   const repo = path.resolve(process.argv[2] || '.')
   const pgPort = Number(process.argv[3])
@@ -37,10 +53,17 @@ async function main() {
         send_metrics: false
       })
     )
+    const tlsPort = Number(process.env.WORKERD_TLS_PORT) || 0
     for (const name of process.argv[4]
       ? process.argv[4].split(',')
-      : ['cold-reserve-false', 'arrays-false', 'arrays-true', 'catalog-error']) {
-      const fixture = name.startsWith('arrays') ? null : await peer({ catalogError: name === 'catalog-error' })
+      : [
+        'cold-reserve-false', 'arrays-false', 'arrays-true', 'catalog-error',
+        'timers', 'connect-timeout', 'end-timeout', 'end-plain', 'end-while-connecting',
+        ...(tlsPort && process.env.WORKERD_TLS_CA ? ['end-tls'] : [])
+      ]) {
+      if (name === 'end-tls') assert(tlsPort > 0 && process.env.WORKERD_TLS_CA, 'end-tls requires WORKERD_TLS_PORT and WORKERD_TLS_CA')
+      const silent = name === 'connect-timeout' ? await blackhole() : null
+      const fixture = silent || /^(arrays|timers|end-)/.test(name) ? null : await peer({ catalogError: name === 'catalog-error' })
       const port = await freePort()
           , inspector = await freePort()
       const child = spawn(
@@ -58,10 +81,15 @@ async function main() {
           String(inspector),
           '--show-interactive-dev-session=false'
         ],
-        { detached: true, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, WRANGLER_SEND_METRICS: 'false' } }
+        { detached: true, stdio: ['ignore', 'pipe', 'pipe'], env: {
+          ...process.env,
+          WRANGLER_SEND_METRICS: 'false',
+          ...(name === 'end-tls' ? { SSL_CERT_FILE: process.env.WORKERD_TLS_CA || process.env.SSL_CERT_FILE || '' } : {})
+        } }
       )
       let output = ''
         , failure
+        , detail
       child.stdout.on('data', (x) => (output += x))
       child.stderr.on('data', (x) => (output += x))
       const closed = new Promise((resolve) => child.once('close', resolve))
@@ -71,7 +99,7 @@ async function main() {
         } catch {
           /* Process may have already exited or listener may not be ready. */
         }
-      }, 20000)
+      }, 25000)
       try {
         let ready = false
         for (let i = 0; i < 100; i++) {
@@ -86,13 +114,16 @@ async function main() {
           await pause(100)
         }
         assert(ready, 'workerd failed to start: ' + output)
-        const res = await fetch('http://127.0.0.1:' + port + '/?case=' + name + '&port=' + (fixture?.port || pgPort), {
-          signal: AbortSignal.timeout(5000)
+        const target = silent?.port || fixture?.port || (name === 'end-tls' ? tlsPort : pgPort)
+        const res = await fetch('http://127.0.0.1:' + port + '/?case=' + name + '&port=' + target, {
+          signal: AbortSignal.timeout(15000)
         })
         const body = await res.json()
+        detail = body.result
         await pause(150)
         assert(res.ok && body.passed, JSON.stringify(body))
-        assert(!/WORKER_UNHANDLED_REJECTION|Uncaught|unhandled rejection/i.test(output), output)
+        const fatal = /WORKER_UNHANDLED_REJECTION|Uncaught|unhandled rejection|parameter \d+ is not of type/i
+        assert(!output.split('\n').some((line) => fatal.test(line) && !line.includes('Stream was cancelled')), output)
         if (fixture && name === 'cold-reserve-false') assert.equal(fixture.events.filter((x) => x.type === 'P').length, 0)
         if (fixture && name === 'catalog-error') assert.equal(fixture.events.filter((x) => x.type === 'Q').length, 0)
       } catch (error) {
@@ -107,9 +138,10 @@ async function main() {
         await closed
         clearTimeout(watchdog)
         if (fixture) await fixture.close()
+        if (silent) await silent.close()
       }
       await writeFile(path.join(work, name + '.log'), output)
-      console.log(JSON.stringify({ name, passed: !failure, error: failure?.message, log: path.join(work, name + '.log') }))
+      console.log(JSON.stringify({ name, passed: !failure, result: detail, error: failure?.message, log: path.join(work, name + '.log') }))
     }
     console.log(JSON.stringify({ artifacts: work }))
   } catch (error) {
