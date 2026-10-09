@@ -378,8 +378,8 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
   function mismatched(reason) {
     const a = acquisition
     a.mismatches.push(a.attempting + ' ' + reason)
-    afterFailure(Errors.generic('TARGET_SESSION_ATTRS',
-      'No host matched target_session_attrs=' + target_session_attrs + ': ' + a.mismatches.join(', ')), 'mismatch')
+    afterFailure(closedBy(Errors.generic('TARGET_SESSION_ATTRS',
+      'No host matched target_session_attrs=' + target_session_attrs + ': ' + a.mismatches.join(', '))), 'mismatch')
   }
 
   function afterFailure(err, cause) {
@@ -652,7 +652,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     enterClosed(err, err.code === 'CONNECTION_CLOSED' ? err : closedBy(err))
   }
 
-  // CONNECTION_CLOSED stays the code callers retry on; the FATAL or socket error that ended the session is its cause.
+  // CONNECTION_CLOSED stays the code callers retry on; the FATAL, socket error or target_session_attrs mismatch is its cause.
   function closedBy(cause) {
     return Errors.connection('CONNECTION_CLOSED', options, socket, cause)
   }

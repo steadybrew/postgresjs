@@ -1077,8 +1077,10 @@ export async function phases(name, postgres, onEvent) {
       const sql = make({ target_session_attrs: 'read-write', connect_timeout: 0.3, backoff: 0.01 })
       const start = Date.now()
       const error = await marker(sql).then(() => null, error => error)
-      assert.strictEqual(error && error.code, 'TARGET_SESSION_ATTRS')
-      assert(error.message.includes('read-write') && error.message.includes('127.0.0.1:' + server.port + ' is read-only'), error.message)
+      assert.strictEqual(error && error.code, 'CONNECTION_CLOSED')
+      assert.strictEqual(error.cause && error.cause.code, 'TARGET_SESSION_ATTRS')
+      const reason = error.cause.message
+      assert(reason.includes('read-write') && reason.includes('127.0.0.1:' + server.port + ' is read-only'), reason)
       assert(Date.now() - start >= 250, 'A single host must keep retrying until the deadline')
       assert(startups(server) >= 2, 'Retries must continue: ' + startups(server))
       await sql.end({ timeout: 0 })

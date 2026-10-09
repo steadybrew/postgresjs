@@ -181,8 +181,9 @@ async function targetSessionAttrs(postgres) {
     const sql = postgres({ ...base, port: 5432, database, target_session_attrs: 'read-write', connect_timeout: 1, backoff: 0.05 })
     try {
       const { error, elapsed } = await failure(sql`select 1`)
-      assert.strictEqual(error.code, 'TARGET_SESSION_ATTRS')
-      assert(error.message.includes('read-write') && error.message.includes('localhost:5432'), error.message)
+      assert.strictEqual(error.code, 'CONNECTION_CLOSED')
+      assert.strictEqual(error.cause.code, 'TARGET_SESSION_ATTRS')
+      assert(error.cause.message.includes('read-write') && error.cause.message.includes('localhost:5432'), error.cause.message)
       assert(elapsed >= 900, 'A single host must keep retrying until the deadline: ' + elapsed)
     } finally {
       await sql.end({ timeout: 0 })
@@ -192,8 +193,9 @@ async function targetSessionAttrs(postgres) {
                             target_session_attrs: 'read-write', connect_timeout: 3 })
     try {
       const { error, elapsed } = await failure(both`select 1`)
-      assert.strictEqual(error.code, 'TARGET_SESSION_ATTRS')
-      assert(error.message.includes('localhost:5433') && error.message.includes('localhost:5432'), error.message)
+      assert.strictEqual(error.code, 'CONNECTION_CLOSED')
+      assert.strictEqual(error.cause.code, 'TARGET_SESSION_ATTRS')
+      assert(error.cause.message.includes('localhost:5433') && error.cause.message.includes('localhost:5432'), error.cause.message)
       assert(elapsed < 1000, 'Mismatch on every host must fail at once: ' + elapsed)
     } finally {
       await both.end({ timeout: 0 })
