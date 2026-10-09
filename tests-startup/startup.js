@@ -659,6 +659,17 @@ export async function phases(name, postgres, onEvent) {
       assert.strictEqual(await settle(marker(sql)), 'resolved')
       assert.strictEqual(startups(server), 2)
       assert.strictEqual(await settle(sql.end()), 'resolved')
+    } else if (name === 'end-queued-cold') {
+      const sql = make({ max: 2, connect_timeout: 2 })
+      const order = []
+      const results = [1, 2, 3].map(x => settle(sql.unsafe('select ' + x, [], { simple: true }).execute())
+        .then(outcome => (order.push(x), outcome)))
+      const ending = settle(sql.end({ timeout: 1 })).then(outcome => (order.push('end'), outcome))
+      assert.deepStrictEqual(await Promise.all(results), ['resolved', 'resolved', 'resolved'])
+      assert.strictEqual(await ending, 'resolved')
+      assert.strictEqual(order[order.length - 1], 'end')
+      assert.strictEqual(startups(server), 2)
+      await until(() => server.sockets.size === 0)
     } else if (name === 'outage-recover') {
       const other = await new Promise(resolve => {
         const probe = net.createServer()
