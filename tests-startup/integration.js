@@ -112,7 +112,7 @@ async function preferStandby(postgres) {
   }
 }
 
-const pg = { host: 'localhost', port: 5432, user: 'postgres', database: 'postgres', fetch_types: false, onnotice: () => { /* Quiet. */ } }
+const pg = { host: 'localhost', port: 5432, user: 'postgres', database: 'postgres', fetch_types: true, onnotice: () => { /* Quiet. */ } }
 const outcome = promise => Promise.resolve(promise).then(() => 'resolved', error => error.code || error.message)
 
 const refusals = { count: 0 }

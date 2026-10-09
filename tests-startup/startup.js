@@ -338,6 +338,7 @@ export const settle = (promise, ms = 3000) => {
   ]).finally(() => clearTimeout(timer))
 }
 export const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
+export const timeouts = () => process.getActiveResourcesInfo().filter(x => x === 'Timeout').length
 export const startups = server => server.events.filter(x => x.type === 'startup').length
 export const until = async(check, ms = 2000) => {
   const start = Date.now()
@@ -366,9 +367,9 @@ export async function phases(name, postgres, onEvent) {
       probe.close(() => resolve(port))
     })
   })
-  const base = { host: '127.0.0.1', user: 'fixture', database: 'fixture', ssl: false, max: 1, fetch_types: false, onnotice: () => { /* Quiet. */ } }
-  const hang = ['forced-queued', 'cancel-errors', 'gap-query'].some(x => name === x)
-    || ['lifetime', 'close', 'rst', 'fin'].some(x => name.includes(x))
+  const base = { host: '127.0.0.1', user: 'fixture', database: 'fixture', ssl: false, max: 1, fetch_types: true, onnotice: () => { /* Quiet. */ } }
+  const hang = ['forced-queued', 'cancel-errors', 'gap-query', 'stale-ending-lifetime', 'stale-ending-close',
+                'stale-ending-rst', 'fin-inflight', 'rst-inflight'].includes(name)
   const holding = ['reserve-end', 'cancel-initial', 'failover-timeout'].includes(name)
   const server = await peer({ holdQuery: hang ? 'hang' : '', holdStartup: holding,
                               sslReply: name === 'tls-throw' ? 'S' : '', failAuthentication: name === 'reentrant-onclose', onEvent })

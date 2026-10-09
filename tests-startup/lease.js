@@ -17,7 +17,7 @@ const sent = (server, text) => server.events.filter(x => x.type === 'Q' && x.sql
 export async function leases(name, postgres, onEvent) {
   const queued = ['reserve-queued', 'release-queued', 'begin-queued', 'begin-forced-end'].includes(name)
   const server = await peer({ holdQuery: queued ? 'hang' : '', onEvent })
-  const base = { host: '127.0.0.1', port: server.port, user: 'fixture', database: 'fixture', ssl: false, fetch_types: false,
+  const base = { host: '127.0.0.1', port: server.port, user: 'fixture', database: 'fixture', ssl: false, fetch_types: true,
                  connect_timeout: 2, backoff: 0.01, onnotice: () => { /* Quiet. */ } }
   const refusals = { count: 0 }
   const backpressure = async() => {
@@ -121,8 +121,8 @@ export async function leases(name, postgres, onEvent) {
       await done
       assert.strictEqual(late, closed)
       assert.strictEqual(savepoint, closed)
-      const after = server.events.filter(x => x.pid === 2 && x.type !== 'startup')
-      assert(after.every(x => x.sql === 'select 43 as marker' || x.type === 'X'), JSON.stringify(after))
+      const after = server.events.filter(x => x.pid === 2 && x.type === 'Q')
+      assert(after.every(x => x.sql === 'select 43 as marker'), JSON.stringify(after))
       assert.strictEqual(await settle(marker(sql)), 'resolved')
       assert.strictEqual(await settle(sql.end()), 'resolved')
     } else if (name === 'begin-queued') {
