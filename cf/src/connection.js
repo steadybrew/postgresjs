@@ -172,7 +172,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
       ready: () => pipelined() || (connection.owner ? connection.owner.next() : onopen(connection)),
       serverError: lost,
       socketError: lost,
-      socketClose: hadError => lost(errorResponse || Errors.connection('CONNECTION_CLOSED', options, socket), hadError),
+      socketClose: hadError => lost(closedBy(errorResponse), hadError),
       protocolError: errored,
       writable: () => !query && !connection.owner && onopen(connection),
       end: () => idle() && !connection.owner
@@ -187,7 +187,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
       ready: () => pipelined() || (connection.owner ? connection.owner.next() : drained()),
       serverError: lost,
       socketError: lost,
-      socketClose: hadError => lost(errorResponse || Errors.connection('CONNECTION_CLOSED', options, socket), hadError),
+      socketClose: hadError => lost(closedBy(errorResponse), hadError),
       protocolError: errored,
       writable: noop,
       end: noop,
@@ -446,7 +446,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     nonce = serverSignature = null
   }
 
-  function enterClosed(err = Errors.connection('CONNECTION_CLOSED', options, socket)) {
+  function enterClosed(err = Errors.connection('CONNECTION_CLOSED', options, socket), reported = err) {
     const a = acquisition
     const waiters = endWaiters
     clearAcquisitionTimers()
@@ -456,7 +456,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     transition(Phase.Closed)
     a && queryError(a.owner, err)
     waiters.forEach(resolve => resolve())
-    onclose(connection, err)
+    onclose(connection, reported)
   }
 
   function clearAcquisitionTimers() {
@@ -645,7 +645,12 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
   function lost(err, counted = true) {
     counted && options.shared.retries++
     inheritedBackoff = { at: performance.now(), delay: backoffMs() }
-    enterClosed(err)
+    enterClosed(err, err.code === 'CONNECTION_CLOSED' ? err : closedBy(err))
+  }
+
+  // CONNECTION_CLOSED stays the code callers retry on; the FATAL or socket error that ended the session is its cause.
+  function closedBy(cause) {
+    return Errors.connection('CONNECTION_CLOSED', options, socket, cause)
   }
 
   function errored(err) {

@@ -119,9 +119,11 @@ A failed attempt that will be retried calls `endSession` and moves to Backoff, k
 
 Which error in-flight work receives:
 
-- **The server ended the session with a FATAL** (e.g. 57P01 from `pg_terminate_backend` or a failover): that `PostgresError`.
-- **A socket error** (e.g. ECONNRESET): that error.
+- **The server ended the session with a FATAL** (e.g. 57P01 from `pg_terminate_backend` or a failover): `CONNECTION_CLOSED`, with that `PostgresError` as its `cause`.
+- **A socket error** (e.g. ECONNRESET): that error, as upstream does.
 - **The peer closed the socket without either:** `CONNECTION_CLOSED`.
+
+A reserved handle or transaction whose connection is lost this way rejects with `CONNECTION_CLOSED`, with the FATAL or socket error as its `cause`. The code stays `CONNECTION_CLOSED` because applications retry on it, as they did with upstream and 4.0.0; the cause adds the reason without changing that contract. A FATAL during startup is different: it fails the acquisition with the server's error, since nothing has run yet.
 - **Forced termination** of a connection that is busy or still acquiring: `CONNECTION_DESTROYED`. Terminating an idle open connection closes it with `CONNECTION_CLOSED`, which reaches only the pool's `onclose`.
 
 A protocol error while handling a message on an open session fails only the current query and any COPY stream; the connection stays open.
@@ -159,7 +161,7 @@ Who decides the outcome:
 | `begin()`: the server refused BEGIN with a `PostgresError` | Released; the connection is healthy |
 | `begin()`: the settle statement failed | Discarded, and the error is rethrown |
 | `begin()`: any other way out of the callback | Discarded (no effect if the lease is already terminal) |
-| The connection closed while owned | Closed; `begin()` rejects with the cause (e.g. ECONNRESET or 57P01) |
+| The connection closed while owned | Closed; `begin()` rejects with `CONNECTION_CLOSED`, whose `cause` is the FATAL or socket error |
 
 What a statement sent on a lease handle gets:
 

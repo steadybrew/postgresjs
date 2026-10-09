@@ -638,17 +638,18 @@ export async function phases(name, postgres, onEvent) {
       const sql = make({ connect_timeout: 2 })
       const fatal = name === 'begin-fatal-inflight'
       const code = fatal ? '57P01' : 'ECONNRESET'
+      const reason = error => error.code + (error.cause ? ':' + error.cause.code : '')
       let after = null
       const outcome = await sql.begin(async transaction => {
-        const hung = transaction.unsafe(fatal ? 'select fatal' : 'select hang', [], { simple: true }).catch(error => error.code)
+        const hung = transaction.unsafe(fatal ? 'select fatal' : 'select hang', [], { simple: true }).catch(reason)
         if (!fatal) {
           await until(() => server.events.some(x => x.sql === 'select hang'))
           server.reset()
         }
-        assert.strictEqual(await hung, code)
-        after = await transaction.unsafe('select 1', [], { simple: true }).catch(error => error.code)
-      }).catch(error => error.code)
-      assert.strictEqual(outcome, code)
+        assert.strictEqual(await hung, fatal ? 'CONNECTION_CLOSED:57P01' : 'ECONNRESET')
+        after = await transaction.unsafe('select 1', [], { simple: true }).catch(reason)
+      }).catch(reason)
+      assert.strictEqual(outcome, 'CONNECTION_CLOSED:' + code)
       await until(() => after)
       assert.strictEqual(after, 'CONNECTION_CLOSED')
       await sql.end({ timeout: 0 })

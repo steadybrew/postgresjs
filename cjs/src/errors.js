@@ -13,10 +13,10 @@ const Errors = module.exports.Errors = {
   notSupported
 }
 
-function connection(x, options, socket) {
+function connection(x, options, socket, cause) {
   const { host, port } = socket || options
   const error = Object.assign(
-    new Error(('write ' + x + ' ' + (options.path || (host + ':' + port)))),
+    new Error(('write ' + x + ' ' + (options.path || (host + ':' + port))), cause && { cause }),
     {
       code: x,
       errno: x,

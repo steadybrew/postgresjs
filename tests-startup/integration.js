@@ -233,7 +233,8 @@ async function targetSessionAttrs(postgres) {
 }
 
 const pg = { host: 'localhost', port: 5432, user: 'postgres', database: 'postgres', fetch_types: true, onnotice: () => { /* Quiet. */ } }
-const outcome = promise => Promise.resolve(promise).then(() => 'resolved', error => error.code || error.message)
+const outcome = promise => Promise.resolve(promise).then(() => 'resolved', error =>
+  error.code ? error.code + (error.cause ? ':' + error.cause.code : '') : error.message)
 
 const refusals = { count: 0 }
 
@@ -298,7 +299,7 @@ async function staleTransaction(postgres, admin) {
     assert.strictEqual((await admin`select count(*)::int as n from lease_probe`)[0].n, 0)
     assert.strictEqual(late, 'CONNECTION_CLOSED')
     assert.strictEqual(savepoint, 'CONNECTION_CLOSED')
-    assert.strictEqual(code, '57P01')
+    assert.strictEqual(code, 'CONNECTION_CLOSED:57P01')
     assert.strictEqual((await sql`select 1 as x`)[0].x, 1)
   } finally {
     await sql.end({ timeout: 0 })
