@@ -26,7 +26,7 @@ const Sync = b().S().end()
     , DescribeUnnamed = b().D().str('S').str(b.N).end()
     , noop = () => { /* noop */ }
 
-const Phase = { Closed: 0, Backoff: 1, Connecting: 2, Ready: 3, Draining: 4, Closing: 5 }
+const Phase = { Closed: 0, Backoff: 1, Connecting: 2, Initializing: 3, Ready: 4, Draining: 5, Closing: 6 }
 const phaseNames = Object.keys(Phase)
 
 const retryRoutines = new Set([
@@ -79,8 +79,8 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
   const sent = Queue()
       , id = uid++
       , backend = { pid: null, secret: null }
-      , idleTimer = timer(end, options.idle_timeout)
-      , lifeTimer = timer(end, options.max_lifetime)
+      , idleTimer = timer(() => dispatch('end'), options.idle_timeout)
+      , lifeTimer = timer(() => dispatch('end'), options.max_lifetime)
 
   let socket = null
     , phase = Phase.Closed
@@ -115,15 +115,113 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     , final = null
 
   const check = globalThis[Symbol.for('postgres.js:check')]
+  let depth = 0
+
+  const starting = {
+    acquire: refuse,
+    deadline: expire,
+    attemptTimeout: () => afterFailure(Errors.connection('CONNECT_TIMEOUT', options, socket), 'timeout'),
+    socketError: err => afterFailure(err, 'socket'),
+    socketClose: () => afterFailure(errorResponse || Errors.connection('CONNECTION_CLOSED', options, socket), 'dropped'),
+    protocolError: err => afterFailure(err, 'protocol'),
+    authFailed: enterClosed,
+    writable: noop,
+    end: () => endAcquisition(null),
+    terminate: () => enterClosed(Errors.connection('CONNECTION_DESTROYED', options, socket))
+  }
+
+  const on = {
+    [Phase.Closed]: {
+      acquire,
+      execute: refuse,
+      end: () => endWaiters.splice(0).forEach(resolve => resolve()),
+      terminate: noop
+    },
+    [Phase.Backoff]: {
+      acquire: refuse,
+      execute: refuse,
+      backoffElapsed: enterConnecting,
+      deadline: expire,
+      end: () => endAcquisition(acquisition.lastError),
+      terminate: () => enterClosed(Errors.connection('CONNECTION_DESTROYED', options, socket))
+    },
+    [Phase.Connecting]: {
+      ...starting,
+      execute: refuse,
+      socketCreated: attach,
+      factoryFailed: err => afterFailure(err, 'factory'),
+      socketReady: () => ssl ? negotiate() : authenticate(),
+      sslReply: x => x[0] === 83
+        ? upgrade()
+        : ssl === 'prefer'
+          ? authenticate()
+          : afterFailure(Errors.generic('SSL_NOT_SUPPORTED', 'The server does not support SSL connections'), 'protocol'),
+      secure: authenticate,
+      serverError: err => afterFailure(err, 'rejected'),
+      ready: () => (transition(Phase.Initializing), initialized())
+    },
+    [Phase.Initializing]: {
+      ...starting,
+      execute: q => q.initialization ? submit(q) : refuse(q),
+      serverError: err => afterFailure(err, 'dropped'),
+      initFailed: enterClosed,
+      ready: initialized
+    },
+    [Phase.Ready]: {
+      acquire: refuse,
+      execute: submit,
+      ready: () => pipelined() || (connection.owner ? connection.owner.next() : onopen(connection)),
+      serverError: lost,
+      socketError: lost,
+      socketClose: hadError => lost(errorResponse || Errors.connection('CONNECTION_CLOSED', options, socket), hadError),
+      protocolError: errored,
+      writable: () => !query && !connection.owner && onopen(connection),
+      end: () => idle() && !connection.owner
+        ? closing()
+        : (transition(Phase.Draining), connection.owner || onend(connection)),
+      terminate: () => idle() ? enterClosed() : enterClosed(Errors.connection('CONNECTION_DESTROYED', options, socket)),
+      release: () => onopen(connection)
+    },
+    [Phase.Draining]: {
+      acquire: refuse,
+      execute: submit,
+      ready: () => pipelined() || (connection.owner ? connection.owner.next() : drained()),
+      serverError: lost,
+      socketError: lost,
+      socketClose: hadError => lost(errorResponse || Errors.connection('CONNECTION_CLOSED', options, socket), hadError),
+      protocolError: errored,
+      writable: noop,
+      end: noop,
+      terminate: () => idle() ? enterClosed() : enterClosed(Errors.connection('CONNECTION_DESTROYED', options, socket)),
+      release: () => idle() ? drained() : onend(connection)
+    },
+    [Phase.Closing]: {
+      acquire: refuse,
+      execute: refuse,
+      ready: noop,
+      serverError: noop,
+      socketError: noop,
+      socketClose: hadError => hadError ? lost(Errors.connection('CONNECTION_CLOSED', options, socket)) : enterClosed(),
+      closeTimeout: () => enterClosed(),
+      protocolError: errored,
+      writable: noop,
+      end: noop,
+      terminate: () => enterClosed()
+    }
+  }
 
   const connection = {
     queue: queues.closed,
     idleTimer,
-    connect: acquire,
-    terminate,
+    connect: request => dispatch('acquire', request),
+    terminate: () => dispatch('terminate'),
     execute,
-    release,
-    end,
+    release: () => dispatch('release'),
+    end: () => {
+      const done = new Promise(resolve => endWaiters.push(resolve))
+      dispatch('end')
+      return done
+    },
     expired: () => idleTimer.expired() || lifeTimer.expired(),
     owner: null,
     count: 0,
@@ -143,6 +241,24 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     phase = next
   }
 
+  function dispatch(event, arg) {
+    const handler = on[phase][event]
+    if (!handler)
+      return check && check('unhandled', connection, phaseNames[phase], event)
+
+    depth++
+    try {
+      return handler(arg)
+    } finally {
+      depth--
+      check && depth === 0 && check('settled', connection, queues)
+    }
+  }
+
+  function refuse(request) {
+    queryError(request, Errors.connection('CONNECTION_CLOSED', options))
+  }
+
   function drained() {
     ondrain(connection) || closing()
   }
@@ -160,10 +276,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
   }
 
   function acquire(owner) {
-    if (phase !== Phase.Closed)
-      return queryError(owner, Errors.connection('CONNECTION_CLOSED', options))
-
-    acquisition = { owner, ending: false, pass: 'standby', hostsTried: 0, accepted: false, attempting: null, mismatches: [], lastError: null }
+    acquisition = { owner, ending: false, pass: 'standby', hostsTried: 0, attempting: null, mismatches: [], lastError: null }
     const wait = inheritedBackoff ? inheritedBackoff.at + inheritedBackoff.delay - performance.now() : 0
     inheritedBackoff = null
     wait > 0 ? enterBackoff(wait) : enterConnecting()
@@ -171,25 +284,24 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
 
   function enterBackoff(ms) {
     transition(Phase.Backoff)
-    backoffTimer = clampedTimeout(() => (backoffTimer = null, enterConnecting()), ms)
+    backoffTimer = clampedTimeout(() => (backoffTimer = null, dispatch('backoffElapsed')), ms)
   }
 
   function enterConnecting() {
     transition(Phase.Connecting)
     const a = acquisition
-    a.accepted = false
     const attempt = generation
     const ms = options.connect_timeout * 1000
     if (ms) {
-      deadlineTimer === null && (deadlineTimer = clampedTimeout(() => (deadlineTimer = null, expire()), ms * host.length))
-      host.length > 1 && (attemptTimer = clampedTimeout(() => (attemptTimer = null, timedOut()), ms))
+      deadlineTimer === null && (deadlineTimer = clampedTimeout(() => (deadlineTimer = null, dispatch('deadline')), ms * host.length))
+      host.length > 1 && (attemptTimer = clampedTimeout(() => (attemptTimer = null, dispatch('attemptTimeout')), ms))
     }
     a.hostsTried++
     backendParameters = {}
     Promise.resolve()
       .then(() => options.socket ? options.socket(options) : new net.Socket())
-      .then(created => attempt === generation ? attach(created) : dispose(created))
-      .catch(err => attempt === generation && afterFailure(err, 'factory'))
+      .then(created => attempt === generation ? dispatch('socketCreated', created) : dispose(created))
+      .catch(err => attempt === generation && dispatch('factoryFailed', err))
   }
 
   function dispose(created) {
@@ -197,17 +309,21 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     created.destroy()
   }
 
+  function listen(s) {
+    s.on('error', err => dispatch('socketError', err))
+    s.on('close', hadError => dispatch('socketClose', hadError))
+    s.on('drain', () => dispatch('writable'))
+  }
+
   function attach(created) {
-    created.on('error', error)
-    created.on('close', closed)
-    created.on('drain', drain)
+    listen(created)
     socket = created
     acquisition.attempting = options.socket ? 'custom socket' : options.path || host[hostIndex] + ':' + port[hostIndex]
 
     if (options.socket)
-      return ssl ? negotiate() : authenticate()
+      return dispatch('socketReady')
 
-    created.on('connect', ssl ? negotiate : authenticate)
+    created.on('connect', () => dispatch('socketReady'))
 
     if (options.path)
       return created.connect(options.path)
@@ -224,14 +340,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     if (sslnegotiation === 'direct')
       return upgrade()
 
-    const attempt = generation
-    socket.once('data', x => attempt === generation && (
-      x[0] === 83
-        ? upgrade()
-        : ssl === 'prefer'
-          ? authenticate()
-          : afterFailure(Errors.generic('SSL_NOT_SUPPORTED', 'The server does not support SSL connections'), 'protocol')
-    ))
+    socket.once('data', x => dispatch('sslReply', x))
     write(SSLRequest)
   }
 
@@ -241,10 +350,8 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
       const config = tlsConfig(options, raw)
       raw.removeAllListeners()
       socket = tls.connect(config)
-      socket.on('secureConnect', authenticate)
-      socket.on('error', error)
-      socket.on('close', closed)
-      socket.on('drain', drain)
+      socket.on('secureConnect', () => dispatch('secure'))
+      listen(socket)
     } catch (err) {
       afterFailure(err, 'protocol')
     }
@@ -263,10 +370,6 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     } catch (err) {
       afterFailure(err, 'protocol')
     }
-  }
-
-  function timedOut() {
-    afterFailure(Errors.connection('CONNECT_TIMEOUT', options, socket), 'timeout')
   }
 
   function expire() {
@@ -345,9 +448,6 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
   }
 
   function enterClosed(err = Errors.connection('CONNECTION_CLOSED', options, socket)) {
-    if (phase === Phase.Closed)
-      return
-
     const a = acquisition
     const waiters = endWaiters
     clearAcquisitionTimers()
@@ -376,7 +476,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     if (socket.readyState === 'open') {
       socket.end(b().X().end())
       const ms = options.connect_timeout * 1000
-      ms && (closeTimer = clampedTimeout(() => (closeTimer = null, enterClosed()), ms))
+      ms && (closeTimer = clampedTimeout(() => (closeTimer = null, dispatch('closeTimeout')), ms))
     } else {
       socket.destroy()
     }
@@ -390,8 +490,6 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     options.shared.retries = 0
 
     if (ending) {
-      if (owner.reserve)
-        return (queryError(owner, Errors.connection('CONNECTION_ENDED', options)), closing())
       if (owner.cancelled)
         return closing()
       transition(Phase.Draining)
@@ -402,9 +500,10 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
   }
 
   function execute(q) {
-    if (phase !== Phase.Ready && phase !== Phase.Draining && !(phase === Phase.Connecting && acquisition.accepted && q.initialization))
-      return queryError(q, Errors.connection('CONNECTION_CLOSED', options))
+    return dispatch('execute', q)
+  }
 
+  function submit(q) {
     if (stream)
       return queryError(q, Errors.generic('COPY_IN_PROGRESS', 'You cannot execute queries during copy'))
 
@@ -507,11 +606,6 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     return x
   }
 
-  /* c8 ignore next 3 */
-  function drain() {
-    phase === Phase.Ready && !query && !connection.owner && onopen(connection)
-  }
-
   function data(x) {
     if (incomings) {
       incomings.push(x)
@@ -539,7 +633,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
         handle(incoming.subarray(0, length + 1))
       } catch (e) {
         query && (query.cursorFn || query.describeFirst) && write(Sync)
-        phase === Phase.Connecting ? afterFailure(e, 'protocol') : errored(e)
+        dispatch('protocolError', e)
       }
       if (socket !== source)
         return
@@ -549,16 +643,8 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     }
   }
 
-  function error(err) {
-    if (phase === Phase.Connecting)
-      return afterFailure(err, 'socket')
-
-    if (phase === Phase.Ready || phase === Phase.Draining)
-      socketFailed(err)
-  }
-
-  function socketFailed(err) {
-    options.shared.retries++
+  function lost(err, counted = true) {
+    counted && options.shared.retries++
     inheritedBackoff = { at: performance.now(), delay: backoffMs() }
     enterClosed(err)
   }
@@ -585,64 +671,15 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     query.reject(err)
   }
 
-  function end() {
-    if (phase === Phase.Closed)
-      return Promise.resolve()
-
-    const done = new Promise(resolve => endWaiters.push(resolve))
-
-    if (phase === Phase.Closing || phase === Phase.Draining)
-      return done
-
-    if (phase === Phase.Ready) {
-      const owned = connection.owner
-      if (idle() && !owned) {
-        closing()
-      } else {
-        transition(Phase.Draining)
-        owned || onend(connection)
-      }
-      return done
-    }
-
-    if (acquisition.owner.reserve)
+  function endAcquisition(err) {
+    const a = acquisition
+    if (a.owner.reserve)
       enterClosed(Errors.connection('CONNECTION_ENDED', options))
-    else if (phase === Phase.Backoff && acquisition.lastError)
-      enterClosed(acquisition.lastError)
-    else if (!acquisition.ending)
-      (acquisition.ending = true, onend(connection))
-
-    return done
+    else if (err)
+      enterClosed(err)
+    else if (!a.ending)
+      (a.ending = true, onend(connection))
   }
-
-  function terminate() {
-    if (phase === Phase.Closed)
-      return
-
-    !acquisition && idle()
-      ? enterClosed()
-      : enterClosed(Errors.connection('CONNECTION_DESTROYED', options, socket))
-  }
-
-  function release() {
-    if (phase === Phase.Ready)
-      onopen(connection)
-    else if (phase === Phase.Draining)
-      idle() ? drained() : onend(connection)
-  }
-
-  function closed(hadError) {
-    const err = errorResponse || Errors.connection('CONNECTION_CLOSED', options, socket)
-    if (phase === Phase.Connecting)
-      return afterFailure(err, 'dropped')
-
-    if (!inheritedBackoff && (phase !== Phase.Closing || hadError)) {
-      hadError && options.shared.retries++
-      inheritedBackoff = { at: performance.now(), delay: backoffMs() }
-    }
-    enterClosed(err)
-  }
-
 
   /* Handlers */
   function handle(xs, x = xs[0]) {
@@ -725,7 +762,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     if (query) {
       if (errorResponse) {
         if (query.initialization)
-          return enterClosed(errorResponse)
+          return dispatch('initFailed', errorResponse)
         query.retried
           ? errored(query.retried)
           : query.prepared && retryRoutines.has(errorResponse.routine) && query.owner === connection.owner
@@ -742,28 +779,20 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     query = results = errorResponse = null
     result = new Result()
 
-    if (phase === Phase.Connecting)
-      return initialized()
+    dispatch('ready')
+  }
 
-    if (phase === Phase.Closing)
-      return
-
+  function pipelined() {
     query = sent.length ? sent.shift() : null
     if (query) {
       query.active = true
       query.cancelled && cancelRequest(options, query.state).then(query.cancelled.resolve, query.cancelled.reject)
-      return
     }
 
-    connection.owner
-      ? connection.owner.next()
-      : phase === Phase.Draining
-        ? drained()
-        : onopen(connection)
+    return query
   }
 
   function initialized() {
-    acquisition.accepted = true
     if (target_session_attrs) {
       if (!backendParameters.in_hot_standby || !backendParameters.default_transaction_read_only)
         return fetchState()
@@ -871,7 +900,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
       type === 12 ? SASLFinal :
       type !== 0 ? UnknownAuth :
       noop
-    )(x, type, attempt)).catch(err => attempt === generation && enterClosed(err))
+    )(x, type, attempt)).catch(err => attempt === generation && dispatch('authFailed', err))
   }
 
   /* c8 ignore next 5 */
@@ -945,7 +974,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     if (x.toString('utf8', 9).split(b.N, 1)[0].slice(2) === serverSignature)
       return
     /* c8 ignore next 5 */
-    enterClosed(Errors.generic('SASL_SIGNATURE_MISMATCH', 'The server did not return the correct signature'))
+    dispatch('authFailed', Errors.generic('SASL_SIGNATURE_MISMATCH', 'The server did not return the correct signature'))
   }
 
   function Pass() {
@@ -1014,10 +1043,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
       (query.cursorFn || query.describeFirst) && write(Sync)
       errorResponse = Errors.postgres(parseError(x))
     } else {
-      const err = Errors.postgres(parseError(x))
-      phase === Phase.Ready || phase === Phase.Draining
-        ? socketFailed(err)
-        : phase === Phase.Connecting && afterFailure(err, acquisition.accepted ? 'dropped' : 'rejected')
+      dispatch('serverError', Errors.postgres(parseError(x)))
     }
   }
 
