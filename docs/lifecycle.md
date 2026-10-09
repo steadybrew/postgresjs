@@ -88,8 +88,8 @@ Retry policy:
 
 - **Between hosts:** after each failed attempt the next host is tried at once.
 - **After a full round:** once every host has failed, the round counts as one retry and the next round starts after the backoff delay.
-- **Single host:** the acquisition fails after one round with that attempt's error. The exception is `dropped`, which retries with backoff until the deadline, because a session closing during startup is usually a restart or failover in progress.
-- **No host matches `target_session_attrs`:** when every host in a round answered but none matched, the acquisition fails at once with `TARGET_SESSION_ATTRS`, naming each host and why it did not match. If any host failed for another reason, the acquisition keeps retrying until the deadline instead.
+- **Single host:** the acquisition fails after one round with that attempt's error. The exceptions are `dropped` and `mismatch`, which retry with backoff until the deadline: a session closing during startup is usually a restart or failover in progress, and a single endpoint that is read-only is often a cluster DNS name still pointing at the demoted primary. When the deadline passes after a mismatch, the acquisition fails with `TARGET_SESSION_ATTRS`.
+- **No host matches `target_session_attrs`:** with several hosts, when every host in a round answered but none matched, the acquisition fails at once with `TARGET_SESSION_ATTRS`, naming each host and why it did not match. If any host failed for another reason, the acquisition keeps retrying until the deadline instead.
 - **`prefer-standby`:** a round first tries every host for a standby, then every host for any server, with no delay between the two passes. After a backoff the standby pass starts again, as in libpq.
 - **Authentication and startup queries:** an authentication failure (`authFailed`) or an error in an internal startup query (`initFailed`) closes the connection without retrying.
 
@@ -97,7 +97,7 @@ The backoff delay is `backoff(retries)` seconds; by default `(0.5..1) × min(3^r
 
 ### Inherited backoff
 
-When a session is lost (a socket error, the peer closing the socket, or a FATAL with no query in flight), when a single-host acquisition fails, or when no host matches `target_session_attrs`, the connection records the backoff delay at that moment. The next acquisition of that connection waits out whatever is left of it in Backoff. A planned close is not paced: a Closing connection whose socket closes cleanly, or whose close timer fires, leaves no delay. So `end()`, `idle_timeout` and `max_lifetime` never slow down the next acquisition.
+When a session is lost (a socket error, the peer closing the socket, or a FATAL with no query in flight), when a single-host acquisition fails, or when none of several hosts matches `target_session_attrs`, the connection records the backoff delay at that moment. The next acquisition of that connection waits out whatever is left of it in Backoff. A planned close is not paced: a Closing connection whose socket closes cleanly, or whose close timer fires, leaves no delay. So `end()`, `idle_timeout` and `max_lifetime` never slow down the next acquisition.
 
 ### `end()` during an acquisition
 

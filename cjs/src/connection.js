@@ -374,8 +374,10 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
   }
 
   function mismatched(reason) {
-    acquisition.mismatches.push(acquisition.attempting + ' ' + reason)
-    afterFailure(Errors.connection('CONNECTION_CLOSED', options, socket), 'mismatch')
+    const a = acquisition
+    a.mismatches.push(a.attempting + ' ' + reason)
+    afterFailure(Errors.generic('TARGET_SESSION_ATTRS',
+      'No host matched target_session_attrs=' + target_session_attrs + ': ' + a.mismatches.join(', ')), 'mismatch')
   }
 
   function afterFailure(err, cause) {
@@ -395,13 +397,13 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
       } else {
         a.pass = 'standby'
         options.shared.retries++
-        if (mismatches.length === host.length) {
+        if (host.length > 1 && mismatches.length === host.length) {
           inheritedBackoff = { at: performance.now(), delay: backoffMs() }
-          return enterClosed(Errors.generic('TARGET_SESSION_ATTRS',
-            'No host matched target_session_attrs=' + target_session_attrs + ': ' + mismatches.join(', ')))
+          return enterClosed(err)
         }
 
-        if (host.length === 1 && cause !== 'dropped') {
+        // A single endpoint that is read-only now is often mid-failover behind one DNS name, so retry until the deadline.
+        if (host.length === 1 && cause !== 'dropped' && cause !== 'mismatch') {
           inheritedBackoff = { at: performance.now(), delay: backoffMs() }
           return enterClosed(err)
         }

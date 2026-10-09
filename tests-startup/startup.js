@@ -1059,8 +1059,8 @@ export async function phases(name, postgres, onEvent) {
       const error = await marker(sql).then(() => null, error => error)
       assert.strictEqual(error && error.code, 'TARGET_SESSION_ATTRS')
       assert(error.message.includes('read-write') && error.message.includes('127.0.0.1:' + server.port + ' is read-only'), error.message)
-      assert(Date.now() - start < 250, 'Mismatch must fail at once')
-      assert.strictEqual(startups(server), 1)
+      assert(Date.now() - start >= 250, 'A single host must keep retrying until the deadline')
+      assert(startups(server) >= 2, 'Retries must continue: ' + startups(server))
       await sql.end({ timeout: 0 })
     } else if (name === 'timeout-keeps-error') {
       const sql = make({ host: ['127.0.0.1', '127.0.0.1'], port: [refused, server.port], connect_timeout: 0.3, backoff: 5 })

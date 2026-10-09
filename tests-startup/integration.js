@@ -178,12 +178,12 @@ async function unusedPort() {
 
 async function targetSessionAttrs(postgres) {
   await withReadOnlyDatabase(postgres, [5432, 5433], async database => {
-    const sql = postgres({ ...base, port: 5432, database, target_session_attrs: 'read-write', connect_timeout: 3 })
+    const sql = postgres({ ...base, port: 5432, database, target_session_attrs: 'read-write', connect_timeout: 1, backoff: 0.05 })
     try {
       const { error, elapsed } = await failure(sql`select 1`)
       assert.strictEqual(error.code, 'TARGET_SESSION_ATTRS')
       assert(error.message.includes('read-write') && error.message.includes('localhost:5432'), error.message)
-      assert(elapsed < 1000, 'Mismatch must fail at once: ' + elapsed)
+      assert(elapsed >= 900, 'A single host must keep retrying until the deadline: ' + elapsed)
     } finally {
       await sql.end({ timeout: 0 })
     }

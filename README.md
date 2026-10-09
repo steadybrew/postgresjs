@@ -1355,7 +1355,7 @@ The server answered the SSL request with a refusal while `ssl` is set to `requir
 ##### TARGET_SESSION_ATTRS
 > No host matched target_session_attrs=read-write: localhost:5432 is read-only
 
-Every host answered, but none satisfied [`target_session_attrs`](#connection-details), so the connection is not retried. The message names the requested value and each host with the reason it was rejected. If any host failed for another reason (refused, closed, timed out), the client keeps retrying until `connect_timeout` instead, since a failover may be in progress.
+No host satisfied [`target_session_attrs`](#connection-details). The message names the requested value and each host with the reason it was rejected. With several hosts, the connection fails at once when every host answered and none matched; if any host failed for another reason (refused, closed, timed out), the client keeps retrying until `connect_timeout` instead, since a failover may be in progress. With a single host, the client keeps retrying until `connect_timeout` and then reports this error, because a single endpoint that is read-only is often in the middle of a failover, for example a cluster DNS name that still points at the old primary.
 
 ##### AUTH_TYPE_NOT_IMPLEMENTED
 > Auth type X not implemented
