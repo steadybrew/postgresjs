@@ -15,7 +15,7 @@ export const leaseNames = ['reserve-close', 'reserve-release-close', 'reserve-st
                            'settling-disconnect-commit', 'settling-disconnect-rollback', 'settling-disconnect-prepare',
                            'settling-end-commit', 'settling-end-rollback', 'settling-end-prepare',
                            'settling-fail-rollback', 'settling-fail-prepare',
-                           'outcome-commit-released', 'outcome-release-released', 'reserve-release-after-error']
+                           'outcome-commit-released', 'outcome-release-released', 'reserve-release-after-error', 'begin-late-drain']
 
 const closed = 'rejected:CONNECTION_CLOSED'
 const ended = 'rejected:CONNECTION_ENDED'
@@ -58,6 +58,24 @@ export async function leases(name, postgres, onEvent) {
     }
     return socket
   }
+  const late = async() => {
+    const socket = net.connect(server.port, '127.0.0.1')
+    await new Promise((resolve, reject) => { socket.once('connect', resolve); socket.once('error', reject) })
+    const write = socket.write.bind(socket)
+    const emit = socket.emit.bind(socket)
+    let blocked = false
+    socket.write = (...args) => {
+      write(...args)
+      blocked = blocked || args[0].length >= 1024
+      return args[0].length < 1024
+    }
+    socket.emit = (event, ...args) => {
+      const result = emit(event, ...args)
+      event === 'data' && blocked && (blocked = false, queueMicrotask(() => emit('drain')))
+      return result
+    }
+    return socket
+  }
   const sockets = []
   const tracked = async() => {
     const socket = await gap()
@@ -72,6 +90,7 @@ export async function leases(name, postgres, onEvent) {
                          ...(name === 'begin-pipeline-zero' || name.endsWith('-cancel-queued') ? { max_pipeline: 0 } : {}),
                          ...(name === 'begin-backpressure' ? { socket: backpressure } : {}),
                          ...(name.endsWith('-handoff-gap') ? { socket: gap } : {}),
+                         ...(name === 'begin-late-drain' ? { socket: late } : {}),
                          ...(name === 'reserve-release-after-error' ? { socket: tracked } : {}),
                          ...(queued ? { max_pipeline: 0 } : {}) })
   const uncaught = []
@@ -316,6 +335,21 @@ export async function leases(name, postgres, onEvent) {
       assert.strictEqual(await pooled, 'resolved')
       const texts = server.events.filter(x => x.type === 'P' || x.type === 'Q').map(x => x.text || x.sql)
       assert(texts.indexOf('commit') < texts.indexOf('select 43 as marker'), JSON.stringify(texts))
+      assert.strictEqual(await settle(sql.end()), 'resolved')
+    } else if (name === 'begin-late-drain') {
+      await marker(sql)
+      const first = settle(sql.begin(async t => {
+        await select(t, 'select 42 as marker -- ' + 'x'.repeat(1100))
+        await sleep(30)
+        await marker(t)
+      }))
+      const second = settle(sql.begin(async t => { await marker(t) }))
+      const outcomes = await Promise.all([first, second])
+      const texts = server.events.filter(x => x.type === 'P' || x.type === 'Q').map(x => x.text || x.sql)
+      const begins = texts.flatMap((x, i) => x.startsWith('begin') ? [i] : [])
+      assert(texts.indexOf('commit') < begins[1], JSON.stringify(texts))
+      assert.deepStrictEqual(outcomes, ['resolved', 'resolved'])
+      assert.strictEqual(startups(server), 1)
       assert.strictEqual(await settle(sql.end()), 'resolved')
     } else if (name === 'begin-settling') {
       let leaked
