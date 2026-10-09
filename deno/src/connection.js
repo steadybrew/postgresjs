@@ -142,7 +142,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
   }
 
   function drained() {
-    ondrain(connection) || closing(true)
+    ondrain(connection) || closing()
   }
 
   function idle() {
@@ -358,11 +358,11 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     onclose(connection, err)
   }
 
-  function closing(quit) {
+  function closing() {
     transition(Phase.Closing)
     idleTimer.cancel()
     lifeTimer.cancel()
-    quit && socket.readyState === 'open'
+    socket.readyState === 'open'
       ? socket.end(b().X().end())
       : socket.destroy()
   }
@@ -378,9 +378,9 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     if (endRequested) {
       endRequested = false
       if (owner.reserve)
-        return (queryError(owner, Errors.connection('CONNECTION_ENDED', options)), closing(true))
+        return (queryError(owner, Errors.connection('CONNECTION_ENDED', options)), closing())
       if (owner.cancelled)
-        return closing(true)
+        return closing()
       transition(Phase.Draining)
       return execute(owner)
     }
@@ -607,13 +607,9 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
   }
 
   function socketFailed(err) {
-    errored(err)
-    while (sent.length)
-      queryError(sent.shift(), err)
-    query = null
     options.shared.retries++
     inheritedBackoff = { at: performance.now(), delay: backoffMs() }
-    closing(false)
+    enterClosed(err)
   }
 
   function errored(err) {
@@ -650,7 +646,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     if (phase === Phase.Ready) {
       !held() && onend(connection)
       idle() && !held()
-        ? closing(true)
+        ? closing()
         : transition(Phase.Draining)
       return done
     }

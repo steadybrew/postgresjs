@@ -368,7 +368,7 @@ export async function phases(name, postgres, onEvent) {
     })
   })
   const base = { host: '127.0.0.1', user: 'fixture', database: 'fixture', ssl: false, max: 1, fetch_types: true, onnotice: () => { /* Quiet. */ } }
-  const hang = ['forced-queued', 'cancel-errors', 'gap-query', 'stale-ending-lifetime', 'stale-ending-close',
+  const hang = ['forced-queued', 'cancel-errors', 'gap-query', 'gap-query-pool', 'stale-ending-lifetime', 'stale-ending-close',
                 'stale-ending-rst', 'fin-inflight', 'rst-inflight'].includes(name)
   const holding = ['reserve-end', 'cancel-initial', 'failover-timeout'].includes(name)
   const server = await peer({ holdQuery: hang ? 'hang' : '', holdStartup: holding,
@@ -472,9 +472,47 @@ export async function phases(name, postgres, onEvent) {
       factory.current().once('error', () => gap.resolve(settle(sql.unsafe('select 3', [], { simple: true }))))
       server.reset()
       assert.strictEqual(await hung, 'rejected:ECONNRESET')
-      assert.strictEqual(await gap.promise, 'rejected:CONNECTION_CLOSED')
+      assert.strictEqual(await gap.promise, 'resolved')
+      assert.strictEqual(startups(server), 2)
+      assert.strictEqual(server.events.filter(x => x.sql === 'select 3').length, 1)
       assert.strictEqual(await settle(marker(sql)), 'resolved')
       assert.strictEqual(await settle(sql.end()), 'resolved')
+    } else if (name === 'gap-query-pool') {
+      const clients = []
+      const socket = async() => {
+        const created = net.connect(server.port, '127.0.0.1')
+        await new Promise((resolve, reject) => { created.once('connect', resolve); created.once('error', reject) })
+        clients.push(created)
+        return created
+      }
+      const sql = make({ max: 2, connect_timeout: 2, backoff: 0.01, socket })
+      await Promise.all([marker(sql), marker(sql)])
+      server.hold('select 55')
+      const hung = settle(sql.unsafe('select hang', [], { simple: true }))
+      await until(() => server.events.some(x => x.sql === 'select hang'))
+      const held = settle(sql`select 55 as marker`)
+      await until(() => server.heldStatement())
+      const pid = server.events.find(x => x.sql === 'select hang').pid
+      const dying = [...server.sockets][pid - 1]
+      const gap = deferred()
+      clients.find(x => x.localPort === dying.remotePort).once('error', () => gap.resolve(settle(marker(sql))))
+      dying.resetAndDestroy()
+      await until(() => server.sockets.size === 1)
+      server.releaseStatement()
+      assert.strictEqual(await hung, 'rejected:ECONNRESET')
+      assert.strictEqual(await held, 'resolved')
+      assert.strictEqual(await gap.promise, 'resolved')
+      assert.strictEqual(await settle(sql.end({ timeout: 0 })), 'resolved')
+    } else if (name === 'gap-listen') {
+      const factory = tracked(server)
+      const sql = make({ connect_timeout: 2, backoff: 0.01, socket: factory.socket })
+      await sql.listen('first', () => undefined)
+      const gap = deferred()
+      factory.current().once('error', () => gap.resolve(settle(sql.listen('second', () => undefined))))
+      server.reset()
+      assert.strictEqual(await gap.promise, 'resolved')
+      assert.strictEqual(startups(server), 2)
+      assert.strictEqual(await settle(sql.end({ timeout: 0 })), 'resolved')
     } else if (name === 'all-down') {
       const sql = make({ host: ['127.0.0.1', '127.0.0.1'], port: [refused, refused], connect_timeout: 0.5, backoff: 0.01 })
       assert.strictEqual(await settle(marker(sql), 3000), 'rejected:ECONNREFUSED')

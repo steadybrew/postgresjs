@@ -7,7 +7,8 @@ export const leaseNames = ['reserve-close', 'reserve-release-close', 'reserve-st
                            'begin-close', 'begin-stale', 'begin-queued', 'begin-end', 'begin-pipeline-zero',
                            'begin-backpressure', 'raw-begin-unsafe', 'begin-user-commit', 'begin-user-rollback', 'begin-after-end',
                            'reserve-after-end', 'begin-forced-end', 'begin-graceful-end', 'begin-rollbacks',
-                           'reserve-released', 'release-queued', 'begin-leaked-commit', 'begin-leaked-rollback', 'begin-leaked-savepoint']
+                           'reserve-released', 'release-queued', 'begin-leaked-commit', 'begin-leaked-rollback', 'begin-leaked-savepoint',
+                           'reserve-release-after-error']
 
 const closed = 'rejected:CONNECTION_CLOSED'
 const ended = 'rejected:CONNECTION_ENDED'
@@ -31,10 +32,18 @@ export async function leases(name, postgres, onEvent) {
     }
     return socket
   }
+  const sockets = []
+  const tracked = async() => {
+    const socket = net.connect(server.port, '127.0.0.1')
+    await new Promise((resolve, reject) => { socket.once('connect', resolve); socket.once('error', reject) })
+    sockets.push(socket)
+    return socket
+  }
   const wide = ['begin-pipeline-zero', 'begin-backpressure', 'raw-begin-unsafe', 'begin-user-commit', 'begin-user-rollback'].includes(name)
   const sql = postgres({ ...base, max: wide ? 2 : 1,
                          ...(name === 'begin-pipeline-zero' ? { max_pipeline: 0 } : {}),
                          ...(name === 'begin-backpressure' ? { socket: backpressure } : {}),
+                         ...(name === 'reserve-release-after-error' ? { socket: tracked } : {}),
                          ...(queued ? { max_pipeline: 0 } : {}) })
   const uncaught = []
   const observe = error => uncaught.push(error.message)
@@ -54,6 +63,16 @@ export async function leases(name, postgres, onEvent) {
       await sleep(100)
       held.release()
       assert.strictEqual(await settle(marker(sql)), 'resolved')
+      assert.strictEqual(await settle(marker(sql)), 'resolved')
+      assert.strictEqual(await settle(sql.end()), 'resolved')
+    } else if (name === 'reserve-release-after-error') {
+      const held = await sql.reserve()
+      await marker(held)
+      sockets[0].emit('error', new Error('socket failed'))
+      held.release()
+      assert.strictEqual(await settle(select(held, 'select stale')), closed)
+      assert.strictEqual(sent(server, 'select stale').length, 0)
+      await sleep(100)
       assert.strictEqual(await settle(marker(sql)), 'resolved')
       assert.strictEqual(await settle(sql.end()), 'resolved')
     } else if (name === 'reserve-stale') {
