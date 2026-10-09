@@ -402,6 +402,7 @@ export async function phases(name, postgres, onEvent) {
   const server = await peer({ holdQuery: hang ? 'hang' : '', holdStartup: holding, readOnly: name === 'single-host-read-only',
                               closeStartup: cause === 'close' || name === 'deadline-backoff' ? Infinity : name === 'prefer-standby-passes' ? 2 : 0,
                               fatalQuery: name === 'begin-fatal-inflight' ? 'fatal' : '',
+                              closeQuery: name === 'error-close-reconnect' ? '1/0' : '',
                               holdSession: name === 'terminate-initializing',
                               allowHalfOpen: name === 'terminate-closing' || name === 'closing-bounded' || name === 'handout-unanswered',
                               fatalAfterSession: name === 'fatal-initializing', fatalDuringSession: name === 'fatal-initializing-inflight',
@@ -651,6 +652,13 @@ export async function phases(name, postgres, onEvent) {
       await until(() => after)
       assert.strictEqual(after, 'CONNECTION_CLOSED')
       await sql.end({ timeout: 0 })
+    } else if (name === 'error-close-reconnect') {
+      const sql = make({ connect_timeout: 2, backoff: 0.01 })
+      await marker(sql)
+      assert.strictEqual((await settle(sql.unsafe('select 1/0', [], { simple: true }))).slice(0, 8), 'rejected')
+      assert.strictEqual(await settle(marker(sql)), 'resolved')
+      assert.strictEqual(startups(server), 2)
+      assert.strictEqual(await settle(sql.end()), 'resolved')
     } else if (name === 'outage-recover') {
       const other = await new Promise(resolve => {
         const probe = net.createServer()

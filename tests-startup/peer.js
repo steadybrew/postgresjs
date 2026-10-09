@@ -53,7 +53,7 @@ export async function peer({ catalogError = false, holdStartup = false, failAuth
                              closeStartup = 0, closeCatalog = 0, holdCatalog = false, holdSession = false,
                              closeAfterError = false, sessionError = false, fatalAfterSession = false, fatalDuringSession = false,
                              readOnly = false, standby = false, passwordAuth = false, allowHalfOpen = false,
-                             holdQuery = '', fatalQuery = '', failQuery = '', holdStatement = '', sslReply = '', port = 0,
+                             holdQuery = '', fatalQuery = '', failQuery = '', closeQuery = '', holdStatement = '', sslReply = '', port = 0,
                              onStartup = () => { /* Optional startup barrier. */ }, onEvent = () => { /* Optional protocol observer. */ } } = {}) {
   const events = []
   const sockets = new Set()
@@ -185,6 +185,8 @@ export async function peer({ catalogError = false, holdStartup = false, failAuth
             : Buffer.concat([complete(tag(text) || 'SELECT 0'), rdy()]))
           return
         }
+        if (closeQuery && frame.subarray(5, -1).toString().includes(closeQuery))
+          return socket.end(message('E', Buffer.from('SERROR\0C22012\0Mdivision by zero\0\0')))
         if (failQuery && frame.subarray(5, -1).toString().includes(failQuery)) {
           socket.write(Buffer.concat([message('E', Buffer.from('SERROR\0C42601\0Msyntax denied\0\0')), rdy()]))
           return
