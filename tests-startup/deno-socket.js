@@ -48,3 +48,41 @@ for (const mode of ['tcp', 'tls']) {
     })
   }
 }
+
+for (const method of ['destroy', 'end']) {
+  Deno.test('Paused socket emits close after ' + method, async() => {
+    const original = Deno.connect
+    let first = true
+      , released = false
+      , closes = 0
+    const raw = {
+      close: () => released = true,
+      read: async b => {
+        if (first) {
+          first = false
+          b[0] = 1
+          return 1
+        }
+        if (released)
+          throw new Deno.errors.BadResource()
+        return new Promise(() => undefined)
+      }
+    }
+    Deno.connect = () => Promise.resolve(raw)
+    const socket = new net.Socket()
+    try {
+      socket.on('close', () => closes++)
+      socket.on('data', () => socket.pause())
+      socket.connect(5432, 'localhost')
+      await new Promise(r => setTimeout(r, 10))
+      if (!socket.isPaused())
+        throw new Error('Socket never paused')
+      socket[method]()
+      await new Promise(r => setTimeout(r, 10))
+      if (closes !== 1 || socket.readyState !== 'closed')
+        throw new Error('Paused socket did not emit close exactly once')
+    } finally {
+      Deno.connect = original
+    }
+  })
+}

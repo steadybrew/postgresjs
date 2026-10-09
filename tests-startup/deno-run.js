@@ -14,8 +14,8 @@ child.once('error', error => { clearTimeout(timer); console.error(error); proces
 child.once('close', (code, signal) => {
   clearTimeout(timer)
   try {
-    assert(!timedOut && code === 0 && /4 passed\s*[|;]\s*0 failed/.test(output), JSON.stringify({ code, signal, timedOut, output }))
-    console.log('PASS Deno pending TCP/TLS socket cleanup (4 cases)')
+    assert(!timedOut && code === 0 && /6 passed\s*[|;]\s*0 failed/.test(output), JSON.stringify({ code, signal, timedOut, output }))
+    console.log('PASS Deno pending TCP/TLS socket cleanup (6 cases)')
   } catch (error) {
     console.error(error)
     process.exitCode = 1

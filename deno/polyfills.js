@@ -116,6 +116,8 @@ function createSocket() {
     if (!socket.raw)
       return closed(true)
 
+    resume && resume()
+    paused = null
     try {
       socket.raw.close()
     } catch (e) {
