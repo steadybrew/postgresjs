@@ -173,11 +173,12 @@ async function staleTransaction(postgres, admin) {
         finished()
       }
     }))
-    assert.strictEqual(await result, 'CONNECTION_CLOSED')
+    const code = await result
     await done
+    assert.strictEqual((await admin`select count(*)::int as n from lease_probe`)[0].n, 0)
     assert.strictEqual(late, 'CONNECTION_CLOSED')
     assert.strictEqual(savepoint, 'CONNECTION_CLOSED')
-    assert.strictEqual((await admin`select count(*)::int as n from lease_probe`)[0].n, 0)
+    assert.strictEqual(code, '57P01')
     assert.strictEqual((await sql`select 1 as x`)[0].x, 1)
   } finally {
     await sql.end({ timeout: 0 })

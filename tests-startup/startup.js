@@ -369,9 +369,11 @@ export async function phases(name, postgres, onEvent) {
   })
   const base = { host: '127.0.0.1', user: 'fixture', database: 'fixture', ssl: false, max: 1, fetch_types: true, onnotice: () => { /* Quiet. */ } }
   const hang = ['forced-queued', 'cancel-errors', 'gap-query', 'gap-query-pool', 'stale-ending-lifetime', 'stale-ending-close',
-                'stale-ending-rst', 'fin-inflight', 'rst-inflight'].includes(name)
+                'stale-ending-rst', 'fin-inflight', 'rst-inflight', 'begin-socket-cause'].includes(name)
   const holding = ['reserve-end', 'cancel-initial', 'failover-timeout'].includes(name)
   const server = await peer({ holdQuery: hang ? 'hang' : '', holdStartup: holding,
+                              fatalQuery: name === 'begin-fatal-inflight' ? 'fatal' : '',
+                              fatalAfterSession: name === 'fatal-initializing', fatalDuringSession: name === 'fatal-initializing-inflight',
                               sslReply: name === 'tls-throw' ? 'S' : '', failAuthentication: name === 'reentrant-onclose', onEvent })
   const hold = name === 'failover-timeout' ? server : null
   const good = name === 'failover-timeout' ? await peer({ onEvent }) : null
@@ -588,6 +590,32 @@ export async function phases(name, postgres, onEvent) {
       const order = name === 'prefer-standby-first' ? [server.port, refused] : [refused, server.port]
       const sql = make({ host: ['127.0.0.1', '127.0.0.1'], port: order, target_session_attrs: 'prefer-standby', connect_timeout: 2, backoff: 0.01 })
       assert.strictEqual(await settle(marker(sql), 4000), 'resolved')
+      await sql.end({ timeout: 0 })
+    } else if (name === 'fatal-initializing' || name === 'fatal-initializing-inflight') {
+      const sql = make({ fetch_types: true, target_session_attrs: 'read-write', connect_timeout: 0.3, backoff: 0.01 })
+      const start = Date.now()
+      await assert.rejects(marker(sql), error => error.code === '57P01' && error.message === 'terminating connection')
+      assert(Date.now() - start >= 250, 'Retries must last until the deadline')
+      assert(startups(server) >= 2, 'Retries must continue: ' + startups(server))
+      assert(!server.events.some(x => x.text && x.text.includes('pg_catalog.pg_type')), 'The catalog query must not be sent')
+      await sql.end({ timeout: 0 })
+    } else if (name === 'begin-socket-cause' || name === 'begin-fatal-inflight') {
+      const sql = make({ connect_timeout: 2 })
+      const fatal = name === 'begin-fatal-inflight'
+      const code = fatal ? '57P01' : 'ECONNRESET'
+      let after = null
+      const outcome = await sql.begin(async transaction => {
+        const hung = transaction.unsafe(fatal ? 'select fatal' : 'select hang', [], { simple: true }).catch(error => error.code)
+        if (!fatal) {
+          await until(() => server.events.some(x => x.sql === 'select hang'))
+          server.reset()
+        }
+        assert.strictEqual(await hung, code)
+        after = await transaction.unsafe('select 1', [], { simple: true }).catch(error => error.code)
+      }).catch(error => error.code)
+      assert.strictEqual(outcome, code)
+      await until(() => after)
+      assert.strictEqual(after, 'CONNECTION_CLOSED')
       await sql.end({ timeout: 0 })
     } else if (name === 'outage-recover') {
       const other = await new Promise(resolve => {

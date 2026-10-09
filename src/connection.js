@@ -681,9 +681,9 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
   }
 
   function closed(hadError) {
-    const err = Errors.connection('CONNECTION_CLOSED', options, socket)
+    const err = errorResponse || Errors.connection('CONNECTION_CLOSED', options, socket)
     if (starting())
-      return fail(errorResponse || err, true)
+      return fail(err, true)
 
     if (!inheritedBackoff && (phase !== Phase.Closing || hadError)) {
       hadError && options.shared.retries++
@@ -1069,7 +1069,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
       const err = Errors.postgres(parseError(x))
       phase === Phase.Ready || phase === Phase.Draining
         ? socketFailed(err)
-        : phase === Phase.Authenticating && fail(err)
+        : starting() && fail(err, phase === Phase.Initializing || host.length > 1)
     }
   }
 
