@@ -91,6 +91,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     , inheritedBackoff = null
     , backoffTimer = null
     , connectTimer = null
+    , closeTimer = null
     , errorResponse = null
     , result = new Result()
     , incoming = Buffer.alloc(0)
@@ -123,6 +124,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     execute,
     release,
     end,
+    expired: () => idleTimer.expired() || lifeTimer.expired(),
     count: 0,
     id
   }
@@ -316,6 +318,8 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
   function detach() {
     clearTimeout(connectTimer)
     connectTimer = null
+    clearTimeout(closeTimer)
+    closeTimer = null
     idleTimer.cancel()
     lifeTimer.cancel()
     incoming = Buffer.alloc(0)
@@ -353,9 +357,13 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     onend(connection)
     idleTimer.cancel()
     lifeTimer.cancel()
-    socket.readyState === 'open'
-      ? socket.end(b().X().end())
-      : socket.destroy()
+    if (socket.readyState === 'open') {
+      socket.end(b().X().end())
+      const ms = options.connect_timeout * 1000
+      ms && (closeTimer = clampedTimeout(() => (closeTimer = null, enterClosed()), ms))
+    } else {
+      socket.destroy()
+    }
   }
 
   function handoff() {
@@ -1252,21 +1260,28 @@ function xor(a, b) {
 function timer(fn, seconds) {
   seconds = typeof seconds === 'function' ? seconds() : seconds
   if (!seconds)
-    return { cancel: noop, start: noop }
+    return { cancel: noop, start: noop, expired: () => false }
 
   let timer
+    , due = null
   return {
     cancel() {
       timer && (clearTimeout(timer), timer = null)
+      due = null
     },
     start(...args) {
       timer && clearTimeout(timer)
+      due = Date.now() + seconds * 1000
       timer = clampedTimeout(() => done(args), seconds * 1000)
+    },
+    expired() {
+      return due !== null && Date.now() >= due
     }
   }
 
   function done(args) {
     timer = null
+    due = null
     fn.apply(null, args)
   }
 }

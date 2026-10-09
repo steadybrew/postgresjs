@@ -355,6 +355,13 @@ export const settle = (promise, ms = 3000) => {
   ]).finally(() => clearTimeout(timer))
 }
 export const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
+export const observing = () => {
+  const key = Symbol.for('postgres.js:check')
+  const check = globalThis[key]
+  const seen = { connection: null, restore: () => { globalThis[key] = check } }
+  globalThis[key] = (kind, connection, ...rest) => (seen.connection = connection, check(kind, connection, ...rest))
+  return seen
+}
 export const timeouts = () => process.getActiveResourcesInfo().filter(x => x === 'Timeout').length
 export const startups = server => server.events.filter(x => x.type === 'startup').length
 export const until = async(check, ms = 2000) => {
@@ -392,6 +399,7 @@ export async function phases(name, postgres, onEvent) {
   const holding = ['reserve-end', 'cancel-initial', 'failover-timeout'].includes(name)
   const server = await peer({ holdQuery: hang ? 'hang' : '', holdStartup: holding,
                               fatalQuery: name === 'begin-fatal-inflight' ? 'fatal' : '',
+                              allowHalfOpen: name === 'closing-bounded' || name === 'handout-unanswered',
                               fatalAfterSession: name === 'fatal-initializing', fatalDuringSession: name === 'fatal-initializing-inflight',
                               sslReply: name === 'tls-throw' ? 'S' : '', failQuery: name === 'cancel-pipelined' ? 'fail c' : '', failAuthentication: name === 'reentrant-onclose', onEvent })
   const hold = name === 'failover-timeout' ? server : null
@@ -863,6 +871,51 @@ export async function phases(name, postgres, onEvent) {
       await sleep(100)
       assert.strictEqual(await settle(marker(sql)), 'resolved')
       assert.strictEqual(startups(server), 1)
+      await sql.end({ timeout: 0 })
+    } else if (name === 'closing-bounded') {
+      const seen = observing()
+      try {
+        const before = timeouts()
+        const sql = make({ connect_timeout: 0.3 })
+        await marker(sql)
+        const start = Date.now()
+        assert.strictEqual(await settle(sql.end(), 2000), 'resolved')
+        const elapsed = Date.now() - start
+        assert(elapsed >= 250 && elapsed < 1500, 'Closing must end at connect_timeout: ' + elapsed)
+        assert.strictEqual(seen.connection[Symbol.for('postgres.js:phase')], 'Closed')
+        await until(() => timeouts() <= before, 500)
+      } finally {
+        seen.restore()
+      }
+    } else if (name === 'closing-clean') {
+      const before = timeouts()
+      const sql = make({ connect_timeout: 3 })
+      await marker(sql)
+      assert.strictEqual(await settle(sql.end(), 2000), 'resolved')
+      await until(() => timeouts() <= before, 500)
+    } else if (name === 'handout-idle' || name === 'handout-lifetime' || name === 'handout-reserve' || name === 'handout-fresh') {
+      const sql = make(name === 'handout-lifetime' ? { max_lifetime: 0.2 } : { idle_timeout: name === 'handout-fresh' ? 5 : 0.2 })
+      assert.strictEqual(await settle(marker(sql)), 'resolved')
+      assert.strictEqual(startups(server), 1)
+      if (name !== 'handout-fresh')
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 400)
+      if (name === 'handout-reserve') {
+        const reserved = await sql.reserve()
+        assert.strictEqual(await marker(reserved), 42)
+        reserved.release()
+      } else {
+        assert.strictEqual(await settle(marker(sql)), 'resolved')
+      }
+      assert.strictEqual(startups(server), name === 'handout-fresh' ? 1 : 2)
+      await sql.end({ timeout: 0 })
+    } else if (name === 'handout-unanswered') {
+      const sql = make({ idle_timeout: 0.2, connect_timeout: 2 })
+      assert.strictEqual(await settle(marker(sql)), 'resolved')
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 400)
+      const start = Date.now()
+      assert.strictEqual(await settle(marker(sql)), 'resolved')
+      assert(Date.now() - start < 1000, 'An expired idle connection must not hold the slot until connect_timeout')
+      assert.strictEqual(startups(server), 2)
       await sql.end({ timeout: 0 })
     } else if (name === 'first-query-pipeline') {
       const sql = make({ connect_timeout: 2 })

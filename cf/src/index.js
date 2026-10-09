@@ -210,8 +210,9 @@ function Postgres(a, b) {
       throw Errors.connection('CONNECTION_ENDED', options)
 
     const l = { connection: null, closed: null, onclose: null, reserved: null, queue: Queue() }
-    open.length
-      ? own(open.shift(), l)
+    const idle = takeOpen()
+    idle
+      ? own(idle, l)
       : auto && !closed.length && busy.length
         ? own(busy.shift(), l)
         : await new Promise((resolve, reject) => {
@@ -376,8 +377,9 @@ function Postgres(a, b) {
     if (ending)
       return query.reject(Errors.connection('CONNECTION_ENDED', options, options))
 
-    if (open.length)
-      return go(open.shift(), query)
+    const idle = takeOpen()
+    if (idle)
+      return go(idle, query)
 
     if (closed.length)
       return connect(closed.shift(), query)
@@ -385,6 +387,18 @@ function Postgres(a, b) {
     busy.length
       ? go(busy.shift(), query)
       : queries.push(query)
+  }
+
+  function takeOpen() {
+    while (open.length) {
+      const c = open.shift()
+      if (!c.expired())
+        return c
+
+      c.terminate()
+    }
+
+    return null
   }
 
   function go(c, query) {

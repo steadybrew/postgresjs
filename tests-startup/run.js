@@ -30,7 +30,8 @@ const phaseNames = ['stale-ending-lifetime', 'stale-ending-close', 'stale-ending
                     'cancel-request-refused', 'cancel-unawaited',
                     'first-query-pipeline', 'release-inflight', 'draining-release-busy',
                     'ending-queued-reconnect', 'ending-queued-down', 'ending-other-open',
-                    'delay-clamp', 'idle-clamp']
+                    'delay-clamp', 'idle-clamp', 'closing-bounded', 'closing-clean', 'handout-idle', 'handout-lifetime',
+                    'handout-reserve', 'handout-fresh', 'handout-unanswered']
 
 const childPath = fileURLToPath(new URL('./case.js', import.meta.url))
 
