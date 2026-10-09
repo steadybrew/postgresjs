@@ -260,11 +260,15 @@ export async function lifecycle(name, postgres, onEvent) {
       const outcome = assert.rejects(pending, error => error.code === 'CONNECTION_ENDED')
       const queued = name === 'backoff-end-query' ? sql.unsafe('select 42 as marker').execute()
         : name === 'backoff-end-reserve' ? sql.reserve() : null
-      const queuedOutcome = queued && assert.rejects(queued, error => error.code === 'CONNECTION_ENDED')
+      let queuedOutcome = null
+      if (name === 'backoff-end-query')
+        queuedOutcome = queued.then(x => assert.strictEqual(x[0].marker, 42))
+      if (name === 'backoff-end-reserve')
+        queuedOutcome = assert.rejects(queued, error => error.code === 'CONNECTION_ENDED')
       await retrying.promise
       await (name === 'backoff-close' ? sql.close() : sql.end())
       await Promise.all([outcome, queuedOutcome])
-      assert.strictEqual(closes, 1)
+      assert.strictEqual(closes, name === 'backoff-end-query' ? 2 : 1)
       if (name === 'backoff-close') {
         const fromCallback = await reentrant
         assert.strictEqual((await fromCallback.unsafe('select 42 as marker'))[0].marker, 42)
@@ -283,7 +287,9 @@ export async function lifecycle(name, postgres, onEvent) {
       await ending
     } else if (name.startsWith('forced-')) {
       const queued = name === 'forced-queued-query' ? sql.unsafe('select 42 as marker').execute() : sql.reserve()
-      const outcomes = [pending, queued].map(x => assert.rejects(x, error => error.code === 'CONNECTION_ENDED'))
+      const queuedCode = name === 'forced-queued-query' ? 'CONNECTION_DESTROYED' : 'CONNECTION_ENDED'
+      const outcomes = [assert.rejects(pending, error => error.code === 'CONNECTION_ENDED'),
+                        assert.rejects(queued, error => error.code === queuedCode)]
       await barrier.promise
       await sql.end({ timeout: 0 })
       await Promise.all(outcomes)
@@ -291,13 +297,24 @@ export async function lifecycle(name, postgres, onEvent) {
       const outcome = assert.rejects(pending, error => error.code === 'CONNECTION_ENDED')
       const queued = name === 'graceful-queued-query' ? sql.unsafe('select 42 as marker').execute()
         : name === 'graceful-queued-reserve' ? sql.reserve() : null
-      const queuedOutcome = queued && assert.rejects(queued, error => error.code === 'CONNECTION_ENDED')
+      const replayed = name === 'graceful-queued-query'
+      let queuedOutcome = null
+      if (name === 'graceful-queued-query')
+        queuedOutcome = queued.then(x => assert.strictEqual(x[0].marker, 42))
+      if (name === 'graceful-queued-reserve')
+        queuedOutcome = assert.rejects(queued, error => error.code === 'CONNECTION_ENDED')
       await barrier.promise
       const ending = sql.end()
       await turn()
-      server.disconnect()
+      barrier = deferred()
+      if (replayed) {
+        await barrier.promise
+        server.releaseStartup()
+      } else {
+        server.disconnect()
+      }
       await Promise.all([outcome, queuedOutcome, ending])
-      assert.strictEqual(server.events.filter(x => x.type === 'startup').length, 1)
+      assert.strictEqual(server.events.filter(x => x.type === 'startup').length, replayed ? 2 : 1)
     } else if (name === 'end-backoff') {
       const outcome = assert.rejects(pending, error => error.code === 'CONNECTION_ENDED')
       await barrier.promise
@@ -370,7 +387,8 @@ export async function phases(name, postgres, onEvent) {
   const base = { host: '127.0.0.1', user: 'fixture', database: 'fixture', ssl: false, max: 1, fetch_types: true, onnotice: () => { /* Quiet. */ } }
   const hang = ['forced-queued', 'cancel-errors', 'gap-query', 'gap-query-pool', 'stale-ending-lifetime', 'stale-ending-close',
                 'stale-ending-rst', 'fin-inflight', 'rst-inflight', 'begin-socket-cause',
-                'cancel-request-refused', 'cancel-unawaited'].includes(name)
+                'cancel-request-refused', 'cancel-unawaited', 'ending-queued-reconnect', 'ending-queued-down',
+                'ending-other-open'].includes(name)
   const holding = ['reserve-end', 'cancel-initial', 'failover-timeout'].includes(name)
   const server = await peer({ holdQuery: hang ? 'hang' : '', holdStartup: holding,
                               fatalQuery: name === 'begin-fatal-inflight' ? 'fatal' : '',
@@ -788,6 +806,53 @@ export async function phases(name, postgres, onEvent) {
       assert.deepStrictEqual(uncaught, [])
       await sql.end({ timeout: 0 })
       assert.strictEqual((await outcome).slice(0, 8), 'rejected')
+    } else if (name === 'ending-queued-reconnect' || name === 'ending-queued-down') {
+      let calls = 0
+      const down = name === 'ending-queued-down'
+      const options = { connect_timeout: 2, max_pipeline: 0 }
+      if (down) {
+        const factory = tracked(server)
+        options.socket = () => {
+          if (calls++)
+            throw new Error('factory denied')
+          return factory.socket()
+        }
+      }
+      const sql = make(options)
+      const hung = settle(sql.unsafe('select hang', [], { simple: true }))
+      await until(() => server.events.some(x => x.sql === 'select hang'))
+      const queued = [1, 2, 3].map(x => settle(sql.unsafe('select ' + x, [], { simple: true }).execute()))
+      const ending = settle(sql.end())
+      server.reset()
+      assert.strictEqual(await hung, 'rejected:ECONNRESET')
+      const expected = down ? 'rejected:factory denied' : 'resolved'
+      assert.deepStrictEqual(await Promise.all(queued), [expected, expected, expected])
+      assert.strictEqual(await ending, 'resolved')
+      if (down) {
+        assert.strictEqual(calls, 2)
+      } else {
+        assert.strictEqual(startups(server), 2)
+        assert(server.events.some(x => x.type === 'X'), 'The reconnected session must close before end() resolves')
+      }
+    } else if (name === 'ending-other-open') {
+      const sql = make({ connect_timeout: 2, max: 2, max_pipeline: 0 })
+      server.hold('stall')
+      const hung = settle(sql.unsafe('select hang', [], { simple: true }))
+      await until(() => server.events.some(x => x.sql === 'select hang'))
+      const hungSocket = [...server.sockets][0]
+      const stalled = settle(sql.unsafe('select 1 -- stall', [], { simple: true }))
+      await until(() => server.heldStatement())
+      const queued = settle(sql.unsafe('select 2', [], { simple: true }).execute())
+      const ending = settle(sql.end())
+      hungSocket.resetAndDestroy()
+      assert.strictEqual(await hung, 'rejected:ECONNRESET')
+      await sleep(50)
+      assert.strictEqual(startups(server), 2)
+      server.releaseStatement()
+      assert.strictEqual(await stalled, 'resolved')
+      assert.strictEqual(await queued, 'resolved')
+      assert.strictEqual(await ending, 'resolved')
+      assert.strictEqual(startups(server), 2)
     } else if (name === 'first-query-pipeline') {
       const sql = make({ connect_timeout: 2 })
       server.hold('stall')

@@ -28,7 +28,8 @@ const phaseNames = ['stale-ending-lifetime', 'stale-ending-close', 'stale-ending
                     'begin-socket-cause', 'begin-fatal-inflight', 'fatal-initializing', 'fatal-initializing-inflight',
                     'cancel-pipelined', 'cancel-pipelined-lost', 'cancel-settled', 'cancel-request-tls-error',
                     'cancel-request-refused', 'cancel-unawaited',
-                    'first-query-pipeline', 'release-inflight', 'draining-release-busy']
+                    'first-query-pipeline', 'release-inflight', 'draining-release-busy',
+                    'ending-queued-reconnect', 'ending-queued-down', 'ending-other-open']
 
 const childPath = fileURLToPath(new URL('./case.js', import.meta.url))
 

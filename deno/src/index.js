@@ -54,6 +54,7 @@ function Postgres(a, b) {
       , subscribe = options.no_subscribe || Subscribe(Postgres, { ...options })
 
   let ending = false
+  let reconnecting = null
 
   const queries = Queue()
       , connecting = Queue()
@@ -415,15 +416,21 @@ function Postgres(a, b) {
     let timer
     return ending = Promise.resolve().then(() => Promise.race([
       new Promise(r => timeout !== null && (timer = setTimeout(() => destroy(r), timeout * 1000))),
-      Promise.all(connections.map(c => c.end()).concat(
-        listen.sql ? listen.sql.end({ timeout: 0 }) : [],
-        subscribe.sql ? subscribe.sql.end({ timeout: 0 }) : []
-      ))
+      endConnections()
     ])).then(() => {
       clearTimeout(timer)
       while (queries.length)
         queries.shift().reject(Errors.connection('CONNECTION_CLOSED', options))
     })
+  }
+
+  async function endConnections() {
+    await Promise.all(connections.map(c => c.end()).concat(
+      listen.sql ? listen.sql.end({ timeout: 0 }) : [],
+      subscribe.sql ? subscribe.sql.end({ timeout: 0 }) : []
+    ))
+    if (reconnecting)
+      await reconnecting.end()
   }
 
   async function close() {
@@ -499,11 +506,30 @@ function Postgres(a, b) {
     c.reserved = null
     c.lease && abandon(c.lease, e)
     options.onclose && options.onclose(c.id)
-    if (ending) {
-      while (queries.length)
-        queries.shift().reject(e)
-    } else if (queries.length && c.queue === closed) {
+    if (ending)
+      return closedWhileEnding(c, e)
+
+    if (queries.length && c.queue === closed)
       connect(c, queries.shift())
+  }
+
+  function closedWhileEnding(c, e) {
+    const reconnectFailed = c === reconnecting
+    if (connections.some(x => x !== c && x.queue !== closed))
+      return
+
+    while (queries.length) {
+      const query = queries.shift()
+      if (query.reserve) {
+        query.reject(Errors.connection('CONNECTION_ENDED', options))
+      } else if (reconnectFailed) {
+        query.reject(e)
+      } else {
+        reconnecting = c
+        connect(c, query)
+        c.end()
+        return
+      }
     }
   }
 }

@@ -7,6 +7,7 @@ export async function integration(postgres) {
   await cursorReconnect(postgres)
   await preferStandby(postgres)
   await leases(postgres)
+  await endAfterTerminate(postgres)
   await prepareName(postgres)
   for (const max of [1, 3]) {
     for (const fetch_types of [true, false]) {
@@ -182,6 +183,29 @@ async function staleTransaction(postgres, admin) {
     assert.strictEqual((await sql`select 1 as x`)[0].x, 1)
   } finally {
     await sql.end({ timeout: 0 })
+  }
+}
+
+async function endAfterTerminate(postgres) {
+  const admin = postgres({ ...pg, max: 1 })
+  const sql = postgres({ ...pg, max: 1 })
+  try {
+    const [{ pid }] = await sql`select pg_backend_pid() as pid`
+    const inflight = outcome(sql`select pg_sleep(30)`)
+    const active = async() => (await admin`
+      select 1 from pg_stat_activity where pid = ${ pid } and query like 'select pg_sleep%' and state = 'active'
+    `).length
+    for (let i = 0; i < 100 && !(await active()); i++)
+      await sleep(20)
+    await admin`select pg_terminate_backend(${ pid })`
+    const start = Date.now()
+    assert.strictEqual(await Promise.race([sql.end().then(() => 'resolved'), sleep(3000).then(() => 'hung')]), 'resolved')
+    assert(Date.now() - start < 2000, 'end() must not wait on a terminated backend')
+    assert.notStrictEqual(await Promise.race([inflight, sleep(1000).then(() => 'hung')]), 'hung')
+    assert.notStrictEqual(await inflight, 'resolved')
+  } finally {
+    await sql.end({ timeout: 0 })
+    await admin.end({ timeout: 0 })
   }
 }
 
