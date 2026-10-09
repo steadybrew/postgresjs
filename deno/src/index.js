@@ -21,6 +21,7 @@ import {
 } from './types.js'
 
 import Connection from './connection.js'
+import { cancelRequest } from './transport.js'
 import { Query, CLOSE } from './query.js'
 import Queue from './queue.js'
 import { Errors, PostgresError } from './errors.js'
@@ -391,17 +392,18 @@ function Postgres(a, b) {
   }
 
   function cancel(query) {
+    if (query.state && query.active)
+      return cancelRequest(options, query.state)
+
     return new Promise((resolve, reject) => {
-      query.state
-        ? query.active
-          ? Connection(options).cancel(query.state, resolve, reject)
-          : query.cancelled = { resolve, reject }
-        : (
-          queries.remove(query),
-          query.cancelled = true,
-          query.reject(Errors.generic('57014', 'canceling statement due to user request')),
-          resolve()
-        )
+      if (query.state) {
+        query.cancelled = { resolve, reject }
+      } else {
+        queries.remove(query)
+        query.cancelled = true
+        query.reject(Errors.generic('57014', 'canceling statement due to user request'))
+        resolve()
+      }
     })
   }
 

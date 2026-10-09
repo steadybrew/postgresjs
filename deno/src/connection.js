@@ -11,6 +11,7 @@ import { stringify, handleValue, addArrayType } from './types.js'
 import { Errors } from './errors.js'
 import Result from './result.js'
 import Queue from './queue.js'
+import { SSLRequest, tlsConfig, cancelRequest } from './transport.js'
 import { Query, CLOSE } from './query.js'
 import b from './bytes.js'
 
@@ -20,7 +21,6 @@ let uid = 1
 
 const Sync = b().S().end()
     , Flush = b().H().end()
-    , SSLRequest = b().i32(8).i32(80877103).end(8)
     , ExecuteUnnamed = Buffer.concat([b().E().str(b.N).i32(0).end(), Sync])
     , DescribeUnnamed = b().D().str('S').str(b.N).end()
     , noop = () => { /* noop */ }
@@ -117,7 +117,6 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     connect: acquire,
     terminate,
     execute,
-    cancel,
     release,
     end,
     count: 0,
@@ -242,7 +241,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
   function upgrade() {
     try {
       const raw = socket
-      const config = tlsConfig(raw)
+      const config = tlsConfig(options, raw)
       raw.removeAllListeners()
       socket = tls.connect(config)
       socket.on('secureConnect', authenticate)
@@ -252,23 +251,6 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     } catch (err) {
       fail(err)
     }
-  }
-
-  function tlsConfig(raw) {
-    const config = {
-      socket: raw,
-      servername: net.isIP(raw.host) ? undefined : raw.host
-    }
-
-    if (sslnegotiation === 'direct')
-      config.ALPNProtocols = ['postgresql']
-
-    if (ssl === 'require' || ssl === 'allow' || ssl === 'prefer')
-      config.rejectUnauthorized = false
-    else if (typeof ssl === 'object')
-      Object.assign(config, ssl)
-
-    return config
   }
 
   function authenticate() {
@@ -390,53 +372,6 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
       : owner.cancelled
         ? onopen(connection)
         : execute(owner)
-  }
-
-  async function cancel({ pid, secret }, resolve, reject) {
-    let timeout = null
-    try {
-      let s = await Promise.resolve(options.socket ? options.socket(options) : new net.Socket())
-      const request = b().i32(16).i32(80877102).i32(pid).i32(secret).end(16)
-      const watch = x => {
-        x.once('error', reject)
-        x.on('error', noop)
-        x.once('close', () => (clearTimeout(timeout), resolve()))
-      }
-      const upgrade = () => {
-        const raw = s
-        const config = tlsConfig(raw)
-        raw.removeAllListeners()
-        s = tls.connect(config)
-        watch(s)
-        s.once('secureConnect', () => s.write(request))
-      }
-      const start = !ssl
-        ? () => s.write(request)
-        : sslnegotiation === 'direct'
-          ? upgrade
-          : () => {
-            s.once('data', x => x[0] === 83 || ssl !== 'prefer' ? upgrade() : s.write(request))
-            s.write(SSLRequest)
-          }
-
-      watch(s)
-      options.connect_timeout && (timeout = setTimeout(() => s.destroy(), options.connect_timeout * 1000))
-
-      if (options.socket)
-        return start()
-
-      s.once('connect', start)
-
-      if (options.path)
-        return s.connect(options.path)
-
-      s.ssl = ssl
-      s.connect(port[0], host[0])
-      s.host = host[0]
-      s.port = port[0]
-    } catch (error) {
-      reject(error)
-    }
   }
 
   function execute(q) {
@@ -801,7 +736,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
       return
 
     while (sent.length && (query = sent.shift()) && (query.active = true, query.cancelled))
-      Connection(options).cancel(query.state, query.cancelled.resolve, query.cancelled.reject)
+      cancelRequest(options, query.state).then(query.cancelled.resolve, query.cancelled.reject)
 
     if (query)
       return
