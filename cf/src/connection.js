@@ -316,16 +316,15 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
 
     clearTimeout(attemptTimer)
     attemptTimer = null
-    detach()
-    resetSocketState(err)
+    endSession(err)
     enterBackoff(delay)
   }
 
-  function detach() {
+  function endSession(err) {
+    lifeTimer.cancel()
     clearTimeout(closeTimer)
     closeTimer = null
-    idleTimer.cancel()
-    lifeTimer.cancel()
+    clearImmediate(nextWriteTimer)
     incoming = Buffer.alloc(0)
     remaining = 0
     incomings = null
@@ -335,6 +334,18 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
       socket.destroy()
       socket = null
     }
+    stream && (stream.destroy(err), stream = null)
+    final && (final(err), final = null)
+    query && queryError(query, err)
+    while (sent.length) {
+      const pending = sent.shift()
+      queryError(pending, err)
+      pending.cancelled && pending.cancelled.resolve()
+    }
+    query = results = errorResponse = chunk = nextWriteTimer = null
+    result = new Result()
+    rows = 0
+    nonce = serverSignature = null
   }
 
   function enterClosed(err = Errors.connection('CONNECTION_CLOSED', options, socket)) {
@@ -344,8 +355,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     const a = acquisition
     const waiters = endWaiters
     clearAcquisitionTimers()
-    detach()
-    resetSocketState(err)
+    endSession(err)
     acquisition = null
     endWaiters = []
     transition(Phase.Closed)
@@ -366,7 +376,6 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
   function closing() {
     transition(Phase.Closing)
     onend(connection)
-    idleTimer.cancel()
     lifeTimer.cancel()
     if (socket.readyState === 'open') {
       socket.end(b().X().end())
@@ -502,22 +511,6 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     return x
   }
 
-  function resetSocketState(err) {
-    clearImmediate(nextWriteTimer)
-    stream && (stream.destroy(err), stream = null)
-    final && (final(err), final = null)
-    query && queryError(query, err)
-    while (sent.length) {
-      const pending = sent.shift()
-      queryError(pending, err)
-      pending.cancelled && pending.cancelled.resolve()
-    }
-    query = results = errorResponse = chunk = nextWriteTimer = null
-    result = new Result()
-    rows = 0
-    nonce = serverSignature = null
-  }
-
   /* c8 ignore next 3 */
   function drain() {
     phase === Phase.Ready && !query && !connection.owner && onopen(connection)
@@ -630,16 +623,9 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     if (phase === Phase.Closed)
       return
 
-    const destroyed = Errors.connection('CONNECTION_DESTROYED', options, socket)
-    if (phase === Phase.Closing)
-      return socket.destroy()
-
-    if (phase !== Phase.Ready && phase !== Phase.Draining)
-      return enterClosed(destroyed)
-
-    const inflight = !idle()
-    resetSocketState(destroyed)
-    enterClosed(inflight ? destroyed : undefined)
+    !acquisition && idle()
+      ? enterClosed()
+      : enterClosed(Errors.connection('CONNECTION_DESTROYED', options, socket))
   }
 
   function release() {

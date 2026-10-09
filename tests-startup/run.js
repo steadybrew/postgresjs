@@ -37,7 +37,9 @@ const phaseNames = ['stale-ending-lifetime', 'stale-ending-close', 'stale-ending
                       .filter(x => x !== 'cause-single-timeout'),
                     'prefer-standby-round-primaries', 'prefer-standby-round-unreachable', 'prefer-standby-single', 'prefer-standby-passes',
                     'single-host-read-only', 'timeout-keeps-error', 'backoff-graceful-close', 'backoff-error-close',
-                    'backoff-idle-close', 'ending-during-retry']
+                    'backoff-idle-close', 'ending-during-retry',
+                    ...['backoff', 'opening', 'negotiating', 'authenticating', 'initializing', 'ready', 'draining', 'closing',
+                        'opening-multi', 'pipeline', 'idle'].map(x => 'terminate-' + x)]
 
 const childPath = fileURLToPath(new URL('./case.js', import.meta.url))
 

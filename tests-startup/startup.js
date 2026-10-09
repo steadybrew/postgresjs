@@ -395,14 +395,15 @@ export async function phases(name, postgres, onEvent) {
   const hang = ['forced-queued', 'cancel-errors', 'gap-query', 'gap-query-pool', 'stale-ending-lifetime', 'stale-ending-close',
                 'stale-ending-rst', 'fin-inflight', 'rst-inflight', 'begin-socket-cause',
                 'cancel-request-refused', 'cancel-unawaited', 'ending-queued-reconnect', 'ending-queued-down',
-                'ending-other-open'].includes(name)
+                'ending-other-open', 'terminate-ready', 'terminate-draining', 'terminate-pipeline'].includes(name)
   const cause = name.startsWith('cause-') ? name.split('-')[2] : ''
   const holding = ['reserve-end', 'cancel-initial', 'failover-timeout', 'deadline-attempt-error', 'deadline-attempt-timeout',
-                   'timeout-keeps-error', 'ending-during-retry'].includes(name) || cause === 'timeout'
+                   'timeout-keeps-error', 'ending-during-retry', 'terminate-authenticating'].includes(name) || cause === 'timeout'
   const server = await peer({ holdQuery: hang ? 'hang' : '', holdStartup: holding, readOnly: name === 'single-host-read-only',
                               closeStartup: cause === 'close' || name === 'deadline-backoff' ? Infinity : name === 'prefer-standby-passes' ? 2 : 0,
                               fatalQuery: name === 'begin-fatal-inflight' ? 'fatal' : '',
-                              allowHalfOpen: name === 'closing-bounded' || name === 'handout-unanswered',
+                              holdSession: name === 'terminate-initializing',
+                              allowHalfOpen: name === 'terminate-closing' || name === 'closing-bounded' || name === 'handout-unanswered',
                               fatalAfterSession: name === 'fatal-initializing', fatalDuringSession: name === 'fatal-initializing-inflight',
                               sslReply: name === 'tls-throw' ? 'S' : '', failQuery: name === 'cancel-pipelined' ? 'fail c' : '', failAuthentication: cause === 'server' ? 'always' : name === 'reentrant-onclose', onEvent })
   const hold = name === 'failover-timeout' ? server : null
@@ -941,6 +942,78 @@ export async function phases(name, postgres, onEvent) {
       const asked = peer => peer.events.some(x => x.sql === 'select 42 as marker')
       assert(asked(good) && !asked(server), 'A later pass must still prefer the standby')
       await sql.end({ timeout: 0 })
+    } else if (name === 'terminate-idle') {
+      const seen = observing()
+      try {
+        const sql = make({ connect_timeout: 2 })
+        const outcome = await sql.begin(async transaction => {
+          await marker(transaction)
+          seen.connection.terminate()
+          await sleep(50)
+          await transaction.unsafe('select 1', [], { simple: true })
+        }).catch(error => error.code)
+        assert.strictEqual(outcome, 'CONNECTION_CLOSED')
+        await sql.end({ timeout: 0 })
+      } finally {
+        seen.restore()
+      }
+    } else if (name.startsWith('terminate-')) {
+      const stage = name.slice(10)
+      const phaseKey = Symbol.for('postgres.js:phase')
+      const seen = observing()
+      const silent = stage === 'negotiating' ? net.createServer() : null
+      const multi = stage === 'opening-multi' ? { host: ['127.0.0.1', '127.0.0.1'], port: [server.port, server.port] } : {}
+      let closes = 0
+      try {
+        let silentConnected = false
+        if (silent) {
+          silent.on('connection', () => { silentConnected = true })
+          await new Promise(resolve => silent.listen(0, '127.0.0.1', resolve))
+        }
+        const before = timeouts()
+        const sql = make({ connect_timeout: 3, backoff: 5, idle_timeout: 10, max_lifetime: 10, onclose: () => closes++, ...multi,
+                           ...(stage.startsWith('opening') ? { socket: () => new Promise(() => undefined) } : {}),
+                           ...(stage === 'negotiating' ? { ssl: 'prefer', port: silent.address().port } : {}),
+                           ...(stage === 'initializing' ? { target_session_attrs: 'read-write' } : {}) })
+        const requests = []
+        if (stage === 'backoff') {
+          await marker(sql)
+          server.reset()
+          await sleep(100)
+        }
+        if (stage === 'ready' || stage === 'draining')
+          requests.push(settle(sql.unsafe('select hang', [], { simple: true })))
+        else if (stage === 'pipeline')
+          requests.push(settle(sql.unsafe('select hang', [], { simple: true })), settle(sql.unsafe('select hang two', [], { simple: true })))
+        else if (stage === 'closing')
+          await marker(sql)
+        else
+          requests.push(settle(marker(sql)))
+        const expected = { backoff: 'Backoff', opening: 'Opening', 'opening-multi': 'Opening', negotiating: 'Negotiating',
+                           authenticating: 'Authenticating', initializing: 'Initializing', ready: 'Ready', pipeline: 'Ready',
+                           draining: 'Draining', closing: 'Closing' }[stage]
+        const hanging = ['ready', 'pipeline', 'draining'].includes(stage)
+        await until(() => seen.connection && (hanging ? server.events.some(x => x.sql === 'select hang') : true))
+        const waiter = hanging && stage !== 'draining' ? null : settle(seen.connection.end())
+        const reached = {
+          negotiating: () => silentConnected,
+          authenticating: () => server.events.some(x => x.type === 'startup'),
+          initializing: () => server.events.some(x => x.sql && x.sql.includes('transaction_read_only'))
+        }[stage] || (() => true)
+        await until(() => seen.connection[phaseKey] === expected && reached())
+        closes = 0
+        seen.connection.terminate()
+        await until(() => seen.connection[phaseKey] === 'Closed')
+        assert.strictEqual(closes, 1)
+        waiter && assert.strictEqual(await waiter, 'resolved')
+        for (const request of requests)
+          assert.strictEqual(await request, 'rejected:CONNECTION_DESTROYED')
+        await until(() => timeouts() <= before, 500)
+        assert.strictEqual(await settle(sql.end({ timeout: 0 }), 500), 'resolved')
+      } finally {
+        seen.restore()
+        silent && silent.close()
+      }
     } else if (name === 'single-host-read-only') {
       const sql = make({ target_session_attrs: 'read-write', connect_timeout: 0.3, backoff: 0.01 })
       const start = Date.now()
