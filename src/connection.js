@@ -83,11 +83,11 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     , phase = Phase.Closed
     , generation = 0
     , acquisition = null
-    , endRequested = false
     , endWaiters = []
     , inheritedBackoff = null
     , backoffTimer = null
-    , connectTimer = null
+    , attemptTimer = null
+    , deadlineTimer = null
     , closeTimer = null
     , errorResponse = null
     , result = new Result()
@@ -156,11 +156,15 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     return (typeof backoff === 'function' ? backoff(options.shared.retries) : backoff) * 1000
   }
 
+  function standbyPass() {
+    return target_session_attrs === 'prefer-standby' && host.length > 1 && acquisition.pass === 'standby'
+  }
+
   function acquire(owner) {
     if (phase !== Phase.Closed)
       return queryError(owner, Errors.connection('CONNECTION_CLOSED', options))
 
-    acquisition = { owner, attempts: 0, hostsTried: 0, lastError: null, deadline: null, expired: false }
+    acquisition = { owner, ending: false, pass: 'standby', hostsTried: 0, lastError: null }
     const wait = inheritedBackoff ? inheritedBackoff.at + inheritedBackoff.delay - performance.now() : 0
     inheritedBackoff = null
     wait > 0 ? enterBackoff(wait) : enterOpening()
@@ -168,16 +172,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
 
   function enterBackoff(ms) {
     transition(Phase.Backoff)
-    const a = acquisition
-    const attempt = generation
-    const left = a.deadline === null ? Infinity : Math.max(0, a.deadline - performance.now())
-    a.expired = left <= ms
-    backoffTimer = clampedTimeout(() => {
-      backoffTimer = null
-      attempt === generation && (a.expired
-        ? enterClosed(a.lastError || Errors.connection('CONNECT_TIMEOUT', options))
-        : enterOpening())
-    }, Math.min(ms, left))
+    backoffTimer = clampedTimeout(() => (backoffTimer = null, enterOpening()), ms)
   }
 
   function enterOpening() {
@@ -186,17 +181,15 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     const attempt = generation
     const ms = options.connect_timeout * 1000
     if (ms) {
-      const now = performance.now()
-      a.deadline === null && (a.deadline = now + ms * host.length)
-      const left = a.deadline - now
-      connectTimer = clampedTimeout(() => connectTimedOut(left <= ms), Math.min(ms, left))
+      deadlineTimer === null && (deadlineTimer = clampedTimeout(() => (deadlineTimer = null, expire()), ms * host.length))
+      host.length > 1 && (attemptTimer = clampedTimeout(() => (attemptTimer = null, timedOut()), ms))
     }
     a.hostsTried++
     backendParameters = {}
     Promise.resolve()
       .then(() => options.socket ? options.socket(options) : new net.Socket())
       .then(created => attempt === generation ? attach(created) : dispose(created))
-      .catch(err => attempt === generation && fail(err))
+      .catch(err => attempt === generation && afterFailure(err, 'factory'))
   }
 
   function dispose(created) {
@@ -237,7 +230,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
         ? upgrade()
         : ssl === 'prefer'
           ? authenticate()
-          : fail(Errors.generic('SSL_NOT_SUPPORTED', 'The server does not support SSL connections'))
+          : afterFailure(Errors.generic('SSL_NOT_SUPPORTED', 'The server does not support SSL connections'), 'protocol')
     ))
     write(SSLRequest)
   }
@@ -253,7 +246,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
       socket.on('close', closed)
       socket.on('drain', drain)
     } catch (err) {
-      fail(err)
+      afterFailure(err, 'protocol')
     }
   }
 
@@ -269,49 +262,50 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
       keep_alive && socket.setKeepAlive && socket.setKeepAlive(true, 1000 * keep_alive)
       write(StartupMessage())
     } catch (err) {
-      fail(err)
+      afterFailure(err, 'protocol')
     }
   }
 
-  function connectTimedOut(expiring) {
-    connectTimer = null
-    if (!starting())
-      return
-    expiring && (acquisition.expired = true)
-    fail(Errors.connection('CONNECT_TIMEOUT', options, socket), true)
+  function timedOut() {
+    afterFailure(Errors.connection('CONNECT_TIMEOUT', options, socket), 'timeout')
   }
 
-  function fail(err, persist = host.length > 1) {
+  function expire() {
+    enterClosed(acquisition.lastError || Errors.connection('CONNECT_TIMEOUT', options, socket))
+  }
+
+  function afterFailure(err, cause) {
     const a = acquisition
-    a.attempts++
-    a.lastError = err && err.code === 'CONNECT_TIMEOUT' && a.lastError ? a.lastError : err
-    clearTimeout(connectTimer)
-    connectTimer = null
+    a.lastError = cause === 'timeout' && a.lastError ? a.lastError : err
+
+    if (a.ending)
+      return enterClosed(err)
+
+    let delay = 0
+    if (a.hostsTried === host.length) {
+      a.hostsTried = 0
+      if (standbyPass()) {
+        a.pass = 'any'
+      } else {
+        a.pass = 'standby'
+        options.shared.retries++
+        if (host.length === 1 && cause !== 'dropped' && cause !== 'mismatch') {
+          inheritedBackoff = { at: performance.now(), delay: backoffMs() }
+          return enterClosed(err)
+        }
+
+        delay = backoffMs()
+      }
+    }
+
+    clearTimeout(attemptTimer)
+    attemptTimer = null
     detach()
     resetSocketState(err)
-
-    if (endRequested)
-      return enterClosed(err)
-
-    if (a.expired || (a.deadline !== null && performance.now() >= a.deadline))
-      return enterClosed(a.lastError)
-
-    if (a.hostsTried < host.length)
-      return enterBackoff(0)
-
-    options.shared.retries++
-    if (!persist) {
-      inheritedBackoff = { at: performance.now(), delay: backoffMs() }
-      return enterClosed(err)
-    }
-
-    a.hostsTried = 0
-    enterBackoff(backoffMs())
+    enterBackoff(delay)
   }
 
   function detach() {
-    clearTimeout(connectTimer)
-    connectTimer = null
     clearTimeout(closeTimer)
     closeTimer = null
     idleTimer.cancel()
@@ -333,17 +327,24 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
 
     const a = acquisition
     const waiters = endWaiters
-    clearTimeout(backoffTimer)
-    backoffTimer = null
+    clearAcquisitionTimers()
     detach()
     resetSocketState(err)
     acquisition = null
-    endRequested = false
     endWaiters = []
     transition(Phase.Closed)
     a && queryError(a.owner, err)
     waiters.forEach(resolve => resolve())
     onclose(connection, err)
+  }
+
+  function clearAcquisitionTimers() {
+    clearTimeout(attemptTimer)
+    attemptTimer = null
+    clearTimeout(deadlineTimer)
+    deadlineTimer = null
+    clearTimeout(backoffTimer)
+    backoffTimer = null
   }
 
   function closing() {
@@ -361,15 +362,13 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
   }
 
   function handoff() {
-    const owner = acquisition.owner
+    const { owner, ending } = acquisition
     transition(Phase.Ready)
-    clearTimeout(connectTimer)
-    connectTimer = null
+    clearAcquisitionTimers()
     acquisition = null
     options.shared.retries = 0
 
-    if (endRequested) {
-      endRequested = false
+    if (ending) {
       if (owner.reserve)
         return (queryError(owner, Errors.connection('CONNECTION_ENDED', options)), closing())
       if (owner.cancelled)
@@ -535,7 +534,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
         handle(incoming.subarray(0, length + 1))
       } catch (e) {
         query && (query.cursorFn || query.describeFirst) && write(Sync)
-        starting() ? fail(e) : errored(e)
+        starting() ? afterFailure(e, 'protocol') : errored(e)
       }
       if (socket !== source)
         return
@@ -547,7 +546,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
 
   function error(err) {
     if (starting())
-      return fail(err)
+      return afterFailure(err, 'socket')
 
     if (phase === Phase.Ready || phase === Phase.Draining)
       socketFailed(err)
@@ -603,10 +602,10 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
 
     if (acquisition.owner.reserve)
       enterClosed(Errors.connection('CONNECTION_ENDED', options))
-    else if (phase === Phase.Backoff && acquisition.attempts > 0)
+    else if (phase === Phase.Backoff && acquisition.lastError)
       enterClosed(acquisition.lastError)
-    else if (!endRequested)
-      (endRequested = true, onend(connection))
+    else if (!acquisition.ending)
+      (acquisition.ending = true, onend(connection))
 
     return done
   }
@@ -637,7 +636,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
   function closed(hadError) {
     const err = errorResponse || Errors.connection('CONNECTION_CLOSED', options, socket)
     if (starting())
-      return fail(err, true)
+      return afterFailure(err, 'dropped')
 
     if (!inheritedBackoff && (phase !== Phase.Closing || hadError)) {
       hadError && options.shared.retries++
@@ -769,10 +768,8 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     if (target_session_attrs) {
       if (!backendParameters.in_hot_standby || !backendParameters.default_transaction_read_only)
         return fetchState()
-      if (tryNext(target_session_attrs, backendParameters)) {
-        acquisition.mismatch = true
-        return fail(Errors.connection('CONNECTION_CLOSED', options, socket), true)
-      }
+      if (tryNext(target_session_attrs, backendParameters))
+        return afterFailure(Errors.connection('CONNECTION_CLOSED', options, socket), 'mismatch')
     }
 
     if (needsTypes)
@@ -988,7 +985,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
       (x === 'read-only' && xs.default_transaction_read_only === 'off') ||
       (x === 'primary' && xs.in_hot_standby === 'on') ||
       (x === 'standby' && xs.in_hot_standby === 'off') ||
-      (x === 'prefer-standby' && xs.in_hot_standby === 'off' && host.length > 1 && !acquisition.mismatch)
+      (x === 'prefer-standby' && xs.in_hot_standby === 'off' && standbyPass())
     )
   }
 
@@ -1020,7 +1017,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
       const err = Errors.postgres(parseError(x))
       phase === Phase.Ready || phase === Phase.Draining
         ? socketFailed(err)
-        : starting() && fail(err, phase === Phase.Initializing || host.length > 1)
+        : starting() && afterFailure(err, phase === Phase.Initializing ? 'dropped' : 'rejected')
     }
   }
 

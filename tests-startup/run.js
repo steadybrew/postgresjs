@@ -31,7 +31,13 @@ const phaseNames = ['stale-ending-lifetime', 'stale-ending-close', 'stale-ending
                     'first-query-pipeline', 'release-inflight', 'draining-release-busy',
                     'ending-queued-reconnect', 'ending-queued-down', 'ending-other-open',
                     'delay-clamp', 'idle-clamp', 'closing-bounded', 'closing-clean', 'handout-idle', 'handout-lifetime',
-                    'handout-reserve', 'handout-fresh', 'handout-unanswered']
+                    'handout-reserve', 'handout-fresh', 'handout-unanswered',
+                    'deadline-backoff', 'deadline-attempt-error', 'deadline-attempt-timeout',
+                    ...['single', 'multi'].flatMap(x => ['socket', 'factory', 'server', 'close', 'timeout'].map(y => 'cause-' + x + '-' + y))
+                      .filter(x => x !== 'cause-single-timeout'),
+                    'prefer-standby-round-primaries', 'prefer-standby-round-unreachable', 'prefer-standby-single', 'prefer-standby-passes',
+                    'timeout-keeps-error', 'backoff-graceful-close', 'backoff-error-close',
+                    'backoff-idle-close', 'ending-during-retry']
 
 const childPath = fileURLToPath(new URL('./case.js', import.meta.url))
 

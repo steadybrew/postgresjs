@@ -396,14 +396,19 @@ export async function phases(name, postgres, onEvent) {
                 'stale-ending-rst', 'fin-inflight', 'rst-inflight', 'begin-socket-cause',
                 'cancel-request-refused', 'cancel-unawaited', 'ending-queued-reconnect', 'ending-queued-down',
                 'ending-other-open'].includes(name)
-  const holding = ['reserve-end', 'cancel-initial', 'failover-timeout'].includes(name)
+  const cause = name.startsWith('cause-') ? name.split('-')[2] : ''
+  const holding = ['reserve-end', 'cancel-initial', 'failover-timeout', 'deadline-attempt-error', 'deadline-attempt-timeout',
+                   'timeout-keeps-error', 'ending-during-retry'].includes(name) || cause === 'timeout'
   const server = await peer({ holdQuery: hang ? 'hang' : '', holdStartup: holding,
+                              closeStartup: cause === 'close' || name === 'deadline-backoff' ? Infinity : name === 'prefer-standby-passes' ? 2 : 0,
                               fatalQuery: name === 'begin-fatal-inflight' ? 'fatal' : '',
                               allowHalfOpen: name === 'closing-bounded' || name === 'handout-unanswered',
                               fatalAfterSession: name === 'fatal-initializing', fatalDuringSession: name === 'fatal-initializing-inflight',
-                              sslReply: name === 'tls-throw' ? 'S' : '', failQuery: name === 'cancel-pipelined' ? 'fail c' : '', failAuthentication: name === 'reentrant-onclose', onEvent })
+                              sslReply: name === 'tls-throw' ? 'S' : '', failQuery: name === 'cancel-pipelined' ? 'fail c' : '', failAuthentication: cause === 'server' ? 'always' : name === 'reentrant-onclose', onEvent })
   const hold = name === 'failover-timeout' ? server : null
-  const good = name === 'failover-timeout' ? await peer({ onEvent }) : null
+  const goodOptions = { 'failover-timeout': {}, 'deadline-attempt-error': { closeStartup: Infinity },
+                        'prefer-standby-passes': { closeStartup: 2, standby: true } }[name]
+  const good = goodOptions ? await peer({ ...goodOptions, onEvent }) : null
   const clients = []
   const make = options => clients.push(postgres({ ...base, port: server.port, ...options })) && clients[clients.length - 1]
   try {
@@ -916,6 +921,114 @@ export async function phases(name, postgres, onEvent) {
       assert.strictEqual(await settle(marker(sql)), 'resolved')
       assert(Date.now() - start < 1000, 'An expired idle connection must not hold the slot until connect_timeout')
       assert.strictEqual(startups(server), 2)
+      await sql.end({ timeout: 0 })
+    } else if (name === 'prefer-standby-round-primaries' || name === 'prefer-standby-round-unreachable' || name === 'prefer-standby-single') {
+      const second = name === 'prefer-standby-round-primaries' ? server.port : refused
+      const hosts = name === 'prefer-standby-single' ? [server.port] : [server.port, second]
+      const seen = []
+      const sql = make({ host: hosts.map(() => '127.0.0.1'), port: hosts, target_session_attrs: 'prefer-standby', connect_timeout: 2,
+                         backoff: count => (seen.push(count), 5) })
+      const start = Date.now()
+      assert.strictEqual(await settle(marker(sql), 4000), 'resolved')
+      assert(Date.now() - start < 1000, 'The second pass must start immediately')
+      assert.deepStrictEqual(seen, [])
+      assert.strictEqual(startups(server), name === 'prefer-standby-round-primaries' ? 3 : name === 'prefer-standby-single' ? 1 : 2)
+      await sql.end({ timeout: 0 })
+    } else if (name === 'prefer-standby-passes') {
+      const sql = make({ host: ['127.0.0.1', '127.0.0.1'], port: [server.port, good.port], target_session_attrs: 'prefer-standby',
+                         connect_timeout: 2, backoff: 0.01 })
+      assert.strictEqual(await settle(marker(sql), 4000), 'resolved')
+      const asked = peer => peer.events.some(x => x.sql === 'select 42 as marker')
+      assert(asked(good) && !asked(server), 'A later pass must still prefer the standby')
+      await sql.end({ timeout: 0 })
+    } else if (name === 'timeout-keeps-error') {
+      const sql = make({ host: ['127.0.0.1', '127.0.0.1'], port: [refused, server.port], connect_timeout: 0.3, backoff: 5 })
+      const start = Date.now()
+      assert.strictEqual(await settle(marker(sql)), 'rejected:ECONNREFUSED')
+      const elapsed = Date.now() - start
+      assert(elapsed >= 550 && elapsed < 1500, 'Deadline must end the acquisition: ' + elapsed)
+      await sql.end({ timeout: 0 })
+    } else if (name === 'backoff-graceful-close' || name === 'backoff-error-close') {
+      const seen = []
+      const closed = deferred()
+      const sql = make({ connect_timeout: 3, backoff: count => (seen.push(count), 0.4), onclose: () => closed.resolve() })
+      await marker(sql)
+      name === 'backoff-error-close' ? server.reset() : server.disconnect()
+      await closed.promise
+      const start = Date.now()
+      assert.strictEqual(await settle(marker(sql), 4000), 'resolved')
+      assert(Date.now() - start >= 250, 'Close must pace the next acquisition')
+      assert.deepStrictEqual(seen, [name === 'backoff-error-close' ? 1 : 0])
+      await sql.end({ timeout: 0 })
+    } else if (name === 'backoff-idle-close') {
+      const seen = []
+      const closed = deferred()
+      const sql = make({ connect_timeout: 3, idle_timeout: 0.1, backoff: count => (seen.push(count), 0.4), onclose: () => closed.resolve() })
+      await marker(sql)
+      await closed.promise
+      const start = Date.now()
+      assert.strictEqual(await settle(marker(sql), 4000), 'resolved')
+      assert(Date.now() - start < 250, 'Our own graceful close must not pace the next acquisition')
+      assert.deepStrictEqual(seen, [])
+      await sql.end({ timeout: 0 })
+    } else if (name === 'ending-during-retry') {
+      const sql = make({ host: ['127.0.0.1', '127.0.0.1'], port: [refused, server.port], connect_timeout: 2, backoff: 5 })
+      const pending = settle(marker(sql))
+      await until(() => server.events.some(x => x.type === 'startup'))
+      const ending = settle(sql.end())
+      await sleep(50)
+      server.releaseStartup()
+      assert.strictEqual(await pending, 'resolved')
+      assert.strictEqual(await ending, 'resolved')
+    } else if (name === 'deadline-backoff') {
+      const sql = make({ connect_timeout: 0.3, backoff: 0.5 })
+      const start = Date.now()
+      assert.strictEqual(await settle(marker(sql)), 'rejected:CONNECTION_CLOSED')
+      const elapsed = Date.now() - start
+      assert(elapsed >= 250 && elapsed < 450, 'Deadline must cut the backoff: ' + elapsed)
+      await sleep(500)
+      assert.strictEqual(startups(server), 1)
+      assert.strictEqual(await settle(sql.end({ timeout: 0 }), 500), 'resolved')
+    } else if (name === 'deadline-attempt-error' || name === 'deadline-attempt-timeout') {
+      const ports = name === 'deadline-attempt-error' ? [good.port, server.port] : [server.port, server.port]
+      const sql = make({ host: ['127.0.0.1', '127.0.0.1'], port: ports, connect_timeout: 0.3, backoff: 0.01 })
+      const start = Date.now()
+      const expected = name === 'deadline-attempt-error' ? 'rejected:CONNECTION_CLOSED' : 'rejected:CONNECT_TIMEOUT'
+      assert.strictEqual(await settle(marker(sql)), expected)
+      const elapsed = Date.now() - start
+      assert(elapsed >= 550 && elapsed < 1000, 'Deadline must end the acquisition: ' + elapsed)
+      const before = startups(server)
+      await sleep(400)
+      assert.strictEqual(startups(server), before)
+      assert.strictEqual(await settle(sql.end({ timeout: 0 }), 500), 'resolved')
+    } else if (name.startsWith('cause-')) {
+      const multi = name.split('-')[1] === 'multi'
+      let calls = 0
+      const factory = cause === 'socket' ? () => (calls++, net.connect(refused, '127.0.0.1'))
+        : cause === 'factory' ? () => {
+          calls++
+          throw new Error('factory denied')
+        } : null
+      const sql = make({ connect_timeout: 0.3, backoff: 0.01,
+                         ...(multi ? { host: ['127.0.0.1', '127.0.0.1'], port: [server.port, server.port] } : {}),
+                         ...(factory ? { socket: factory } : {}) })
+      const start = Date.now()
+      const outcome = await settle(marker(sql))
+      const elapsed = Date.now() - start
+      const attempts = factory ? calls : startups(server)
+      const code = { socket: 'ECONNREFUSED', factory: 'factory denied', server: '28P01',
+                     close: 'CONNECTION_CLOSED', timeout: 'CONNECT_TIMEOUT' }[cause]
+      assert.strictEqual(outcome, 'rejected:' + code)
+      if (multi && cause === 'timeout') {
+        assert.strictEqual(attempts, 2)
+        assert(elapsed >= 550)
+      } else if (multi || cause === 'close') {
+        assert(attempts >= 3 - (cause === 'close' ? 1 : 0), 'Retries must continue: ' + attempts)
+        assert(elapsed >= (multi ? 550 : 250), 'Retries must last until the deadline: ' + elapsed)
+      } else {
+        assert.strictEqual(attempts, 1)
+        assert(elapsed < 250, 'Unexpected duration ' + elapsed)
+      }
       await sql.end({ timeout: 0 })
     } else if (name === 'first-query-pipeline') {
       const sql = make({ connect_timeout: 2 })
