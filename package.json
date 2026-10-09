@@ -6,11 +6,20 @@
   "module": "src/index.js",
   "main": "cjs/src/index.js",
   "exports": {
-    "types": "./types/index.d.ts",
-    "bun": "./src/index.js",
-    "workerd": "./cf/src/index.js",
-    "import": "./src/index.js",
-    "default": "./cjs/src/index.js"
+    ".": {
+      "types": "./types/index.d.ts",
+      "bun": "./src/index.js",
+      "workerd": "./cf/src/index.js",
+      "import": "./src/index.js",
+      "default": "./cjs/src/index.js"
+    },
+    "./vercel": {
+      "types": "./types/vercel.d.ts",
+      "bun": "./src/vercel.js",
+      "workerd": "./cf/src/vercel.js",
+      "import": "./src/vercel.js",
+      "default": "./cjs/src/vercel.js"
+    }
   },
   "types": "types/index.d.ts",
   "typings": "types/index.d.ts",

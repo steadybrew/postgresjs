@@ -159,6 +159,7 @@ function Postgres(a, b) {
       idle_timeout: null,
       max_lifetime: null,
       fetch_types: false,
+      onidle: null,
       onclose() {
         Object.entries(listen.channels).forEach(([name, { listeners }]) => {
           delete listen.channels[name]
@@ -368,9 +369,17 @@ function Postgres(a, b) {
     queue.push(c)
     c.queue = queue
     queue === open
-      ? c.idleTimer.start()
+      ? (c.idleTimer.start(), callback(options.onidle, c.id))
       : c.idleTimer.cancel()
     return c
+  }
+
+  function callback(fn, ...args) {
+    try {
+      fn && fn(...args)
+    } catch (e) {
+      queueMicrotask(() => { throw e })
+    }
   }
 
   function json(x) {
@@ -615,6 +624,7 @@ function parseOptions(a, b) {
     onnotice        : o.onnotice,
     onnotify        : o.onnotify,
     onclose         : o.onclose,
+    onidle          : o.onidle,
     onparameter     : o.onparameter,
     socket          : o.socket,
     transform       : parseTransform(o.transform || { undefined: undefined }),

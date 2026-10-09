@@ -17,6 +17,7 @@ export default function Subscribe(postgres, options) {
     fetch_types: false,
     idle_timeout: null,
     max_lifetime: null,
+    onidle: null,
     connection: {
       ...options.connection,
       replication: 'database'

@@ -8,6 +8,7 @@ import fs from 'https://deno.land/std@0.132.0/node/fs.ts'
 import crypto from 'https://deno.land/std@0.132.0/node/crypto.ts'
 
 import postgres from '../src/index.js'
+import { vercelPool } from '../src/vercel.js'
 const delay = ms => new Promise(r => setTimeout(r, ms))
 
 const rel = x => new URL(x, import.meta.url)
@@ -1080,6 +1081,87 @@ t('responds with server parameters (application_name)', async() =>
 
 t('has server parameters', async() => {
   return ['postgres.js', (await sql`select 1`.then(() => sql.parameters.application_name))]
+})
+
+t('onidle fires once for each connection that goes idle', async() => {
+  const ids = []
+  const sql = postgres({ ...options, max: 2, onidle: id => ids.push(id) })
+  await Promise.all([sql`select pg_sleep(0.05)`, sql`select pg_sleep(0.05)`])
+  await sql.end()
+  return ['2 2', ids.length + ' ' + new Set(ids).size]
+})
+
+t('onidle fires once after queued queries drain', async() => {
+  let count = 0
+  const sql = postgres({ ...options, max: 1, onidle: () => count++ })
+  await Promise.all([sql`select pg_sleep(0.05)`, sql`select 1`])
+  await sql.end()
+  return [1, count]
+})
+
+t('onidle fires when a reserved connection is released', async() => {
+  let count = 0
+  const sql = postgres({ ...options, max: 1, onidle: () => count++ })
+  const reserved = await sql.reserve()
+  await reserved`select 1`
+  const before = count
+  reserved.release()
+  await sql.end()
+  return ['0 1', before + ' ' + count]
+})
+
+t('onidle fires when a transaction completes', async() => {
+  let count = 0
+  const sql = postgres({ ...options, max: 1, onidle: () => count++ })
+  await sql.begin(sql => sql`select 1`)
+  await sql.end()
+  return [1, count]
+})
+
+t('onidle can be set after creation', async() => {
+  let count = 0
+  const sql = postgres({ ...options, max: 1 })
+  sql.options.onidle = () => count++
+  await sql`select 1`
+  await sql.end()
+  return [1, count]
+})
+
+t('onidle is not called for the listen connection', async() => {
+  let count = 0
+  const sql = postgres({ ...options, onidle: () => count++ })
+  const { unlisten } = await sql.listen('onidle_listen', () => undefined)
+  await unlisten()
+  await sql.end()
+  return [0, count]
+})
+
+t('vercelPool has the pool shape attachDatabasePool detects', async() => {
+  const sql = postgres({ ...options, idle_timeout: 5 })
+  const pool = vercelPool(sql)
+  await sql.end()
+  return ['true 5000', ('on' in pool && 'idleTimeoutMillis' in pool.options) + ' ' + pool.options.idleTimeoutMillis]
+})
+
+t('vercelPool release listener runs before an existing onidle', async() => {
+  const seen = []
+  const sql = postgres({ ...options, onidle: () => seen.push('own') })
+  vercelPool(sql).on('release', () => seen.push('release'))
+  await sql`select 1`
+  await sql.end()
+  return ['release,own', seen.join()]
+})
+
+t('vercelPool requires idle_timeout', async() => {
+  const sql = postgres({ ...options, idle_timeout: null })
+  let error
+  try {
+    vercelPool(sql)
+  } catch (e) {
+    error = e
+  }
+  await sql.end()
+  return [true, error instanceof Error]
 })
 
 t('big query body', { timeout: 2 }, async() => {

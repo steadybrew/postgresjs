@@ -119,6 +119,8 @@ interface BaseOptions<T extends Record<string, postgres.PostgresType>> {
    */
   publications: string
   onclose: (connId: number) => void;
+  /** Called with the connection id each time a connection returns to the pool idle and its idle timer starts */
+  onidle: (connId: number) => void;
   backoff: boolean | ((attemptNum: number) => number);
   max_lifetime: number | null;
   keep_alive: number | null;

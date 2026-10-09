@@ -199,6 +199,8 @@ The connection drives its own queue through four callbacks:
 | `ondrain(c)` | a Draining connection has gone idle | if the pool is ending, runs queued plain queries on it (rejecting queued reservations with `CONNECTION_ENDED`) and keeps it Draining; otherwise lets it close |
 | `onclose(c, err)` | `enterClosed` | files it in `closed`, settles its lease as Closed, and either starts the next queued request on it or, while ending, handles the queue as described below |
 
+**Idle hook.** Filing a connection in `open` starts its idle timer and calls the user's `onidle(c.id)`. The pool calls it synchronously and rethrows anything it throws in a microtask, so a user error cannot reach the phase table. The internal listen and subscribe pools do not inherit `onidle`.
+
 **Hand-out expiry.** An idle connection leaves `open` only through `takeOpen()`. Before handing one out, it checks `idle_timeout` and `max_lifetime` against wall-clock due times (`Date.now()`). Any connection past either limit is terminated and the next one is tried. The check exists because timers cannot fire while a serverless instance is frozen, so on thaw an expired connection, often with a dead socket, could otherwise be handed out first. Terminating, rather than closing gracefully, frees the slot at once instead of holding it until the server answers Terminate.
 
 **Ending the pool.**

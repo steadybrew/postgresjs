@@ -1031,6 +1031,7 @@ const sql = postgres('postgres://username:password@host:port/database', {
   types                : [],            // Array of custom types, see more below
   onnotice             : fn,            // Default console.log, set false to silence NOTICE
   onparameter          : fn,            // (key, value) when server param change
+  onidle               : fn,            // (connId) when a connection returns to the pool idle
   debug                : fn,            // Is called with (connection, query, params, types)
   socket               : fn,            // fn returning custom socket to use
   transform            : {
@@ -1138,6 +1139,21 @@ const sql = postgres({
   max_lifetime: 60 * 30
 })
 ```
+
+### Vercel Fluid Compute
+
+On Vercel's Fluid Compute an instance can be suspended while a connection sits idle and before `idle_timeout` has closed it, which leaves the connection open on the server. `attachDatabasePool` from `@vercel/functions` keeps the instance alive until idle connections have closed. Pass it the pool through `vercelPool`:
+
+```js
+import postgres from '@steadybrew/postgresjs'
+import { vercelPool } from '@steadybrew/postgresjs/vercel'
+import { attachDatabasePool } from '@vercel/functions'
+
+const sql = postgres({ idle_timeout: 5 })
+attachDatabasePool(vercelPool(sql))
+```
+
+`vercelPool` requires `idle_timeout` to be a number of seconds. It hooks into the `onidle` option, which is called with the connection id each time a connection returns to the pool idle and its idle timer starts, and it keeps any `onidle` you set yourself. If `onidle` throws, the error is rethrown as an uncaught exception and the connection is not affected. A connection that was frozen past `idle_timeout` anyway is closed when it is next handed out (see [Connection timeout](#connection-timeout)).
 
 ### Cloudflare Workers support
 
