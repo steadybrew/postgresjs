@@ -1128,7 +1128,7 @@ By default, connections will not close until `.end()` is called. However, it may
 - using Postgres.js in a Serverless environment (Lambda, etc.)
 - using Postgres.js with a database service that automatically closes connections after some time (see [`ECONNRESET` issue](https://github.com/porsager/postgres/issues/179))
 
-This can be done using the `idle_timeout` or `max_lifetime` options. These configuration options specify the number of seconds to wait before automatically closing an idle connection and the maximum time a connection can exist, respectively.
+This can be done using the `idle_timeout` or `max_lifetime` options. These configuration options specify the number of seconds to wait before automatically closing an idle connection and the maximum time a connection can exist, respectively. Both are also checked when an idle connection is handed out, so an idle connection that is past either limit (for example after a serverless instance was frozen) is closed instead of being used.
 
 For example, to close a connection that has either been idle for 20 seconds or existed for more than 30 minutes:
 
@@ -1347,6 +1347,16 @@ When using SASL authentication the server responds with a signature at the end o
 
 Making queries has to be done using the sql function as a [tagged template](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Template_literals#Tagged_templates). This is to ensure parameters are serialized and passed to Postgres as query parameters with correct types and to avoid SQL injection.
 
+##### SSL_NOT_SUPPORTED
+> The server does not support SSL connections
+
+The server answered the SSL request with a refusal while `ssl` is set to `require` (or another mode that does not fall back to plain text). The attempt fails at once for a single host. Use `ssl: 'prefer'` to fall back to an unencrypted connection, or enable SSL on the server.
+
+##### TARGET_SESSION_ATTRS
+> No host matched target_session_attrs=read-write: localhost:5432 is read-only
+
+Every host answered, but none satisfied [`target_session_attrs`](#connection-details), so the connection is not retried. The message names the requested value and each host with the reason it was rejected. If any host failed for another reason (refused, closed, timed out), the client keeps retrying until `connect_timeout` instead, since a failover may be in progress.
+
 ##### AUTH_TYPE_NOT_IMPLEMENTED
 > Auth type X not implemented
 
@@ -1372,7 +1382,7 @@ This error is thrown for any queries that were pending when the timeout to [`sql
 ##### CONNECT_TIMEOUT
 > write CONNECT_TIMEOUT host:port
 
-The timeout applies to each connection attempt and covers socket creation, TCP and TLS negotiation, authentication, session checks and type discovery. When an attempt times out, the next host is tried. The acquisition as a whole is bounded by `connect_timeout` multiplied by the number of hosts, measured from the first attempt; time spent waiting on an inherited reconnect delay is not counted. Set it with `connect_timeout` or `PGCONNECT_TIMEOUT` (30 seconds by default); zero disables both limits.
+The timeout applies to each connection attempt and covers socket creation, TCP and TLS negotiation, authentication, session checks and type discovery. When an attempt times out, the next host is tried. The acquisition as a whole is bounded by `connect_timeout` multiplied by the number of hosts, measured from the first attempt; time spent waiting on an inherited reconnect delay is not counted. Set it with `connect_timeout` or `PGCONNECT_TIMEOUT` (30 seconds by default); zero disables both limits. The same value also bounds a graceful close: if the server does not close the socket within `connect_timeout` seconds after `end()` sends Terminate, the connection is closed anyway; zero leaves a graceful close unbounded.
 
 If the only attempt times out, the error is `CONNECT_TIMEOUT`. Once earlier attempts have failed, exhausting the overall budget reports the earlier error, such as the last server error or `CONNECTION_CLOSED`. With a single host, a socket or socket factory error rejects the query once; with several hosts, errors keep cycling through the hosts with backoff until the budget is spent. Queries already sent to the server are not replayed.
 

@@ -405,7 +405,8 @@ export async function phases(name, postgres, onEvent) {
                               holdSession: name === 'terminate-initializing',
                               allowHalfOpen: name === 'terminate-closing' || name === 'closing-bounded' || name === 'handout-unanswered',
                               fatalAfterSession: name === 'fatal-initializing', fatalDuringSession: name === 'fatal-initializing-inflight',
-                              sslReply: name === 'tls-throw' ? 'S' : '', failQuery: name === 'cancel-pipelined' ? 'fail c' : '', failAuthentication: cause === 'server' ? 'always' : name === 'reentrant-onclose', onEvent })
+                              sslReply: name === 'tls-throw' ? 'S' : '', failQuery: name === 'cancel-pipelined' ? 'fail c' : '',
+                              failAuthentication: cause === 'server' ? 'always' : name === 'reentrant-onclose', onEvent })
   const hold = name === 'failover-timeout' ? server : null
   const goodOptions = { 'failover-timeout': {}, 'deadline-attempt-error': { closeStartup: Infinity },
                         'prefer-standby-passes': { closeStartup: 2, standby: true } }[name]

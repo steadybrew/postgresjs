@@ -11,23 +11,34 @@ This is an independently maintained fork of [Postgres.js](https://github.com/por
 - 🏄‍♀️ Simple surface API
 - 🖊️ Dynamic query support
 
-<br>
+<br clear="all">
 
 ## Compatibility policy
 
-The next release raises the npm package's minimum Node.js version to **24**. This is a breaking compatibility change for applications using older Node versions. The minimum stays at Node 24 until an explicit policy change; newly maintained Node majors are tested before compatibility is claimed.
+**Version 4.0.0 requires Node.js 24 or newer** and supports PostgreSQL 15–18. This raises the minimum Node.js version from 12. The minimum stays at Node 24 until an explicit policy change; newly maintained Node majors are tested before compatibility is claimed.
 
 | Runtime | PostgreSQL target | CI jobs | Validation status |
 | --- | --- | ---: | --- |
-| Node 24, ESM and CJS | 15, 16, 17, 18 | 4 | Locally validated |
-| Node 26, ESM and CJS | 15, 16, 17, 18 | 4 | Configured; local execution pending |
-| Deno 1.46.3 | 17 | 1 | Validated legacy runtime; no Deno 2 claim |
-| Cloudflare workerd, Wrangler 4.123.0 | 17 | 1 | Configured; startup/array, timer, `sql.end()` and TLS gates; #1202 "Stream was cancelled" still open |
+| Node 24, ESM and CJS | 15, 16, 17, 18 | 4 | Passed release-candidate CI |
+| Node 26, ESM and CJS | 15, 16, 17, 18 | 4 | Passed release-candidate CI |
+| Deno 1.46.3 | 17 | 1 | Passed release-candidate CI; no Deno 2 claim |
+| Cloudflare workerd, Wrangler 4.123.0 | 17 | 1 | Passed release-candidate CI; known "Stream was cancelled" rejection remains |
 | Bun export | No dedicated target | 0 | Retained as best effort; unverified, without dedicated CI |
 
-The core Node matrix has eight jobs. Deno and Cloudflare run independently, so they do not multiply that matrix. PostgreSQL versions below 15 are outside the next release's supported matrix.
+All ten [release-candidate CI jobs](https://github.com/steadybrew/postgresjs/actions/runs/37812371141) passed for the runtime changes promoted to 4.0.0. The core Node matrix has eight jobs; Deno and Cloudflare run independently. PostgreSQL versions below 15 are outside the supported matrix. See the [release notes](./CHANGELOG.md#v400---2026-10-08) for validation details and [known limitations](./CHANGELOG.md#known-limitations), including the Cloudflare cancellation rejection tolerated by its CI gate.
 
 Supabase PostgreSQL and Supabase Edge are separate environments. Deno 1.46.3 coverage does not imply Deno 2 or hosted Supabase Edge certification.
+
+## Upgrading to 4.0.0
+
+Version 4.0.0 fixes connection startup, reservations, reconnects, shutdown, transaction ownership, and built-in array handling. When upgrading from `@steadybrew/postgresjs` 3.x:
+
+- Upgrade to **Node.js 24 or newer** before installing.
+- Keep queries within the reservation or transaction that owns them. Reserved handles used after `release()`, and transaction handles used after completion, reject with `CONNECTION_ENDED`. A handle whose connection has closed cannot run queries on a reconnected session.
+- Pass a non-empty string without NUL characters to transaction `sql.prepare(name)`. Invalid names throw `INVALID_TRANSACTION_NAME`.
+- If you use `fetch_types: false`, review code that expects built-in arrays as raw strings: supported built-in arrays are now decoded as JavaScript arrays. SQL `NULL` elements become JavaScript `null`; quoted `"NULL"` text remains a string.
+
+See the [changelog](./CHANGELOG.md#breaking-changes-and-migration) for the full migration notes and fixes.
 
 ## Getting started
 
@@ -88,6 +99,7 @@ const { default: postgres } = await import('@steadybrew/postgresjs')
 
 ## Table of Contents
 
+* [Upgrading to 4.0.0](#upgrading-to-400)
 * [Connection](#connection)
 * [Queries](#queries)
 * [Building queries](#building-queries)
@@ -709,10 +721,12 @@ sql.begin('read write', async sql => {
 ```
 
 
-#### PREPARE TRANSACTION `await sql.prepare([name]) -> fn()`
+#### PREPARE TRANSACTION `sql.prepare(name)`
 
 Indicates that the transactions should be prepared using the [`PREPARE TRANSACTION [NAME]`](https://www.postgresql.org/docs/current/sql-prepare-transaction.html) statement
 instead of being committed.
+
+The name must be a non-empty string without NUL characters; invalid names throw `INVALID_TRANSACTION_NAME`. Quotes and backslashes in valid names are preserved.
 
 ```js
 sql.begin('read write', async sql => {
@@ -1110,7 +1124,7 @@ By default, connections will not close until `.end()` is called. However, it may
 - using Postgres.js in a Serverless environment (Lambda, etc.)
 - using Postgres.js with a database service that automatically closes connections after some time (see [`ECONNRESET` issue](https://github.com/porsager/postgres/issues/179))
 
-This can be done using the `idle_timeout` or `max_lifetime` options. These configuration options specify the number of seconds to wait before automatically closing an idle connection and the maximum time a connection can exist, respectively.
+This can be done using the `idle_timeout` or `max_lifetime` options. These configuration options specify the number of seconds to wait before automatically closing an idle connection and the maximum time a connection can exist, respectively. Both are also checked when an idle connection is handed out, so an idle connection that is past either limit (for example after a serverless instance was frozen) is closed instead of being used.
 
 For example, to close a connection that has either been idle for 20 seconds or existed for more than 30 minutes:
 
@@ -1287,6 +1301,8 @@ await reserved.release()
 
 Once you have finished with the reserved connection, call `release` to add it back to the pool.
 
+After release, queries through that reserved handle reject with `CONNECTION_ENDED`. Call `sql.reserve()` again to acquire a new handle. A reserved handle whose connection has closed cannot be reused after reconnect.
+
 ## Error handling
 
 Errors are all thrown to related queries and never globally. Errors coming from database itself are always in the [native Postgres format](https://www.postgresql.org/docs/current/errcodes-appendix.html), and the same goes for any [Node.js errors](https://nodejs.org/api/errors.html#errors_common_system_errors) eg. coming from the underlying connection.
@@ -1327,6 +1343,16 @@ When using SASL authentication the server responds with a signature at the end o
 
 Making queries has to be done using the sql function as a [tagged template](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Template_literals#Tagged_templates). This is to ensure parameters are serialized and passed to Postgres as query parameters with correct types and to avoid SQL injection.
 
+##### SSL_NOT_SUPPORTED
+> The server does not support SSL connections
+
+The server answered the SSL request with a refusal while `ssl` is set to `require` (or another mode that does not fall back to plain text). The attempt fails at once for a single host. Use `ssl: 'prefer'` to fall back to an unencrypted connection, or enable SSL on the server.
+
+##### TARGET_SESSION_ATTRS
+> No host matched target_session_attrs=read-write: localhost:5432 is read-only
+
+Every host answered, but none satisfied [`target_session_attrs`](#connection-details), so the connection is not retried. The message names the requested value and each host with the reason it was rejected. If any host failed for another reason (refused, closed, timed out), the client keeps retrying until `connect_timeout` instead, since a failover may be in progress.
+
 ##### AUTH_TYPE_NOT_IMPLEMENTED
 > Auth type X not implemented
 
@@ -1352,7 +1378,7 @@ This error is thrown for any queries that were pending when the timeout to [`sql
 ##### CONNECT_TIMEOUT
 > write CONNECT_TIMEOUT host:port
 
-The timeout applies to each connection attempt and covers socket creation, TCP and TLS negotiation, authentication, session checks and type discovery. When an attempt times out, the next host is tried. The acquisition as a whole is bounded by `connect_timeout` multiplied by the number of hosts, measured from the first attempt; time spent waiting on an inherited reconnect delay is not counted. Set it with `connect_timeout` or `PGCONNECT_TIMEOUT` (30 seconds by default); zero disables both limits.
+The timeout applies to each connection attempt and covers socket creation, TCP and TLS negotiation, authentication, session checks and type discovery. When an attempt times out, the next host is tried. The acquisition as a whole is bounded by `connect_timeout` multiplied by the number of hosts, measured from the first attempt; time spent waiting on an inherited reconnect delay is not counted. Set it with `connect_timeout` or `PGCONNECT_TIMEOUT` (30 seconds by default); zero disables both limits. The same value also bounds a graceful close: if the server does not close the socket within `connect_timeout` seconds after `end()` sends Terminate, the connection is closed anyway; zero leaves a graceful close unbounded.
 
 If the only attempt times out, the error is `CONNECT_TIMEOUT`. Once earlier attempts have failed, exhausting the overall budget reports the earlier error, such as the last server error or `CONNECTION_CLOSED`. With a single host, a socket or socket factory error rejects the query once; with several hosts, errors keep cycling through the hosts with backoff until the budget is spent. Queries already sent to the server are not replayed.
 
