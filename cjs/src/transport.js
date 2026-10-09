@@ -40,12 +40,18 @@ function sendCancel(options, { pid, secret }, s) {
       x.once('close', () => (clearTimeout(timeout), resolve()))
     }
     const upgrade = () => {
-      const raw = s
-      const config = tlsConfig(options, raw)
-      raw.removeAllListeners()
-      s = tls.connect(config)
-      watch(s)
-      s.once('secureConnect', () => s.write(request))
+      try {
+        const raw = s
+        const config = tlsConfig(options, raw)
+        raw.removeAllListeners()
+        s = tls.connect(config)
+        watch(s)
+        s.once('secureConnect', () => s.write(request))
+      } catch (error) {
+        clearTimeout(timeout)
+        s.destroy()
+        reject(error)
+      }
     }
     const start = !ssl
       ? () => s.write(request)

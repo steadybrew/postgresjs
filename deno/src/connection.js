@@ -483,8 +483,11 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     stream && (stream.destroy(err), stream = null)
     final && (final(err), final = null)
     query && queryError(query, err)
-    while (sent.length)
-      queryError(sent.shift(), err)
+    while (sent.length) {
+      const pending = sent.shift()
+      queryError(pending, err)
+      pending.cancelled && pending.cancelled.resolve()
+    }
     query = results = errorResponse = chunk = nextWriteTimer = null
     result = new Result()
     rows = 0
@@ -735,11 +738,12 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     if (phase === Phase.Closing)
       return
 
-    while (sent.length && (query = sent.shift()) && (query.active = true, query.cancelled))
-      cancelRequest(options, query.state).then(query.cancelled.resolve, query.cancelled.reject)
-
-    if (query)
+    query = sent.length ? sent.shift() : null
+    if (query) {
+      query.active = true
+      query.cancelled && cancelRequest(options, query.state).then(query.cancelled.resolve, query.cancelled.reject)
       return
+    }
 
     connection.reserved
       ? !connection.reserved.release && x[5] === 73

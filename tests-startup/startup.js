@@ -369,12 +369,13 @@ export async function phases(name, postgres, onEvent) {
   })
   const base = { host: '127.0.0.1', user: 'fixture', database: 'fixture', ssl: false, max: 1, fetch_types: true, onnotice: () => { /* Quiet. */ } }
   const hang = ['forced-queued', 'cancel-errors', 'gap-query', 'gap-query-pool', 'stale-ending-lifetime', 'stale-ending-close',
-                'stale-ending-rst', 'fin-inflight', 'rst-inflight', 'begin-socket-cause'].includes(name)
+                'stale-ending-rst', 'fin-inflight', 'rst-inflight', 'begin-socket-cause',
+                'cancel-request-refused', 'cancel-unawaited'].includes(name)
   const holding = ['reserve-end', 'cancel-initial', 'failover-timeout'].includes(name)
   const server = await peer({ holdQuery: hang ? 'hang' : '', holdStartup: holding,
                               fatalQuery: name === 'begin-fatal-inflight' ? 'fatal' : '',
                               fatalAfterSession: name === 'fatal-initializing', fatalDuringSession: name === 'fatal-initializing-inflight',
-                              sslReply: name === 'tls-throw' ? 'S' : '', failAuthentication: name === 'reentrant-onclose', onEvent })
+                              sslReply: name === 'tls-throw' ? 'S' : '', failQuery: name === 'cancel-pipelined' ? 'fail c' : '', failAuthentication: name === 'reentrant-onclose', onEvent })
   const hold = name === 'failover-timeout' ? server : null
   const good = name === 'failover-timeout' ? await peer({ onEvent }) : null
   const clients = []
@@ -686,23 +687,101 @@ export async function phases(name, postgres, onEvent) {
         const socket = net.connect(server.port, '127.0.0.1')
         await new Promise((resolve, reject) => { socket.once('connect', resolve); socket.once('error', reject) })
         created.push(socket)
+        if (created.length === 2) {
+          setImmediate(() => {
+            socket.emit('error', new Error('first cancel error'))
+            socket.emit('error', new Error('second cancel error'))
+          })
+        }
         return socket
       } })
       const query = sql.unsafe('select hang', [], { simple: true })
       const outcome = settle(query)
       await until(() => server.events.some(x => x.sql === 'select hang'))
-      const canceller = query.canceller
-      query.canceller = x => canceller(x).catch(() => { /* Observed through uncaught errors. */ })
       const uncaught = []
       const observe = error => uncaught.push(error.message)
       process.on('uncaughtException', observe)
       try {
-        query.cancel()
-        await until(() => created.length === 2)
-        await sleep(20)
-        created[1].emit('error', new Error('first cancel error'))
-        created[1].emit('error', new Error('second cancel error'))
+        assert.strictEqual(await settle(query.cancel()), 'rejected:first cancel error')
         await sleep(50)
+      } finally {
+        process.off('uncaughtException', observe)
+      }
+      assert.deepStrictEqual(uncaught, [])
+      await sql.end({ timeout: 0 })
+      assert.strictEqual((await outcome).slice(0, 8), 'rejected')
+    } else if (name === 'cancel-pipelined') {
+      const sql = make({ connect_timeout: 2 })
+      await marker(sql)
+      server.hold('stall')
+      const first = settle(sql.unsafe('select 1 -- stall', [], { simple: true }))
+      await until(() => server.heldStatement())
+      const doomed = sql.unsafe('select 2', [], { simple: true })
+      const outcome = settle(doomed)
+      const later = settle(sql.unsafe('select fail c', [], { simple: true }))
+      await until(() => server.events.some(x => x.sql === 'select fail c'))
+      const cancelled = settle(doomed.cancel())
+      await sleep(50)
+      assert.strictEqual(server.events.filter(x => x.type === 'cancel').length, 0)
+      server.releaseStatement()
+      assert.strictEqual(await first, 'resolved')
+      assert.strictEqual(await cancelled, 'resolved')
+      assert.deepStrictEqual(server.events.filter(x => x.type === 'cancel').map(x => [x.backend, x.secret]), [[1, 0]])
+      assert.strictEqual(await outcome, 'resolved')
+      assert.strictEqual(await later, 'rejected:42601')
+      await sql.end({ timeout: 0 })
+    } else if (name === 'cancel-pipelined-lost') {
+      const sql = make({ connect_timeout: 2 })
+      await marker(sql)
+      server.hold('stall')
+      const first = settle(sql.unsafe('select 1 -- stall', [], { simple: true }))
+      await until(() => server.heldStatement())
+      const doomed = sql.unsafe('select 2', [], { simple: true })
+      const outcome = settle(doomed)
+      await until(() => server.events.some(x => x.sql === 'select 2'))
+      const cancelled = settle(doomed.cancel(), 500)
+      server.reset()
+      assert.strictEqual(await first, 'rejected:ECONNRESET')
+      assert.strictEqual(await outcome, 'rejected:ECONNRESET')
+      assert.strictEqual(await cancelled, 'resolved')
+      await sql.end({ timeout: 0 })
+    } else if (name === 'cancel-settled') {
+      const sql = make({ connect_timeout: 2 })
+      const query = sql.unsafe('select 1', [], { simple: true })
+      await query
+      assert.strictEqual(await settle(query.cancel(), 500), 'resolved')
+      await sleep(50)
+      assert.strictEqual(server.events.filter(x => x.type === 'cancel').length, 0)
+      await sql.end({ timeout: 0 })
+    } else if (name === 'cancel-request-tls-error') {
+      const { cancelRequest } = await import(process.argv[3] === 'cjs' ? '../cjs/src/transport.js' : '../src/transport.js')
+      const options = { ssl: { get minVersion() { throw new Error('bad tls option') } }, sslnegotiation: 'direct',
+                        host: ['127.0.0.1'], port: [server.port], connect_timeout: 2 }
+      assert.strictEqual(await settle(cancelRequest(options, { pid: 1, secret: 0 })), 'rejected:bad tls option')
+    } else if (name === 'cancel-request-refused' || name === 'cancel-unawaited') {
+      let created = 0
+      const sql = make({ connect_timeout: 2, socket: async() => {
+        const socket = net.connect(created++ ? refused : server.port, '127.0.0.1')
+        created > 1 || await new Promise((resolve, reject) => socket.once('connect', resolve).once('error', reject))
+        return socket
+      } })
+      const query = sql.unsafe('select hang', [], { simple: true })
+      const outcome = settle(query)
+      await until(() => server.events.some(x => x.sql === 'select hang'))
+      const uncaught = []
+      const observe = error => uncaught.push(error.message)
+      process.on('uncaughtException', observe)
+      try {
+        const before = timeouts()
+        const start = Date.now()
+        if (name === 'cancel-unawaited') {
+          query.cancel()
+          await sleep(200)
+        } else {
+          assert.strictEqual(await settle(query.cancel()), 'rejected:ECONNREFUSED')
+          assert(Date.now() - start < 1000, 'A refused cancel must reject promptly')
+        }
+        await until(() => timeouts() <= before, 500)
       } finally {
         process.off('uncaughtException', observe)
       }
