@@ -459,6 +459,10 @@ declare namespace postgres {
     | 'UNDEFINED_VALUE'
     | 'MAX_PARAMETERS_EXCEEDED'
     | 'SASL_SIGNATURE_MISMATCH'
+    | 'SSL_NOT_SUPPORTED'
+    | 'COPY_IN_PROGRESS'
+    | 'INVALID_TRANSACTION_NAME'
+    | 'TARGET_SESSION_ATTRS'
     | 'UNSAFE_TRANSACTION';
     message: string;
   }
@@ -607,7 +611,7 @@ declare namespace postgres {
     writable(): Promise<Writable>;
 
     execute(): this;
-    cancel(): void;
+    cancel(): Promise<void>;
 
     /**
      * @deprecated `.stream` has been renamed to `.forEach`
