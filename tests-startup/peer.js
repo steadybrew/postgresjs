@@ -136,6 +136,8 @@ export async function peer({ catalogError = false, holdStartup = false, failAuth
             ? Buffer.concat([denied(failure), rdy()])
             : Buffer.concat([complete(tag(text) || 'SELECT 0'), rdy()]))
           return
+        } else if (fatalQuery && statement.includes(fatalQuery)) {
+          socket.end(message('E', Buffer.from('SFATAL\0C57P01\0Mterminating connection\0\0')))
         } else if (outsideTransaction(statement)) {
           socket.write(noTransaction())
         } else if (holdCatalog && statement.includes('pg_catalog.pg_type')) {
@@ -153,7 +155,7 @@ export async function peer({ catalogError = false, holdStartup = false, failAuth
         }
       } else if (type === 'S') {
         const failing = closeAfterError && catalogError && (catalogError === true || pid === 1)
-        if (!holdCatalog && !socket.destroyed && !failing && pid > closeCatalog)
+        if (!holdCatalog && !socket.destroyed && !socket.writableEnded && !failing && pid > closeCatalog)
           socket.write(rdy())
       } else if (type === 'startup') {
         const reply = authenticated

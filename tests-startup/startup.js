@@ -401,7 +401,7 @@ export async function phases(name, postgres, onEvent) {
                    'timeout-keeps-error', 'ending-during-retry', 'terminate-authenticating'].includes(name) || cause === 'timeout'
   const server = await peer({ holdQuery: hang ? 'hang' : '', holdStartup: holding, readOnly: name === 'single-host-read-only',
                               closeStartup: cause === 'close' || name === 'deadline-backoff' ? Infinity : name === 'prefer-standby-passes' ? 2 : 0,
-                              fatalQuery: name === 'begin-fatal-inflight' ? 'fatal' : '',
+                              fatalQuery: name === 'begin-fatal-inflight' ? 'fatal' : name === 'fatal-catalog' ? 'pg_catalog.pg_type' : '',
                               closeQuery: name === 'error-close-reconnect' ? '1/0' : '',
                               holdSession: name === 'terminate-initializing',
                               allowHalfOpen: name === 'terminate-closing' || name === 'closing-bounded' || name === 'handout-unanswered',
@@ -659,6 +659,19 @@ export async function phases(name, postgres, onEvent) {
       assert.strictEqual(await settle(marker(sql)), 'resolved')
       assert.strictEqual(startups(server), 2)
       assert.strictEqual(await settle(sql.end()), 'resolved')
+    } else if (name === 'fatal-catalog') {
+      const sql = make({ connect_timeout: 0.3, backoff: 0.01 })
+      const uncaught = []
+      const observe = error => uncaught.push(error.message)
+      process.on('uncaughtException', observe)
+      try {
+        assert.strictEqual(await settle(marker(sql)), 'rejected:57P01')
+        await sleep(50)
+      } finally {
+        process.off('uncaughtException', observe)
+      }
+      assert.deepStrictEqual(uncaught, [])
+      await sql.end({ timeout: 0 })
     } else if (name === 'end-queued-cold') {
       const sql = make({ max: 2, connect_timeout: 2 })
       const order = []
