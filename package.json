@@ -1,6 +1,6 @@
 {
   "name": "@steadybrew/postgresjs",
-  "version": "4.1.0",
+  "version": "4.2.0-rc1",
   "description": "PostgreSQL client for Node.js and Deno, independently maintained by Steady Brew",
   "type": "module",
   "module": "src/index.js",

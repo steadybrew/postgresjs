@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v4.2.0-rc1 - 2026-10-09
 
 ### Features
 
