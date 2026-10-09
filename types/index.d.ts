@@ -704,6 +704,35 @@ declare namespace postgres {
     json(value: JSONValue): Parameter;
   }
 
+  interface PoolStats {
+    /** The configured maximum number of pool connections */
+    max: number;
+    /** Pool connections that exist: connecting, idle or in use */
+    totalCount: number;
+    /** Pool connections with a live session that are not in use */
+    idleCount: number;
+    /** Issued queries and reserve or begin calls that are not running yet, whether queued in the pool, held by an opening connection, pipelined or queued on a reserved connection */
+    waitingCount: number;
+    /** Pool connections in use: busyCount plus reservedCount */
+    activeCount: number;
+    /** Connections a query can get without waiting behind other work: idleCount plus the slots the pool can still open */
+    availableCount: number;
+    /** Pool connections running queries, including those at the pipeline limit */
+    busyCount: number;
+    /** Pool connections held by reserve() or begin() */
+    reservedCount: number;
+    /** Pool connections opening a session */
+    connectingCount: number;
+    /** Pool connections draining or closing, not included in totalCount */
+    closingCount: number;
+    /** Queries the server is running right now, at most one per connection, startup queries and COPY included */
+    executingCount: number;
+    /** Connections held by the internal listen pool, outside max */
+    listenCount: number;
+    /** Connections held by the internal subscribe pool, outside max */
+    subscribeCount: number;
+  }
+
   interface Sql<TTypes extends Record<string, unknown> = {}> extends ISql<TTypes> {
     CLOSE: {};
     END: this['CLOSE'];
@@ -724,6 +753,9 @@ declare namespace postgres {
     begin<T>(options: string, cb: (sql: TransactionSql<TTypes>) => T | Promise<T>): Promise<UnwrapPromiseArray<T>>;
 
     reserve(): Promise<ReservedSql<TTypes>>
+
+    /** Returns a snapshot of the pool's connection and query counts */
+    stats(): PoolStats;
   }
 
   interface TransactionSql<TTypes extends Record<string, unknown> = {}> extends ISql<TTypes>  {

@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Features
+
+- **`sql.stats()`** returns a snapshot of the pool: `totalCount` and `idleCount` as in node-postgres, `waitingCount` extending node-postgres's to pipelined, lease-queued and connection-opening work, the computed `activeCount` and `availableCount`, and `busyCount`, `reservedCount`, `connectingCount`, `closingCount`, `executingCount`, `listenCount` and `subscribeCount`. The same method is on the handle returned by `sql.reserve()`. Closes porsager/postgres#443 and porsager/postgres#908. Based on porsager's `connection-stats` proposal.
+
 ## v4.2.0-rc1 - 2026-10-09
 
 ### Features

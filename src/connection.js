@@ -222,6 +222,9 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     },
     expired: () => idleTimer.expired() || lifeTimer.expired(),
     owner: null,
+    get active() { return query ? 1 : 0 },
+    get pipelined() { return sent.length },
+    get acquiring() { return acquisition && !acquisition.owner.cancelled ? 1 : 0 },
     count: 0,
     id
   }

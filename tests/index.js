@@ -1162,6 +1162,228 @@ t('vercelPool requires idle_timeout', async() => {
   return [true, error instanceof Error]
 })
 
+const want = (max, x) => ({
+  max,
+  totalCount: 0,
+  idleCount: 0,
+  waitingCount: 0,
+  activeCount: 0,
+  availableCount: max,
+  busyCount: 0,
+  reservedCount: 0,
+  connectingCount: 0,
+  closingCount: 0,
+  executingCount: 0,
+  listenCount: 0,
+  subscribeCount: 0,
+  ...x
+})
+
+t('stats of a fresh pool', async() => {
+  const sql = postgres({ ...options, max: 3 })
+  const seen = sql.stats()
+  await sql.end()
+  return [JSON.stringify(want(3)), JSON.stringify(seen)]
+})
+
+t('stats count a connecting connection and then an idle one', async() => {
+  const sql = postgres({ ...options, max: 3 })
+  const query = sql`select 1`.execute()
+  await 1
+  const connecting = sql.stats()
+  await query
+  const idle = sql.stats()
+  await sql.end()
+  return [
+    JSON.stringify([
+      want(3, { totalCount: 1, connectingCount: 1, waitingCount: 1, availableCount: 2 }),
+      want(3, { totalCount: 1, idleCount: 1, availableCount: 3 })
+    ]),
+    JSON.stringify([connecting, idle])
+  ]
+})
+
+t('stats count a running query and a query waiting in the pool queue', async() => {
+  const sql = postgres({ ...options, max: 1, max_pipeline: 0 })
+  await sql`select 1`
+  const running = sql`select pg_sleep(0.1)`.execute()
+  const waiting = sql`select 1`.execute()
+  await 1
+  const seen = sql.stats()
+  await Promise.all([running, waiting])
+  const after = sql.stats()
+  await sql.end()
+  return [
+    JSON.stringify([
+      want(1, { totalCount: 1, busyCount: 1, activeCount: 1, waitingCount: 1, executingCount: 1, availableCount: 0 }),
+      want(1, { totalCount: 1, idleCount: 1, availableCount: 1 })
+    ]),
+    JSON.stringify([seen, after])
+  ]
+})
+
+t('stats count pipelined queries as waiting', async() => {
+  const sql = postgres({ ...options, max: 1 })
+  await sql`select 1`
+  const queries = [1, 2, 3, 4, 5].map(() => sql`select 1`.execute())
+  await 1
+  const seen = sql.stats()
+  await Promise.all(queries)
+  const after = sql.stats()
+  await sql.end()
+  return [
+    JSON.stringify([
+      want(1, { totalCount: 1, busyCount: 1, activeCount: 1, executingCount: 1, waitingCount: 4, availableCount: 0 }),
+      want(1, { totalCount: 1, idleCount: 1, availableCount: 1 })
+    ]),
+    JSON.stringify([seen, after])
+  ]
+})
+
+t('stats count a saturated pool as having waiting queries and no available connections', async() => {
+  const sql = postgres({ ...options, max: 2 })
+  await Promise.all([sql`select 1`, sql`select 1`])
+  const queries = [1, 2, 3, 4, 5, 6].map(() => sql`select pg_sleep(0.1)`.execute())
+  await 1
+  const seen = sql.stats()
+  await Promise.all(queries)
+  const after = sql.stats()
+  await sql.end()
+  return [
+    JSON.stringify([
+      want(2, { totalCount: 2, busyCount: 2, activeCount: 2, executingCount: 2, waitingCount: 4, availableCount: 0 }),
+      want(2, { totalCount: 2, idleCount: 2, availableCount: 2 })
+    ]),
+    JSON.stringify([seen, after])
+  ]
+})
+
+t('stats count every call issued on a cold pool as waiting', async() => {
+  const sql = postgres({ ...options, max: 2 })
+  const queries = [1, 2, 3].map(() => sql`select pg_sleep(0.05)`.execute())
+  const reserving = sql.reserve()
+  await 1
+  const seen = sql.stats()
+  await Promise.all(queries)
+  const reserved = await reserving
+  reserved.release()
+  await sql.end()
+  return [
+    JSON.stringify(want(2, { totalCount: 2, connectingCount: 2, waitingCount: 4, availableCount: 0 })),
+    JSON.stringify(seen)
+  ]
+})
+
+t('stats count a reserved connection', async() => {
+  const sql = postgres({ ...options, max: 2 })
+  const reserved = await sql.reserve()
+  const seen = sql.stats()
+  const handle = reserved.stats()
+  reserved.release()
+  await 1
+  const released = sql.stats()
+  await sql.end()
+  return [
+    JSON.stringify([
+      want(2, { totalCount: 1, reservedCount: 1, activeCount: 1, availableCount: 1 }),
+      want(2, { totalCount: 1, reservedCount: 1, activeCount: 1, availableCount: 1 }),
+      want(2, { totalCount: 1, idleCount: 1, availableCount: 2 })
+    ]),
+    JSON.stringify([seen, handle, released])
+  ]
+})
+
+t('stats count a transaction as reserved', async() => {
+  const sql = postgres({ ...options, max: 2 })
+  const seen = await sql.begin(async tx => (await tx`select 1`, sql.stats()))
+  await sql.end()
+  return [
+    JSON.stringify(want(2, { totalCount: 1, reservedCount: 1, activeCount: 1, availableCount: 1 })),
+    JSON.stringify(seen)
+  ]
+})
+
+t('stats count queries pipelined on a reserved connection as waiting', async() => {
+  const sql = postgres({ ...options, max: 1 })
+  const reserved = await sql.reserve()
+  const queries = [1, 2, 3].map(() => reserved`select pg_sleep(0.05)`.execute())
+  await 1
+  const seen = sql.stats()
+  await Promise.all(queries)
+  reserved.release()
+  await sql.end()
+  return [
+    JSON.stringify(want(1, { totalCount: 1, reservedCount: 1, activeCount: 1, executingCount: 1, waitingCount: 2, availableCount: 0 })),
+    JSON.stringify(seen)
+  ]
+})
+
+t('stats count a reserved connection at the pipeline limit as reserved with queued queries waiting', async() => {
+  const sql = postgres({ ...options, max: 1, max_pipeline: 1 })
+  const reserved = await sql.reserve()
+  const queries = [1, 2, 3].map(() => reserved`select pg_sleep(0.05)`.execute())
+  await 1
+  const seen = sql.stats()
+  await Promise.all(queries)
+  reserved.release()
+  await sql.end()
+  return [
+    JSON.stringify(want(1, { totalCount: 1, reservedCount: 1, activeCount: 1, executingCount: 1, waitingCount: 2, availableCount: 0 })),
+    JSON.stringify(seen)
+  ]
+})
+
+t('stats drop a query cancelled in a reserved connection queue', async() => {
+  const sql = postgres({ ...options, max: 1, max_pipeline: 1 })
+  const reserved = await sql.reserve()
+  const queries = [1, 2, 3].map(() => reserved`select pg_sleep(0.05)`.execute())
+  const cancelled = queries[2].catch(e => e.code)
+  await 1
+  const before = sql.stats().waitingCount
+  await queries[2].cancel()
+  const after = sql.stats().waitingCount
+  await Promise.all(queries.slice(0, 2))
+  reserved.release()
+  await sql.end()
+  return [
+    JSON.stringify(['57014', 2, 1]),
+    JSON.stringify([await cancelled, before, after])
+  ]
+})
+
+t('stats count a connection that finished its query while ending as closing', async() => {
+  const sql = postgres({ ...options, max: 2 })
+  const running = sql`select pg_sleep(0.1)`.execute()
+  await delay(50)
+  const ending = sql.end()
+  await running
+  const seen = sql.stats()
+  await ending
+  return [
+    JSON.stringify(want(2, { closingCount: 1, availableCount: 1 })),
+    JSON.stringify(seen)
+  ]
+})
+
+t('stats after end have no connections', async() => {
+  const sql = postgres({ ...options, max: 3 })
+  await Promise.all([sql`select 1`, sql`select 1`, sql`select pg_sleep(0.05)`])
+  await sql.end()
+  return [JSON.stringify(want(3)), JSON.stringify(sql.stats())]
+})
+
+t('stats count the listen connection outside the pool', async() => {
+  const sql = postgres({ ...options, max: 2 })
+  await sql.listen('stats_listen', () => undefined)
+  const listening = sql.stats()
+  await sql.end()
+  const ended = sql.stats()
+  return [
+    JSON.stringify([want(2, { listenCount: 1 }), want(2)]),
+    JSON.stringify([listening, ended])
+  ]
+})
+
 t('big query body', { timeout: 2 }, async() => {
   await sql`create table test (x int)`
   return [50000, (await sql`insert into test ${

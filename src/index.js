@@ -81,6 +81,7 @@ function Postgres(a, b) {
     PostgresError,
     options,
     reserve,
+    stats,
     listen,
     begin,
     close,
@@ -148,6 +149,56 @@ function Postgres(a, b) {
       })
       return query
     }
+  }
+
+  function stats() {
+    let idleCount = 0
+      , busyCount = 0
+      , reservedCount = 0
+      , connectingCount = 0
+      , closingCount = 0
+      , executingCount = 0
+      , waitingCount = queries.length
+
+    for (const c of connections) {
+      executingCount += c.active
+      waitingCount += c.pipelined + c.acquiring + (c.owner ? c.owner.queue.length : 0)
+      c.queue === open
+        ? idleCount++
+        : c.queue === connecting
+          ? connectingCount++
+          : c.queue === ended
+            ? closingCount++
+            : c.queue === reserved
+              ? reservedCount++
+              : (c.queue === busy || c.queue === full) && (c.owner ? reservedCount++ : busyCount++)
+    }
+
+    const totalCount = idleCount + busyCount + reservedCount + connectingCount
+
+    return {
+      max: options.max,
+      totalCount,
+      idleCount,
+      waitingCount,
+      activeCount: busyCount + reservedCount,
+      availableCount: idleCount + options.max - totalCount - closingCount,
+      busyCount,
+      reservedCount,
+      connectingCount,
+      closingCount,
+      executingCount,
+      listenCount: pooled(listen.sql),
+      subscribeCount: pooled(subscribe.sql)
+    }
+  }
+
+  function pooled(sql) {
+    if (!sql)
+      return 0
+
+    const s = sql.stats()
+    return s.totalCount + s.closingCount
   }
 
   async function listen(name, fn, onlisten) {
@@ -244,7 +295,7 @@ function Postgres(a, b) {
     const c = l.connection
     l.state === expected
       ? c.queue === full
-        ? l.queue.push(q)
+        ? (q.queue = l.queue, l.queue.push(q))
         : c.execute(q) || move(c, full)
       : q.reject(leaseError(l.state))
   }
@@ -275,6 +326,7 @@ function Postgres(a, b) {
     const l = await lease(false)
     const sql = Sql(q => send(l, q))
     sql.release = () => settle(l, Lease.Released)
+    sql.stats = stats
     return sql
   }
 
@@ -435,7 +487,7 @@ function Postgres(a, b) {
       if (query.state) {
         query.cancelled = { resolve, reject }
       } else {
-        queries.remove(query)
+        (query.queue || queries).remove(query)
         query.cancelled = true
         query.reject(Errors.generic('57014', 'canceling statement due to user request'))
         resolve()

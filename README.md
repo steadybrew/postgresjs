@@ -1121,6 +1121,58 @@ There are no guarantees about queries executing in order unless using a transact
 
 Since this library automatically creates prepared statements, it also has a default max lifetime for connections to prevent memory bloat on the database itself. This is a random interval for each connection between 45 and 90 minutes. This allows multiple connections to independently come up and down without affecting the service.
 
+### Pool stats
+
+`sql.stats()` returns a snapshot of the pool as a plain object, ready to log, serialise from a health endpoint or map to metrics gauges:
+
+```js
+sql.stats()
+// { max: 10, totalCount: 7, idleCount: 2, waitingCount: 3,
+//   activeCount: 4, availableCount: 5,
+//   busyCount: 3, reservedCount: 1, connectingCount: 1, closingCount: 0,
+//   executingCount: 4, listenCount: 1, subscribeCount: 0 }
+```
+
+| Field | Meaning |
+|---|---|
+| `max` | The `max` option |
+| `totalCount` | Connections that exist: connecting, idle or in use |
+| `idleCount` | Connections with a live session that are not in use. A connection released while its reserved handle still has queries in flight is idle with `executingCount` above 0 |
+| `waitingCount` | Issued queries and `reserve()` or `begin()` calls that are not running yet: those in the pool queue, those held by a connection that is still opening, those pipelined behind a connection's running query, and those a reserved handle or transaction has queued behind its own connection |
+| `activeCount` | `busyCount + reservedCount`, connections in use |
+| `availableCount` | `idleCount` plus the slots the pool can still open (`max - totalCount - closingCount`): connections a query can get without waiting behind other work |
+| `busyCount` | Pool connections running queries, including connections at the pipeline limit |
+| `reservedCount` | Connections held by `reserve()` or `begin()` |
+| `connectingCount` | Connections opening a session |
+| `closingCount` | Connections draining or closing. They are not in `totalCount`, but still hold a pool slot until closed |
+| `executingCount` | Queries the server is running right now, at most one per connection, on pool and reserved connections alike. It includes the queries the driver runs while a connection starts, and a `COPY` for its whole duration |
+| `listenCount` | Connections held by the internal `sql.listen()` pool (0 or 1) |
+| `subscribeCount` | Connections held by the internal `sql.subscribe()` pool (0 or 1) |
+
+`totalCount` and `idleCount` have the same meaning as in node-postgres. `waitingCount` is node-postgres's `waitingCount` extended to queries pipelined on connections and queued in leases, and it includes queries sent with `sql` directly, as `pool.query()` does there. Once the pool is at `max`, Postgres.js pipelines new queries onto busy connections, so waiting work can sit on a connection rather than in the pool queue; `waitingCount` counts it too, so `executingCount + waitingCount` covers all issued work that has not finished. Every snapshot satisfies `totalCount === idleCount + busyCount + reservedCount + connectingCount` and `totalCount + closingCount <= max`, the remainder being slots the pool has not opened.
+
+`listenCount` and `subscribeCount` are counted outside `max`, and the other fields only describe the `max` pool connections. A reserved connection's `stats()` returns the same snapshot, but `sql` inside `sql.begin()` and savepoints has no `stats()`, so call it on the main `sql`.
+
+The pool is saturated when `waitingCount > 0 && availableCount === 0`: every connection is in use and more work is waiting. Saturation alone is not a reason to fail a health check, because a single pipelined query on a fully used pool, including a transaction pipelining its own statements, is enough to meet it. A health endpoint should compare `waitingCount` against a limit the application chooses:
+
+```js
+import http from 'node:http'
+
+const MAX_WAITING = 100
+
+http.createServer((req, res) => {
+  const stats = sql.stats()
+  const overloaded = stats.availableCount === 0 && stats.waitingCount > MAX_WAITING
+
+  res.writeHead(overloaded ? 503 : 200, { 'content-type': 'application/json' })
+  res.end(JSON.stringify(stats))
+}).listen(8080)
+```
+
+How much waiting work is acceptable depends on the query durations and the latency the application can tolerate, so the limit has no universal value.
+
+Change events and a running total of finished queries are planned together with the diagnostics events, so for now take snapshots on a timer or on request.
+
 ### Connection timeout
 
 By default, connections will not close until `.end()` is called. However, it may be useful to have them close automatically when:
