@@ -15,7 +15,7 @@ This is an independently maintained fork of [Postgres.js](https://github.com/por
 
 ## Compatibility policy
 
-**Version 4.0.0 requires Node.js 24 or newer** and supports PostgreSQL 15–18. This raises the minimum Node.js version from 12. The minimum stays at Node 24 until an explicit policy change; newly maintained Node majors are tested before compatibility is claimed.
+**Version 4 requires Node.js 24 or newer** and supports PostgreSQL 15–18. Version 4.0.0 raised the minimum Node.js version from 12. The minimum stays at Node 24 until an explicit policy change; newly maintained Node majors are tested before compatibility is claimed.
 
 | Runtime | PostgreSQL target | CI jobs | Validation status |
 | --- | --- | ---: | --- |
@@ -25,7 +25,7 @@ This is an independently maintained fork of [Postgres.js](https://github.com/por
 | Cloudflare workerd, Wrangler 4.123.0 | 17 | 1 | Passed release-candidate CI; known "Stream was cancelled" rejection remains |
 | Bun export | No dedicated target | 0 | Retained as best effort; unverified, without dedicated CI |
 
-All ten [release-candidate CI jobs](https://github.com/steadybrew/postgresjs/actions/runs/37812371141) passed for the runtime changes promoted to 4.0.0. The core Node matrix has eight jobs; Deno and Cloudflare run independently. PostgreSQL versions below 15 are outside the supported matrix. See the [release notes](./CHANGELOG.md#v400---2026-10-08) for validation details and [known limitations](./CHANGELOG.md#known-limitations), including the Cloudflare cancellation rejection tolerated by its CI gate.
+All ten [CI jobs](https://github.com/steadybrew/postgresjs/actions/runs/37943516565) passed for 4.1.0. The core Node matrix has eight jobs; Deno and Cloudflare run independently. PostgreSQL versions below 15 are outside the supported matrix. See the [release notes](./CHANGELOG.md#v410---2026-10-09) for validation details and [known limitations](./CHANGELOG.md#known-limitations), including the Cloudflare cancellation rejection tolerated by its CI gate.
 
 Supabase PostgreSQL and Supabase Edge are separate environments. Deno 1.46.3 coverage does not imply Deno 2 or hosted Supabase Edge certification.
 

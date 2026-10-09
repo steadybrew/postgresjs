@@ -45,6 +45,12 @@ Checked against `porsager/postgres` on 2026-10-09, with upstream `master` at [`4
 
 Not claimed: [#925](https://github.com/porsager/postgres/issues/925) does not reproduce on the upstream source either, and [#1234](https://github.com/porsager/postgres/issues/1234) is still open (see below).
 
+### Compatibility and validation
+
+- All ten [CI jobs](https://github.com/steadybrew/postgresjs/actions/runs/37943516565) passed: Node 24/26 with PostgreSQL 15/16/17/18, plus separate Deno 1.46.3 and Cloudflare workerd jobs against PostgreSQL 17.
+- In disposable Docker containers on Node 24.21.0 with PostgreSQL 17.11, the startup protocol suite (223 cases), the ESM and CommonJS integration suites (279 assertions each, plus the real PostgreSQL ownership matrix) and the Deno 1.46.3 suite passed.
+- Each test that pins an upstream report was run against upstream `411429e`, 4.0.0 and every commit of this release: it fails upstream and passes from its fixing commit onward.
+
 ### Known limitations
 
 - Concurrent queries inside `begin()` that hit a cached-plan error (0A000) leave the transaction aborted: later statements reject with `25P02` and the connection returns to the pool idle in an aborted transaction ([#1234](https://github.com/porsager/postgres/issues/1234)). Upstream hangs instead.
