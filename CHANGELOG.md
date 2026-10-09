@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Features
+
+- **`onidle(connId)` option,** called each time a connection returns to the pool idle and its idle timer starts. It can also be set after creation through `sql.options.onidle`. If it throws, the error is rethrown as an uncaught exception and the connection is not affected. The internal listen and subscribe connections do not call it. Based on porsager/postgres#1147.
+- **`@steadybrew/postgresjs/vercel` exports `vercelPool(sql)`** for `attachDatabasePool` from `@vercel/functions`, so Vercel Fluid Compute keeps an instance alive until idle connections have closed. It requires `idle_timeout`. Closes porsager/postgres#1100.
+
 ## v4.1.0 - 2026-10-09
 
 Reworks the connection lifecycle for reliability: every connection event goes through one phase table, leases have explicit states, and startup retries are decided in one place. These changes are relative to `@steadybrew/postgresjs@4.0.0`, and the contract is described in [docs/lifecycle.md](docs/lifecycle.md).

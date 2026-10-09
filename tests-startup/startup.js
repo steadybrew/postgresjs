@@ -945,6 +945,22 @@ export async function phases(name, postgres, onEvent) {
       assert.strictEqual(await settle(marker(sql)), 'resolved')
       assert.strictEqual(startups(server), 1)
       await sql.end({ timeout: 0 })
+    } else if (name === 'idle-throw') {
+      const sentinel = new Error('onidle sentinel')
+      const thrown = []
+      const capture = error => thrown.push(error)
+      process.on('uncaughtException', capture)
+      try {
+        const sql = make({ onidle: () => { throw sentinel } })
+        assert.strictEqual(await settle(marker(sql)), 'resolved')
+        assert.strictEqual(await settle(marker(sql)), 'resolved')
+        await sleep(10)
+        assert.strictEqual(startups(server), 1)
+        assert(thrown.length >= 2 && thrown.every(x => x === sentinel), 'onidle errors must surface as uncaught exceptions')
+        await sql.end({ timeout: 0 })
+      } finally {
+        process.off('uncaughtException', capture)
+      }
     } else if (name === 'closing-bounded') {
       const seen = observing()
       try {

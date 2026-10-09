@@ -32,7 +32,7 @@ const phaseNames = ['stale-ending-lifetime', 'stale-ending-close', 'stale-ending
                     'first-query-pipeline', 'release-inflight', 'draining-release-busy', 'factory-undefined', 'factory-empty',
                     'ending-queued-reconnect', 'ending-queued-down', 'ending-other-open', 'error-close-reconnect',
                     'fatal-catalog', 'end-queued-cold',
-                    'delay-clamp', 'idle-clamp', 'closing-bounded', 'closing-clean', 'handout-idle', 'handout-lifetime',
+                    'delay-clamp', 'idle-clamp', 'idle-throw', 'closing-bounded', 'closing-clean', 'handout-idle', 'handout-lifetime',
                     'handout-reserve', 'handout-fresh', 'handout-unanswered',
                     'deadline-backoff', 'deadline-attempt-error', 'deadline-attempt-timeout',
                     ...['single', 'multi'].flatMap(x => ['socket', 'factory', 'server', 'close', 'timeout'].map(y => 'cause-' + x + '-' + y))
