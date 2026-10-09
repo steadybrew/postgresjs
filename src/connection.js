@@ -23,7 +23,7 @@ const Sync = b().S().end()
     , DescribeUnnamed = b().D().str('S').str(b.N).end()
     , noop = () => { /* noop */ }
 
-const Phase = { Closed: 0, Backoff: 1, Opening: 2, Negotiating: 3, Authenticating: 4, Initializing: 5, Ready: 6, Draining: 7, Closing: 8 }
+const Phase = { Closed: 0, Backoff: 1, Connecting: 2, Ready: 3, Draining: 4, Closing: 5 }
 const phaseNames = Object.keys(Phase)
 
 const retryRoutines = new Set([
@@ -140,10 +140,6 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     phase = next
   }
 
-  function starting() {
-    return phase >= Phase.Opening && phase <= Phase.Initializing
-  }
-
   function drained() {
     ondrain(connection) || closing()
   }
@@ -164,20 +160,21 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     if (phase !== Phase.Closed)
       return queryError(owner, Errors.connection('CONNECTION_CLOSED', options))
 
-    acquisition = { owner, ending: false, pass: 'standby', hostsTried: 0, attempting: null, mismatches: [], lastError: null }
+    acquisition = { owner, ending: false, pass: 'standby', hostsTried: 0, accepted: false, attempting: null, mismatches: [], lastError: null }
     const wait = inheritedBackoff ? inheritedBackoff.at + inheritedBackoff.delay - performance.now() : 0
     inheritedBackoff = null
-    wait > 0 ? enterBackoff(wait) : enterOpening()
+    wait > 0 ? enterBackoff(wait) : enterConnecting()
   }
 
   function enterBackoff(ms) {
     transition(Phase.Backoff)
-    backoffTimer = clampedTimeout(() => (backoffTimer = null, enterOpening()), ms)
+    backoffTimer = clampedTimeout(() => (backoffTimer = null, enterConnecting()), ms)
   }
 
-  function enterOpening() {
-    transition(Phase.Opening)
+  function enterConnecting() {
+    transition(Phase.Connecting)
     const a = acquisition
+    a.accepted = false
     const attempt = generation
     const ms = options.connect_timeout * 1000
     if (ms) {
@@ -221,7 +218,6 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
   }
 
   function negotiate() {
-    transition(Phase.Negotiating)
     if (sslnegotiation === 'direct')
       return upgrade()
 
@@ -252,7 +248,6 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
   }
 
   function authenticate() {
-    transition(Phase.Authenticating)
     try {
       statements = {}
       needsTypes = options.fetch_types
@@ -404,7 +399,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
   }
 
   function execute(q) {
-    if (phase !== Phase.Ready && phase !== Phase.Draining && !(phase === Phase.Initializing && q.initialization))
+    if (phase !== Phase.Ready && phase !== Phase.Draining && !(phase === Phase.Connecting && acquisition.accepted && q.initialization))
       return queryError(q, Errors.connection('CONNECTION_CLOSED', options))
 
     if (stream)
@@ -541,7 +536,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
         handle(incoming.subarray(0, length + 1))
       } catch (e) {
         query && (query.cursorFn || query.describeFirst) && write(Sync)
-        starting() ? afterFailure(e, 'protocol') : errored(e)
+        phase === Phase.Connecting ? afterFailure(e, 'protocol') : errored(e)
       }
       if (socket !== source)
         return
@@ -552,7 +547,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
   }
 
   function error(err) {
-    if (starting())
+    if (phase === Phase.Connecting)
       return afterFailure(err, 'socket')
 
     if (phase === Phase.Ready || phase === Phase.Draining)
@@ -635,7 +630,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
 
   function closed(hadError) {
     const err = errorResponse || Errors.connection('CONNECTION_CLOSED', options, socket)
-    if (starting())
+    if (phase === Phase.Connecting)
       return afterFailure(err, 'dropped')
 
     if (!inheritedBackoff && (phase !== Phase.Closing || hadError)) {
@@ -744,7 +739,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     query = results = errorResponse = null
     result = new Result()
 
-    if (phase === Phase.Authenticating || phase === Phase.Initializing)
+    if (phase === Phase.Connecting)
       return initialized()
 
     if (phase === Phase.Closing)
@@ -765,6 +760,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
   }
 
   function initialized() {
+    acquisition.accepted = true
     if (target_session_attrs) {
       if (!backendParameters.in_hot_standby || !backendParameters.default_transaction_read_only)
         return fetchState()
@@ -1002,7 +998,6 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
   }
 
   function initialize(string, resolve, simple = false) {
-    transition(Phase.Initializing)
     const attempt = generation
     const q = new Query([string], [], q => attempt === generation
       ? execute(q)
@@ -1019,7 +1014,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
       const err = Errors.postgres(parseError(x))
       phase === Phase.Ready || phase === Phase.Draining
         ? socketFailed(err)
-        : starting() && afterFailure(err, phase === Phase.Initializing ? 'dropped' : 'rejected')
+        : phase === Phase.Connecting && afterFailure(err, acquisition.accepted ? 'dropped' : 'rejected')
     }
   }
 

@@ -1,12 +1,7 @@
-const starting = ['connecting', 'ended']
-
 const allowed = {
   Closed: ['closed'],
-  Backoff: starting,
-  Opening: starting,
-  Negotiating: starting,
-  Authenticating: starting,
-  Initializing: starting,
+  Backoff: ['connecting', 'ended'],
+  Connecting: ['connecting', 'ended'],
   Ready: ['open', 'busy', 'full'],
   ReadyOwned: ['reserved', 'full'],
   Draining: ['ended'],
@@ -15,12 +10,9 @@ const allowed = {
 }
 
 const edges = {
-  Closed: ['Backoff', 'Opening'],
-  Backoff: ['Opening', 'Closed'],
-  Opening: ['Negotiating', 'Authenticating', 'Backoff', 'Closed'],
-  Negotiating: ['Authenticating', 'Backoff', 'Closed'],
-  Authenticating: ['Initializing', 'Ready', 'Backoff', 'Closed'],
-  Initializing: ['Initializing', 'Ready', 'Backoff', 'Closed'],
+  Closed: ['Backoff', 'Connecting'],
+  Backoff: ['Connecting', 'Closed'],
+  Connecting: ['Ready', 'Backoff', 'Closed'],
   Ready: ['Draining', 'Closing', 'Closed'],
   Draining: ['Closing', 'Closed'],
   Closing: ['Closed']

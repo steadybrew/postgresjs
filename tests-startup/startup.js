@@ -989,8 +989,8 @@ export async function phases(name, postgres, onEvent) {
           await marker(sql)
         else
           requests.push(settle(marker(sql)))
-        const expected = { backoff: 'Backoff', opening: 'Opening', 'opening-multi': 'Opening', negotiating: 'Negotiating',
-                           authenticating: 'Authenticating', initializing: 'Initializing', ready: 'Ready', pipeline: 'Ready',
+        const expected = { backoff: 'Backoff', opening: 'Connecting', 'opening-multi': 'Connecting', negotiating: 'Connecting',
+                           authenticating: 'Connecting', initializing: 'Connecting', ready: 'Ready', pipeline: 'Ready',
                            draining: 'Draining', closing: 'Closing' }[stage]
         const hanging = ['ready', 'pipeline', 'draining'].includes(stage)
         await until(() => seen.connection && (hanging ? server.events.some(x => x.sql === 'select hang') : true))
