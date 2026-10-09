@@ -164,7 +164,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     if (phase !== Phase.Closed)
       return queryError(owner, Errors.connection('CONNECTION_CLOSED', options))
 
-    acquisition = { owner, ending: false, pass: 'standby', hostsTried: 0, lastError: null }
+    acquisition = { owner, ending: false, pass: 'standby', hostsTried: 0, attempting: null, mismatches: [], lastError: null }
     const wait = inheritedBackoff ? inheritedBackoff.at + inheritedBackoff.delay - performance.now() : 0
     inheritedBackoff = null
     wait > 0 ? enterBackoff(wait) : enterOpening()
@@ -199,6 +199,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
 
   function attach(created) {
     socket = created
+    acquisition.attempting = options.socket ? 'custom socket' : options.path || host[hostIndex] + ':' + port[hostIndex]
     created.on('error', error)
     created.on('close', closed)
     created.on('drain', drain)
@@ -274,6 +275,11 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     enterClosed(acquisition.lastError || Errors.connection('CONNECT_TIMEOUT', options, socket))
   }
 
+  function mismatched(reason) {
+    acquisition.mismatches.push(acquisition.attempting + ' ' + reason)
+    afterFailure(Errors.connection('CONNECTION_CLOSED', options, socket), 'mismatch')
+  }
+
   function afterFailure(err, cause) {
     const a = acquisition
     a.lastError = cause === 'timeout' && a.lastError ? a.lastError : err
@@ -284,12 +290,20 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     let delay = 0
     if (a.hostsTried === host.length) {
       a.hostsTried = 0
+      const mismatches = a.mismatches
+      a.mismatches = []
       if (standbyPass()) {
         a.pass = 'any'
       } else {
         a.pass = 'standby'
         options.shared.retries++
-        if (host.length === 1 && cause !== 'dropped' && cause !== 'mismatch') {
+        if (mismatches.length === host.length) {
+          inheritedBackoff = { at: performance.now(), delay: backoffMs() }
+          return enterClosed(Errors.generic('TARGET_SESSION_ATTRS',
+            'No host matched target_session_attrs=' + target_session_attrs + ': ' + mismatches.join(', ')))
+        }
+
+        if (host.length === 1 && cause !== 'dropped') {
           inheritedBackoff = { at: performance.now(), delay: backoffMs() }
           return enterClosed(err)
         }
@@ -768,8 +782,9 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     if (target_session_attrs) {
       if (!backendParameters.in_hot_standby || !backendParameters.default_transaction_read_only)
         return fetchState()
-      if (tryNext(target_session_attrs, backendParameters))
-        return afterFailure(Errors.connection('CONNECTION_CLOSED', options, socket), 'mismatch')
+      const reason = mismatchReason(target_session_attrs, backendParameters)
+      if (reason)
+        return mismatched(reason)
     }
 
     if (needsTypes)
@@ -979,13 +994,14 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     `, types => types.forEach(({ oid, typarray }) => addArrayType(options, oid, typarray)))
   }
 
-  function tryNext(x, xs) {
+  function mismatchReason(x, xs) {
     return (
-      (x === 'read-write' && xs.default_transaction_read_only === 'on') ||
-      (x === 'read-only' && xs.default_transaction_read_only === 'off') ||
-      (x === 'primary' && xs.in_hot_standby === 'on') ||
-      (x === 'standby' && xs.in_hot_standby === 'off') ||
-      (x === 'prefer-standby' && xs.in_hot_standby === 'off' && standbyPass())
+      (x === 'read-write' && xs.default_transaction_read_only === 'on' && 'is read-only') ||
+      (x === 'read-only' && xs.default_transaction_read_only === 'off' && 'is read-write') ||
+      (x === 'primary' && xs.in_hot_standby === 'on' && 'is a standby') ||
+      (x === 'standby' && xs.in_hot_standby === 'off' && 'is a primary') ||
+      (x === 'prefer-standby' && xs.in_hot_standby === 'off' && standbyPass() && 'is a primary') ||
+      null
     )
   }
 

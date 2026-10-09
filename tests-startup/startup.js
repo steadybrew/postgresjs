@@ -399,7 +399,7 @@ export async function phases(name, postgres, onEvent) {
   const cause = name.startsWith('cause-') ? name.split('-')[2] : ''
   const holding = ['reserve-end', 'cancel-initial', 'failover-timeout', 'deadline-attempt-error', 'deadline-attempt-timeout',
                    'timeout-keeps-error', 'ending-during-retry'].includes(name) || cause === 'timeout'
-  const server = await peer({ holdQuery: hang ? 'hang' : '', holdStartup: holding,
+  const server = await peer({ holdQuery: hang ? 'hang' : '', holdStartup: holding, readOnly: name === 'single-host-read-only',
                               closeStartup: cause === 'close' || name === 'deadline-backoff' ? Infinity : name === 'prefer-standby-passes' ? 2 : 0,
                               fatalQuery: name === 'begin-fatal-inflight' ? 'fatal' : '',
                               allowHalfOpen: name === 'closing-bounded' || name === 'handout-unanswered',
@@ -940,6 +940,15 @@ export async function phases(name, postgres, onEvent) {
       assert.strictEqual(await settle(marker(sql), 4000), 'resolved')
       const asked = peer => peer.events.some(x => x.sql === 'select 42 as marker')
       assert(asked(good) && !asked(server), 'A later pass must still prefer the standby')
+      await sql.end({ timeout: 0 })
+    } else if (name === 'single-host-read-only') {
+      const sql = make({ target_session_attrs: 'read-write', connect_timeout: 0.3, backoff: 0.01 })
+      const start = Date.now()
+      const error = await marker(sql).then(() => null, error => error)
+      assert.strictEqual(error && error.code, 'TARGET_SESSION_ATTRS')
+      assert(error.message.includes('read-write') && error.message.includes('127.0.0.1:' + server.port + ' is read-only'), error.message)
+      assert(Date.now() - start < 250, 'Mismatch must fail at once')
+      assert.strictEqual(startups(server), 1)
       await sql.end({ timeout: 0 })
     } else if (name === 'timeout-keeps-error') {
       const sql = make({ host: ['127.0.0.1', '127.0.0.1'], port: [refused, server.port], connect_timeout: 0.3, backoff: 5 })

@@ -6,6 +6,7 @@ export async function integration(postgres) {
   await firstTypes(postgres)
   await cursorReconnect(postgres)
   await preferStandby(postgres)
+  await targetSessionAttrs(postgres)
   await leases(postgres)
   await endAfterTerminate(postgres)
   await prepareName(postgres)
@@ -110,6 +111,124 @@ async function preferStandby(postgres) {
     } finally {
       await sql.end({ timeout: 0 })
     }
+  }
+}
+
+const base = { host: 'localhost', user: 'postgres', max: 1, onnotice: () => undefined }
+
+async function withSetting(postgres, port, name, value, fn) {
+  const admin = postgres({ ...base, port, database: 'postgres', fetch_types: false })
+  const wait = async expected => {
+    for (let i = 0; i < 100; i++) {
+      if ((await admin`select current_setting(${ name }) as value`)[0].value === expected)
+        return
+      await sleep(50)
+    }
+    throw new Error(name + ' did not become ' + expected)
+  }
+  try {
+    const [{ original }] = await admin`select current_setting(${ name }) as original`
+    try {
+      await admin.unsafe('alter system set ' + name + ' = ' + value)
+      await admin`select pg_reload_conf()`
+      await wait(value)
+      await fn()
+    } finally {
+      await admin.unsafe('alter system reset ' + name)
+      await admin`select pg_reload_conf()`
+      await wait(original)
+    }
+  } finally {
+    await admin.end({ timeout: 0 })
+  }
+}
+
+async function withReadOnlyDatabase(postgres, ports, fn) {
+  const name = 'read_only_' + Math.random().toString(36).slice(2)
+  const admins = ports.map(port => postgres({ ...base, port, database: 'postgres', fetch_types: false }))
+  try {
+    try {
+      for (const admin of admins) {
+        await admin.unsafe('create database ' + name)
+        await admin.unsafe('alter database ' + name + ' set default_transaction_read_only = on')
+      }
+      await fn(name)
+    } finally {
+      for (const admin of admins)
+        await admin.unsafe('drop database if exists ' + name + ' with (force)')
+    }
+  } finally {
+    await Promise.all(admins.map(admin => admin.end({ timeout: 0 })))
+  }
+}
+
+async function failure(promise) {
+  const start = Date.now()
+  const error = await promise.then(() => assert.fail('Expected a rejection'), error => error)
+  return { error, elapsed: Date.now() - start }
+}
+
+async function unusedPort() {
+  const server = net.createServer()
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
+  const { port } = server.address()
+  await new Promise(resolve => server.close(resolve))
+  return port
+}
+
+async function targetSessionAttrs(postgres) {
+  await withReadOnlyDatabase(postgres, [5432, 5433], async database => {
+    const sql = postgres({ ...base, port: 5432, database, target_session_attrs: 'read-write', connect_timeout: 3 })
+    try {
+      const { error, elapsed } = await failure(sql`select 1`)
+      assert.strictEqual(error.code, 'TARGET_SESSION_ATTRS')
+      assert(error.message.includes('read-write') && error.message.includes('localhost:5432'), error.message)
+      assert(elapsed < 1000, 'Mismatch must fail at once: ' + elapsed)
+    } finally {
+      await sql.end({ timeout: 0 })
+    }
+
+    const both = postgres({ ...base, host: ['localhost', 'localhost'], port: [5433, 5432], database,
+                            target_session_attrs: 'read-write', connect_timeout: 3 })
+    try {
+      const { error, elapsed } = await failure(both`select 1`)
+      assert.strictEqual(error.code, 'TARGET_SESSION_ATTRS')
+      assert(error.message.includes('localhost:5433') && error.message.includes('localhost:5432'), error.message)
+      assert(elapsed < 1000, 'Mismatch on every host must fail at once: ' + elapsed)
+    } finally {
+      await both.end({ timeout: 0 })
+    }
+  })
+
+  await withSetting(postgres, 5433, 'default_transaction_read_only', 'on', async() => {
+    const sql = postgres({ ...base, host: ['localhost', 'localhost'], port: [5433, 5432], database: 'postgres',
+                           target_session_attrs: 'read-write', connect_timeout: 3 })
+    try {
+      assert.strictEqual((await sql`show port`)[0].port, '5432')
+    } finally {
+      await sql.end({ timeout: 0 })
+    }
+  })
+
+  await withSetting(postgres, 5433, 'ssl', 'off', async() => {
+    const sql = postgres({ ...base, port: 5433, database: 'postgres', ssl: 'require', connect_timeout: 3 })
+    try {
+      const { error, elapsed } = await failure(sql`select 1`)
+      assert.strictEqual(error.code, 'SSL_NOT_SUPPORTED')
+      assert(elapsed < 1000, 'Missing SSL must fail at once: ' + elapsed)
+    } finally {
+      await sql.end({ timeout: 0 })
+    }
+  })
+
+  const ports = [await unusedPort(), await unusedPort()]
+  const refused = postgres({ ...base, host: ['127.0.0.1', '127.0.0.1'], port: ports, database: 'postgres', connect_timeout: 1, backoff: 0.05 })
+  try {
+    const { error, elapsed } = await failure(refused`select 1`)
+    assert.strictEqual(error.code, 'ECONNREFUSED')
+    assert(elapsed >= 1500 && elapsed < 4000, 'Refusal must retry until the deadline: ' + elapsed)
+  } finally {
+    await refused.end({ timeout: 0 })
   }
 }
 

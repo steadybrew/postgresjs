@@ -36,7 +36,7 @@ const phaseNames = ['stale-ending-lifetime', 'stale-ending-close', 'stale-ending
                     ...['single', 'multi'].flatMap(x => ['socket', 'factory', 'server', 'close', 'timeout'].map(y => 'cause-' + x + '-' + y))
                       .filter(x => x !== 'cause-single-timeout'),
                     'prefer-standby-round-primaries', 'prefer-standby-round-unreachable', 'prefer-standby-single', 'prefer-standby-passes',
-                    'timeout-keeps-error', 'backoff-graceful-close', 'backoff-error-close',
+                    'single-host-read-only', 'timeout-keeps-error', 'backoff-graceful-close', 'backoff-error-close',
                     'backoff-idle-close', 'ending-during-retry']
 
 const childPath = fileURLToPath(new URL('./case.js', import.meta.url))
