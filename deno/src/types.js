@@ -87,7 +87,7 @@ export function handleValue(x, parameters, types, options) {
   return '$' + (types.push(
     x instanceof Parameter
       ? (parameters.push(x.value), x.array
-        ? x.array[x.type || inferType(x.value)] || x.type || firstIsString(x.value)
+        ? x.array.get(x.type || inferType(x.value)) || x.type || firstIsString(x.value)
         : x.type
       )
       : (parameters.push(x), inferType(x))
@@ -200,7 +200,7 @@ export function addDefaultArrayTypes(options) {
 }
 
 export function addArrayType(options, oid, typarray) {
-  options.shared.typeArrayMap[oid] = typarray
+  options.shared.typeArrayMap.set(oid, typarray)
   if (!options.parsers[typarray]) {
     const parser = options.parsers[oid]
     options.parsers[typarray] = xs => arrayParser(xs, parser, typarray)

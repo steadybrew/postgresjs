@@ -129,7 +129,7 @@ for (const fetch_types of [false, true]) {
       const catalog = await client`select oid, typarray from pg_catalog.pg_type where oid = any(${ client.array(builtInArrays.map(x => x[0]), 26) })`
       return [JSON.stringify(builtInArrays), JSON.stringify(builtInArrays.map(([oid]) => {
         const row = catalog.find(x => x.oid === oid)
-        if (!row || row.typarray !== client.options.shared.typeArrayMap[oid])
+        if (!row || row.typarray !== client.options.shared.typeArrayMap.get(oid))
           throw new Error('Missing or incorrect built-in array mapping for ' + oid)
         return [oid, row.typarray]
       }))]
@@ -202,7 +202,7 @@ for (const fetch_types of [false, true]) {
       } } })
       try {
         const [row] = await client`select ${ client.array(['a', 'b'], 25) } as value`
-        if (client.options.shared.typeArrayMap[25] !== 1009
+        if (client.options.shared.typeArrayMap.get(25) !== 1009
             || (mode !== 'serialize' && (client.options.parsers[1009] !== parse || parse.array))
             || (mode !== 'parse' && client.options.serializers[1009] !== serialize))
           throw new Error('Explicit handlers or element-to-array map were overwritten')
@@ -228,7 +228,7 @@ t('User-defined arrays require discovery or explicit handlers', async() => {
     const parsed = (await enabled`select ${ enabled.array(['a', 'b'], oid) } as value`)[0].value
     const supplied = (await explicit`select ${ explicit.typed(['a', 'b'], typarray) } as value`)[0].value
     return [JSON.stringify(['{a,b}', ['a', 'b'], ['a', 'b'], undefined]),
-            JSON.stringify([raw, parsed, supplied, disabled.options.shared.typeArrayMap[oid]])]
+            JSON.stringify([raw, parsed, supplied, disabled.options.shared.typeArrayMap.get(oid)])]
   } finally {
     await Promise.all(clients.map(client => client.end()))
     await sql`drop type startup_array_enum`

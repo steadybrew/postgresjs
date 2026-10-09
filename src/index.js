@@ -619,7 +619,7 @@ function parseOptions(a, b) {
     socket          : o.socket,
     transform       : parseTransform(o.transform || { undefined: undefined }),
     parameters      : {},
-    shared          : { retries: 0, typeArrayMap: {} },
+    shared          : { retries: 0, typeArrayMap: new Map() },
     ...mergeUserTypes(o.types)
   }
 
