@@ -747,6 +747,26 @@ export async function phases(name, postgres, onEvent) {
       const gaps = attempts.slice(1).map((x, i) => x - attempts[i])
       assert(attempts.length >= 3, 'Burst must reconnect, saw ' + attempts.length)
       assert(Math.min(...gaps) >= 90, 'Attempts must be paced, gaps ' + gaps.map(Math.round).join(','))
+    } else if (name === 'ending-fatal-paced') {
+      const attempts = []
+      const fatal = net.createServer(socket => {
+        attempts.push(performance.now())
+        socket.on('error', () => undefined)
+        const starting = message('E', Buffer.from('SFATAL\0C57P03\0Mthe database system is starting up\0\0'))
+        socket.once('data', () => setTimeout(() => socket.end(starting), 40))
+      })
+      await new Promise(resolve => fatal.listen(0, '127.0.0.1', resolve))
+      const sql = make({ port: fatal.address().port, connect_timeout: 5, backoff: 0.1 })
+      assert.strictEqual(await settle(marker(sql), 4000), 'rejected:57P03')
+      const queued = Promise.all(Array.from({ length: 3 }, () => settle(marker(sql), 4000)))
+      await until(() => attempts.length >= 2)
+      await sleep(10)
+      await sql.end({ timeout: 1 })
+      await queued
+      await new Promise(resolve => fatal.close(resolve))
+      const gaps = attempts.slice(1).map((x, i) => x - attempts[i])
+      assert(attempts.length >= 3, 'end() must reconnect once for the queued queries, saw ' + attempts.length)
+      assert(Math.min(...gaps) >= 120, 'A failure while ending must pace the next attempt, gaps ' + gaps.map(Math.round).join(','))
     } else if (name === 'cancel-errors') {
       const created = []
       const sql = make({ connect_timeout: 2, socket: async() => {

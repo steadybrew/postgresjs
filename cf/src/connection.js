@@ -88,6 +88,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     , endWaiters = []
     , inheritedBackoff = null
     , backoffTimer = null
+    , backoffUntil = 0
     , attemptTimer = null
     , deadlineTimer = null
     , closeTimer = null
@@ -141,7 +142,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
       execute: refuse,
       backoffElapsed: enterConnecting,
       deadline: expire,
-      end: () => endAcquisition(acquisition.lastError),
+      end: () => (inheritedBackoff = { at: performance.now(), delay: backoffUntil - performance.now() }, endAcquisition(acquisition.lastError)),
       terminate: () => enterClosed(Errors.connection('CONNECTION_DESTROYED', options, socket))
     },
     [Phase.Connecting]: {
@@ -283,6 +284,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
 
   function enterBackoff(ms) {
     transition(Phase.Backoff)
+    backoffUntil = performance.now() + ms
     backoffTimer = clampedTimeout(() => (backoffTimer = null, dispatch('backoffElapsed')), ms)
   }
 
@@ -386,8 +388,10 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     const a = acquisition
     a.lastError = cause === 'timeout' && a.lastError ? a.lastError : err
 
-    if (a.ending)
+    if (a.ending) {
+      inheritedBackoff = { at: performance.now(), delay: backoffMs() }
       return enterClosed(err)
+    }
 
     let delay = 0
     if (a.hostsTried === host.length) {
