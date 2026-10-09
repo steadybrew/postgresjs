@@ -197,11 +197,11 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
   }
 
   function attach(created) {
-    socket = created
-    acquisition.attempting = options.socket ? 'custom socket' : options.path || host[hostIndex] + ':' + port[hostIndex]
     created.on('error', error)
     created.on('close', closed)
     created.on('drain', drain)
+    socket = created
+    acquisition.attempting = options.socket ? 'custom socket' : options.path || host[hostIndex] + ':' + port[hostIndex]
 
     if (options.socket)
       return ssl ? negotiate() : authenticate()

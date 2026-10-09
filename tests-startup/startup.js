@@ -785,6 +785,11 @@ export async function phases(name, postgres, onEvent) {
       await sleep(50)
       assert.strictEqual(server.events.filter(x => x.type === 'cancel').length, 0)
       await sql.end({ timeout: 0 })
+    } else if (name === 'factory-undefined' || name === 'factory-empty') {
+      const sql = make({ connect_timeout: 2, socket: async() => name === 'factory-empty' ? {} : undefined })
+      const outcome = await settle(marker(sql))
+      assert(outcome.startsWith('rejected:') && outcome !== 'rejected:CONNECT_TIMEOUT', outcome)
+      await sql.end({ timeout: 0 })
     } else if (name === 'cancel-request-tls-error') {
       const { cancelRequest } = await import(process.argv[3] === 'cjs' ? '../cjs/src/transport.js' : '../src/transport.js')
       const options = { ssl: { get minVersion() { throw new Error('bad tls option') } }, sslnegotiation: 'direct',
