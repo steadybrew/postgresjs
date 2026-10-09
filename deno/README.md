@@ -1351,7 +1351,7 @@ The server answered the SSL request with a refusal while `ssl` is set to `requir
 ##### TARGET_SESSION_ATTRS
 > No host matched target_session_attrs=read-write: localhost:5432 is read-only
 
-No host satisfied [`target_session_attrs`](#connection-details). The message names the requested value and each host with the reason it was rejected. With several hosts, the connection fails at once when every host answered and none matched; if any host failed for another reason (refused, closed, timed out), the client keeps retrying until `connect_timeout` instead, since a failover may be in progress. With a single host, the client keeps retrying until `connect_timeout` and then reports this error, because a single endpoint that is read-only is often in the middle of a failover, for example a cluster DNS name that still points at the old primary.
+No host satisfied [`target_session_attrs`](#connection-details). This error is the `cause` of the `CONNECTION_CLOSED` error the query rejects with, so retry logic keyed on `CONNECTION_CLOSED` keeps working; read `err.cause.code` and `err.cause.message` for the reason. The message names the requested value and each host with the reason it was rejected. With several hosts, the connection fails at once when every host answered and none matched; if any host failed for another reason (refused, closed, timed out), the client keeps retrying until `connect_timeout` instead, since a failover may be in progress. With a single host, the client keeps retrying until `connect_timeout` before failing, because a single endpoint that is read-only is often in the middle of a failover, for example a cluster DNS name that still points at the old primary.
 
 ##### AUTH_TYPE_NOT_IMPLEMENTED
 > Auth type X not implemented
@@ -1361,7 +1361,7 @@ Postgres supports many different authentication types. This one is not supported
 ##### CONNECTION_CLOSED
 > write CONNECTION_CLOSED host:port
 
-This error is thrown if the connection was closed without an error. This should not happen during normal operations, so please create an issue if this was unexpected.
+This error is thrown if the connection was closed, or could not be opened, without an error of its own. When the server or the network ended the session, or no host matched `target_session_attrs`, the underlying error is available as `err.cause`.
 
 ##### CONNECTION_ENDED
 > write CONNECTION_ENDED host:port

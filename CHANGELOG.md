@@ -1,5 +1,56 @@
 # Changelog
 
+## v4.1.0 - 2026-10-09
+
+Reworks the connection lifecycle for reliability: every connection event goes through one phase table, leases have explicit states, and startup retries are decided in one place. These changes are relative to `@steadybrew/postgresjs@4.0.0`, and the contract is described in [docs/lifecycle.md](docs/lifecycle.md).
+
+There are no breaking changes: APIs and error codes are the same as in 4.0.0. Where an error now carries more detail, it is in `err.cause`.
+
+### Behavior changes
+
+- **A `target_session_attrs` mismatch says why.** The query still rejects with `CONNECTION_CLOSED`, now with a `TARGET_SESSION_ATTRS` error as its cause that names each host and why it was rejected. With several hosts, a round in which every host answered and none matched fails at once instead of retrying until `connect_timeout`. A single host still retries until `connect_timeout`, which rides out a failover behind one DNS name such as an Aurora cluster endpoint. See [8e01447](https://github.com/steadybrew/postgresjs/commit/8e01447), [13cecc3](https://github.com/steadybrew/postgresjs/commit/13cecc3) and [7c00564](https://github.com/steadybrew/postgresjs/commit/7c00564).
+- **`prefer-standby` tries every host for a standby before accepting a primary,** and starts the standby pass again after each backoff round, as libpq does. Two primaries now take three attempts instead of two. See [8f917eb](https://github.com/steadybrew/postgresjs/commit/8f917eb).
+- **Idle connections past `idle_timeout` or `max_lifetime` are terminated when handed out,** and the request is served from a new session. This covers timers that could not fire while a serverless instance was frozen. Such a connection closes without sending Terminate, so the server may log an unexpected EOF. See [006e2bb](https://github.com/steadybrew/postgresjs/commit/006e2bb).
+- **A graceful close is bounded by `connect_timeout`.** If the server does not close the socket within that many seconds after Terminate, the connection is closed anyway, so `sql.end()` without a timeout resolves. `connect_timeout: 0` leaves it unbounded. See [006e2bb](https://github.com/steadybrew/postgresjs/commit/006e2bb).
+- **Work arriving between a socket error and the close event runs on the reconnected connection** instead of rejecting with `CONNECTION_CLOSED`; the connection now closes as soon as its socket fails. See [2226c81](https://github.com/steadybrew/postgresjs/commit/2226c81).
+- **Statements on a transaction handle while its COMMIT or ROLLBACK is in flight reject with `CONNECTION_ENDED`** instead of running inside that transaction. See [b3446d1](https://github.com/steadybrew/postgresjs/commit/b3446d1).
+
+### Fixes
+
+- **Lost sessions say why:** when the server ends a session with FATAL (for example 57P01 from `pg_terminate_backend` or a failover), in-flight work still rejects with `CONNECTION_CLOSED`, now with the server's error as `err.cause`. A reserved handle or transaction whose connection is lost rejects with `CONNECTION_CLOSED` whose cause is the FATAL or socket error. Retry logic keyed on `CONNECTION_CLOSED` keeps working. See [2662ff9](https://github.com/steadybrew/postgresjs/commit/2662ff9).
+- **Cancelled pipelined queries:** cancelling a query pipelined behind another left it unsettled and gave its response to the next query. A TLS configuration error while sending a CancelRequest now rejects the cancel instead of throwing from an event callback. See [ab0b431](https://github.com/steadybrew/postgresjs/commit/ab0b431).
+- **Pool queue drift:** the first query after startup now pipelines like any other, and a reserved connection released while the pool is ending no longer stays in `reserved` with no owner. See [6b41c92](https://github.com/steadybrew/postgresjs/commit/6b41c92).
+- **`Query.cancel()`** returns a promise that settles when the CancelRequest finishes, so a failed cancel can be awaited and an unawaited one is no longer an unhandled rejection. Its declared type is now `Promise<void>`, so lint rules such as `no-floating-promises` may flag a bare `query.cancel()`. See [ab0b431](https://github.com/steadybrew/postgresjs/commit/ab0b431) and [5c6ee31](https://github.com/steadybrew/postgresjs/commit/5c6ee31).
+- **Queued queries during `end()`:** a plain query queued when the last connection is lost during a graceful `end()` gets one reconnect and runs, and `end()` waits for it, as the README promises. If the reconnect fails, the queued queries reject with its error. See [db7f619](https://github.com/steadybrew/postgresjs/commit/db7f619).
+- **Long delays:** `idle_timeout`, `max_lifetime`, `connect_timeout`, the backoff and `sql.end({ timeout })` above about 24.8 days no longer collapse to 1 ms, which closed connections after every query or timed out every attempt. See [fe5e774](https://github.com/steadybrew/postgresjs/commit/fe5e774).
+- **Leases:** a statement cancelled while queued on a reserved or transaction handle, or before it was sent, no longer hangs the rest of the handle. A raw `BEGIN` sent through the pool rejects with `UNSAFE_TRANSACTION` even if a lease takes its connection first, and a prepared-statement retry runs only under the owner it was sent with. See [b3446d1](https://github.com/steadybrew/postgresjs/commit/b3446d1).
+- **FATAL during startup queries:** a FATAL arriving between two internal startup queries fails the attempt with the server's error and retries, instead of being ignored. See [6208d20](https://github.com/steadybrew/postgresjs/commit/6208d20).
+- **Socket factories returning a non-socket** fail the attempt instead of causing an unhandled rejection and a later `CONNECT_TIMEOUT`. See [fb67b83](https://github.com/steadybrew/postgresjs/commit/fb67b83).
+- **Deno:** a socket paused for backpressure (COPY TO, subscribe) emits `close` after `destroy()` or `end()`. See [28d8f5a](https://github.com/steadybrew/postgresjs/commit/28d8f5a).
+- **Memory per pool:** the element-to-array type map took about 35 KB per pool; it is now a `Map` of under 1 KB. See [3031e0f](https://github.com/steadybrew/postgresjs/commit/3031e0f).
+- **Types:** `GenericError` declares `SSL_NOT_SUPPORTED`, `TARGET_SESSION_ATTRS`, `COPY_IN_PROGRESS` and `INVALID_TRANSACTION_NAME`. See [5c6ee31](https://github.com/steadybrew/postgresjs/commit/5c6ee31).
+
+### Upstream issue cross-check
+
+Checked against `porsager/postgres` on 2026-10-09, with upstream `master` at [`411429e`](https://github.com/porsager/postgres/commit/411429e7bd7a3d61155ca9a70a97c111823702ea). Each test below fails on that upstream source for the reason its report gives and passes on this release. These links identify matching reported failures; they do not imply upstream has merged or endorsed this fork's implementation.
+
+| Behavior | Upstream reports | Fixed by | Evidence |
+| --- | --- | --- | --- |
+| Work arriving between a socket error and its close runs once on the reconnected connection; 4.0.0 rejected it with `CONNECTION_CLOSED` | [#1246](https://github.com/porsager/postgres/issues/1246) | [2226c81](https://github.com/steadybrew/postgresjs/commit/2226c81) | `phase:gap-query`, `gap-query-pool`, `gap-listen`, `lease:reserve-release-after-error` |
+| A late socket `drain` no longer hands a transaction's connection to another query or `begin()` | [#1204](https://github.com/porsager/postgres/issues/1204), listed as "likely addresses" in 4.0.0 | 4.0.0 ([c064619](https://github.com/steadybrew/postgresjs/commit/c064619)); test added in [a4313d2](https://github.com/steadybrew/postgresjs/commit/a4313d2) | `lease:begin-late-drain` |
+| The first query after a reconnect no longer rejects with an ErrorResponse from the closed session | [#1249](https://github.com/porsager/postgres/issues/1249) | 4.0.0 ([c064619](https://github.com/steadybrew/postgresjs/commit/c064619)); test added in [e59d0cd](https://github.com/steadybrew/postgresjs/commit/e59d0cd) | `phase:error-close-reconnect` |
+| `end()` waits for queries queued in the pool and leaves no connection open | [#861](https://github.com/porsager/postgres/issues/861) | 4.0.0 ([c064619](https://github.com/steadybrew/postgresjs/commit/c064619)); test added in [e2a71dc](https://github.com/steadybrew/postgresjs/commit/e2a71dc) | `phase:end-queued-cold` |
+| A FATAL answering the type query rejects the query instead of crashing the process | [#1086](https://github.com/porsager/postgres/issues/1086) | 4.0.0 ([c064619](https://github.com/steadybrew/postgresjs/commit/c064619)); test added in [eae5a72](https://github.com/steadybrew/postgresjs/commit/eae5a72) | `phase:fatal-catalog` |
+
+Not claimed: [#925](https://github.com/porsager/postgres/issues/925) does not reproduce on the upstream source either, and [#1234](https://github.com/porsager/postgres/issues/1234) is still open (see below).
+
+### Known limitations
+
+- Concurrent queries inside `begin()` that hit a cached-plan error (0A000) leave the transaction aborted: later statements reject with `25P02` and the connection returns to the pool idle in an aborted transaction ([#1234](https://github.com/porsager/postgres/issues/1234)). Upstream hangs instead.
+- There is still no client-side query timeout. A query on a socket that died silently waits until TCP gives up ([#1089](https://github.com/porsager/postgres/issues/1089)).
+- A CancelRequest always goes to the first configured host, which is wrong after a multi-host failover moved the session elsewhere.
+- Cloudflare workerd can still emit an unhandled `"Stream was cancelled"` rejection on socket close ([#1196](https://github.com/porsager/postgres/issues/1196), [#1202](https://github.com/porsager/postgres/issues/1202)).
+
 ## v4.0.0 - 2026-10-08
 
 Promotes the runtime changes validated in `4.0.0-rc1`; see the candidate entry below for fixes, migration instructions and known limitations. Node.js 24 or newer is required. Later lifecycle refactors remain deferred.
