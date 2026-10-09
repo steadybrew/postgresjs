@@ -35,8 +35,8 @@ const where = () => new Error().stack.split('\n').slice(4, 7).join(' <- ')
 function inspect() {
   for (const [c, queues] of connections) {
     const name = Object.keys(queues).find(x => queues[x] === c.queue)
-    const key = phase(c) + (c.lease && allowed[phase(c) + 'Owned'] ? 'Owned' : '')
-    const label = phase(c) + (c.lease ? '+owner' : '') + ' in ' + name
+    const key = phase(c) + (c.owner && allowed[phase(c) + 'Owned'] ? 'Owned' : '')
+    const label = phase(c) + (c.owner ? '+owner' : '') + ' in ' + name
     allowed[key].includes(name) || violations.includes(label) || violations.push(label)
   }
 }

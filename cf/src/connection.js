@@ -124,6 +124,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     release,
     end,
     expired: () => idleTimer.expired() || lifeTimer.expired(),
+    owner: null,
     count: 0,
     id
   }
@@ -143,10 +144,6 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
 
   function starting() {
     return phase >= Phase.Opening && phase <= Phase.Initializing
-  }
-
-  function held() {
-    return connection.reserved || connection.queue === queues.reserved
   }
 
   function drained() {
@@ -394,7 +391,9 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
       return queryError(q, Errors.generic('COPY_IN_PROGRESS', 'You cannot execute queries during copy'))
 
     if (q.cancelled)
-      return
+      return true
+
+    q.owner === undefined && (q.owner = connection.owner)
 
     try {
       q.state = backend
@@ -508,7 +507,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
 
   /* c8 ignore next 3 */
   function drain() {
-    phase === Phase.Ready && !query && !held() && onopen(connection)
+    phase === Phase.Ready && !query && !connection.owner && onopen(connection)
   }
 
   function data(x) {
@@ -594,7 +593,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
       return done
 
     if (phase === Phase.Ready) {
-      const owned = held()
+      const owned = connection.owner
       if (idle() && !owned) {
         closing()
       } else {
@@ -727,14 +726,14 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     }
   }
 
-  function ReadyForQuery(x) {
+  function ReadyForQuery() {
     if (query) {
       if (errorResponse) {
         if (query.initialization)
           return enterClosed(errorResponse)
         query.retried
           ? errored(query.retried)
-          : query.prepared && retryRoutines.has(errorResponse.routine)
+          : query.prepared && retryRoutines.has(errorResponse.routine) && query.owner === connection.owner
             ? retry(query, errorResponse)
             : errored(errorResponse)
       } else {
@@ -761,12 +760,8 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
       return
     }
 
-    connection.reserved
-      ? !connection.reserved.release && x[5] === 73
-        ? phase === Phase.Draining
-          ? drained()
-          : (connection.reserved = null, onopen(connection))
-        : connection.reserved()
+    connection.owner
+      ? connection.owner.next()
       : phase === Phase.Draining
         ? drained()
         : onopen(connection)
@@ -803,7 +798,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
 
     final && (final(), final = null)
 
-    if (result.command === 'BEGIN' && max !== 1 && !connection.reserved)
+    if (result.command === 'BEGIN' && max !== 1 && !query.owner)
       return errored(Errors.generic('UNSAFE_TRANSACTION', 'Only use sql.begin, sql.reserved or max: 1'))
 
     if (query.options.simple)

@@ -28,6 +28,8 @@ import { Errors, PostgresError } from './errors.js'
 import Subscribe from './subscribe.js'
 import largeObject from './large.js'
 
+const Lease = { Active: 0, Settling: 1, Released: 2, Discarded: 3, Closed: 4 }
+
 Object.assign(Postgres, {
   PostgresError,
   toPascal,
@@ -208,7 +210,7 @@ function Postgres(a, b) {
     if (ending)
       throw Errors.connection('CONNECTION_ENDED', options)
 
-    const l = { connection: null, closed: null, onclose: null, reserved: null, queue: Queue() }
+    const l = { state: null, connection: null, error: null, onclose: null, queue: Queue() }
     const idle = takeOpen()
     idle
       ? own(idle, l)
@@ -225,50 +227,53 @@ function Postgres(a, b) {
 
   function own(c, l) {
     l.connection = c
-    c.lease = l
-    move(c, reserved)
-    c.reserved = l.reserved = () => l.queue.length
-      ? c.execute(l.queue.shift())
-      : move(c, reserved)
-    c.reserved.release = true
-    return c
+    l.state = Lease.Active
+    c.owner = l
+    l.next = () => {
+      while (l.queue.length) {
+        if (!c.execute(l.queue.shift()))
+          return
+      }
+      move(c, reserved)
+    }
+    return move(c, reserved)
   }
 
-  function valid(l) {
-    return !l.closed && l.connection.lease === l && l.connection.reserved === l.reserved
-  }
-
-  function send(l, q) {
+  function send(l, q, expected = Lease.Active) {
     const c = l.connection
-    valid(l)
+    l.state === expected
       ? c.queue === full
         ? l.queue.push(q)
         : c.execute(q) || move(c, full)
-      : q.reject(gone(l))
+      : q.reject(leaseError(l.state))
   }
 
-  function gone(l) {
-    return Errors.connection(l.closed && l.closed.code === 'CONNECTION_ENDED' ? 'CONNECTION_ENDED' : 'CONNECTION_CLOSED', options)
+  function leaseError(state) {
+    return Errors.connection(state === Lease.Closed ? 'CONNECTION_CLOSED' : 'CONNECTION_ENDED', options)
   }
 
-  function finish(l) {
+  function settle(l, outcome, err) {
+    if (l.state === Lease.Released || l.state === Lease.Discarded || l.state === Lease.Closed)
+      return
+
     const c = l.connection
-    if (l.closed || c.lease !== l)
-      return false
-
-    const held = c.reserved === l.reserved
-    c.lease = null
-    l.closed = Errors.connection('CONNECTION_ENDED', options)
-    held && (c.reserved = null)
+    l.state = outcome
+    c.owner = null
     while (l.queue.length)
-      l.queue.shift().reject(gone(l))
-    return held
+      l.queue.shift().reject(leaseError(outcome))
+
+    if (outcome === Lease.Closed) {
+      l.error = err || Errors.connection('CONNECTION_CLOSED', options)
+      return l.onclose && l.onclose(l.error)
+    }
+
+    outcome === Lease.Released ? c.release() : c.terminate()
   }
 
   async function reserve() {
     const l = await lease(false)
     const sql = Sql(q => send(l, q))
-    sql.release = () => finish(l) && l.connection.release()
+    sql.release = () => settle(l, Lease.Released)
     return sql
   }
 
@@ -277,21 +282,31 @@ function Postgres(a, b) {
     const l = await lease(true)
     let savepoints = 0
       , prepare = null
-      , settled = false
 
     try {
       const closing = new Promise((_, reject) => l.onclose = reject)
       return await Promise.race([transaction(), closing])
     } finally {
-      finish(l) && (settled ? l.connection.release() : l.connection.terminate())
+      settle(l, Lease.Discarded)
     }
 
     async function transaction() {
       await Sql(q => send(l, q)).unsafe('begin ' + options.replace(/[^a-z ]/ig, ''), []).execute().catch(e => {
-        e instanceof PostgresError && (settled = true)
+        e instanceof PostgresError && settle(l, Lease.Released)
         throw e
       })
       return scope(fn)
+    }
+
+    async function finish(statement) {
+      l.state = Lease.Settling
+      try {
+        await statement(Sql(q => send(l, q, Lease.Settling)))
+      } catch (e) {
+        settle(l, Lease.Discarded)
+        throw e
+      }
+      settle(l, Lease.Released)
     }
 
     async function scope(fn, name) {
@@ -316,23 +331,20 @@ function Postgres(a, b) {
         if (uncaughtError)
           throw uncaughtError
       } catch (e) {
-        l.closed || await (name
+        l.state === Lease.Active && await (name
           ? sql`rollback to ${ sql(name) }`
-          : sql`rollback`
+          : finish(final => final`rollback`)
         )
-        name || (settled = true)
         throw e instanceof PostgresError && e.code === '25P02' && uncaughtError || e
       }
 
-      if (l.closed)
-        throw l.closed
+      if (l.state !== Lease.Active)
+        throw l.error || leaseError(l.state)
 
-      if (!name) {
-        prepare
-          ? await sql`prepare transaction ${ sql.unsafe(prepare) }`
-          : await sql`commit`
-        settled = true
-      }
+      name || await finish(final => prepare
+        ? final`prepare transaction ${ final.unsafe(prepare) }`
+        : final`commit`
+      )
 
       return result
 
@@ -470,7 +482,7 @@ function Postgres(a, b) {
 
   function onopen(c, initial) {
     if (initial && initial.reserve)
-      return initial.reserve(move(c, reserved))
+      return initial.reserve(c)
 
     if (!initial && !queries.length)
       return move(c, open)
@@ -481,7 +493,7 @@ function Postgres(a, b) {
     while (ready && queries.length && max-- > 0) {
       const query = queries.shift()
       if (query.reserve)
-        return query.reserve(move(c, reserved))
+        return query.reserve(c)
 
       ready = c.execute(query)
     }
@@ -507,18 +519,9 @@ function Postgres(a, b) {
     return drained
   }
 
-  function abandon(l, e) {
-    l.connection.lease = null
-    l.closed = e || Errors.connection('CONNECTION_CLOSED', options)
-    while (l.queue.length)
-      l.queue.shift().reject(gone(l))
-    l.onclose && l.onclose(e)
-  }
-
   function onclose(c, e) {
     move(c, closed)
-    c.reserved = null
-    c.lease && abandon(c.lease, e)
+    c.owner && settle(c.owner, Lease.Closed, e)
     options.onclose && options.onclose(c.id)
     if (ending)
       return closedWhileEnding(c, e)

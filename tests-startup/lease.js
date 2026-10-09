@@ -8,7 +8,14 @@ export const leaseNames = ['reserve-close', 'reserve-release-close', 'reserve-st
                            'begin-backpressure', 'raw-begin-unsafe', 'begin-user-commit', 'begin-user-rollback', 'begin-after-end',
                            'reserve-after-end', 'begin-forced-end', 'begin-graceful-end', 'begin-rollbacks',
                            'reserve-released', 'release-queued', 'begin-leaked-commit', 'begin-leaked-rollback', 'begin-leaked-savepoint',
-                           'reserve-release-after-error']
+                           'reserve-handoff-gap', 'begin-handoff-gap', 'begin-settling', 'begin-commit-fails', 'begin-start-failed',
+                           'reserve-raw-begin', 'begin-leaked-savepoint-late', 'reserve-cancel-before-send', 'begin-cancel-before-send',
+                           'pool-cancel-before-send', 'reserve-cancel-queued', 'begin-cancel-queued',
+                           'pooled-raw-begin', 'pooled-retry', 'owned-lifetime',
+                           'settling-disconnect-commit', 'settling-disconnect-rollback', 'settling-disconnect-prepare',
+                           'settling-end-commit', 'settling-end-rollback', 'settling-end-prepare',
+                           'settling-fail-rollback', 'settling-fail-prepare',
+                           'outcome-commit-released', 'outcome-release-released', 'reserve-release-after-error']
 
 const closed = 'rejected:CONNECTION_CLOSED'
 const ended = 'rejected:CONNECTION_ENDED'
@@ -17,7 +24,15 @@ const sent = (server, text) => server.events.filter(x => x.type === 'Q' && x.sql
 
 export async function leases(name, postgres, onEvent) {
   const queued = ['reserve-queued', 'release-queued', 'begin-queued', 'begin-forced-end'].includes(name)
-  const server = await peer({ holdQuery: queued ? 'hang' : '', onEvent })
+  const settling = name.startsWith('settling-') ? name.split('-') : []
+  const holdsCommit = name === 'begin-settling' || name === 'begin-commit-fails'
+  const holdStatement = holdsCommit ? 'commit'
+    : settling[2] === 'commit' ? 'commit'
+    : settling[2] === 'rollback' ? 'rollback'
+    : settling[2] === 'prepare' ? 'prepare transaction'
+    : name === 'pooled-raw-begin' ? 'begin -- stall' : ''
+  const server = await peer({ holdQuery: queued ? 'hang' : name.startsWith('pooled-') ? 'hang' : '', holdStatement,
+                              failQuery: name === 'begin-start-failed' ? 'begin bogus' : '', onEvent })
   const base = { host: '127.0.0.1', port: server.port, user: 'fixture', database: 'fixture', ssl: false, fetch_types: true,
                  connect_timeout: 2, backoff: 0.01, onnotice: () => { /* Quiet. */ } }
   const refusals = { count: 0 }
@@ -32,17 +47,31 @@ export async function leases(name, postgres, onEvent) {
     }
     return socket
   }
-  const sockets = []
-  const tracked = async() => {
+  const gap = async() => {
     const socket = net.connect(server.port, '127.0.0.1')
     await new Promise((resolve, reject) => { socket.once('connect', resolve); socket.once('error', reject) })
+    const emit = socket.emit.bind(socket)
+    socket.emit = (event, ...args) => {
+      const result = emit(event, ...args)
+      event === 'data' && queueMicrotask(() => emit('drain'))
+      return result
+    }
+    return socket
+  }
+  const sockets = []
+  const tracked = async() => {
+    const socket = await gap()
     sockets.push(socket)
     return socket
   }
-  const wide = ['begin-pipeline-zero', 'begin-backpressure', 'raw-begin-unsafe', 'begin-user-commit', 'begin-user-rollback'].includes(name)
+  const wide = ['reserve-raw-begin', 'begin-pipeline-zero', 'begin-backpressure', 'raw-begin-unsafe', 'begin-user-commit',
+                'begin-user-rollback',
+                'pooled-raw-begin', 'pooled-retry'].includes(name)
   const sql = postgres({ ...base, max: wide ? 2 : 1,
-                         ...(name === 'begin-pipeline-zero' ? { max_pipeline: 0 } : {}),
+                         ...(name === 'owned-lifetime' ? { max_lifetime: 0.2 } : {}),
+                         ...(name === 'begin-pipeline-zero' || name.endsWith('-cancel-queued') ? { max_pipeline: 0 } : {}),
                          ...(name === 'begin-backpressure' ? { socket: backpressure } : {}),
+                         ...(name.endsWith('-handoff-gap') ? { socket: gap } : {}),
                          ...(name === 'reserve-release-after-error' ? { socket: tracked } : {}),
                          ...(queued ? { max_pipeline: 0 } : {}) })
   const uncaught = []
@@ -264,6 +293,205 @@ export async function leases(name, postgres, onEvent) {
       assert.strictEqual(await settle(leaked.savepoint(async() => { /* Never entered. */ })), ended)
       assert.strictEqual(sent(server, 'select stale').length, 0)
       assert.strictEqual(await settle(marker(sql)), 'resolved')
+      assert.strictEqual(await settle(sql.end()), 'resolved')
+    } else if (name === 'reserve-handoff-gap') {
+      const claim = sql.reserve()
+      const pooled = settle(select(sql, 'select 43 as marker'))
+      const held = await claim
+      await sleep(30)
+      assert.strictEqual(sent(server, 'select 43 as marker').length, 0)
+      assert.strictEqual(await settle(marker(held)), 'resolved')
+      assert.strictEqual(sent(server, 'select 43 as marker').length, 0)
+      held.release()
+      assert.strictEqual(await pooled, 'resolved')
+      assert.strictEqual(await settle(sql.end()), 'resolved')
+    } else if (name === 'begin-handoff-gap') {
+      const pooled = settle(select(sql, 'select 43 as marker'))
+      const outcome = settle(sql.begin(async t => {
+        await sleep(30)
+        assert.strictEqual(sent(server, 'select 43 as marker').length, 0)
+        await marker(t)
+      }))
+      assert.strictEqual(await outcome, 'resolved')
+      assert.strictEqual(await pooled, 'resolved')
+      const texts = server.events.filter(x => x.type === 'P' || x.type === 'Q').map(x => x.text || x.sql)
+      assert(texts.indexOf('commit') < texts.indexOf('select 43 as marker'), JSON.stringify(texts))
+      assert.strictEqual(await settle(sql.end()), 'resolved')
+    } else if (name === 'begin-settling') {
+      let leaked
+      const outcome = settle(sql.begin(async t => {
+        leaked = t
+        await marker(t)
+      }))
+      await until(() => server.heldStatement())
+      const pooled = settle(select(sql, 'select 43 as marker'))
+      assert.strictEqual(await settle(select(leaked, 'select late')), ended)
+      assert.strictEqual(await settle(leaked.savepoint(async() => undefined)), ended)
+      await sleep(30)
+      assert.strictEqual(sent(server, 'select late').length, 0)
+      assert.strictEqual(sent(server, 'select 43 as marker').length, 0)
+      server.releaseStatement()
+      assert.strictEqual(await outcome, 'resolved')
+      assert.strictEqual(await pooled, 'resolved')
+      assert.strictEqual(startups(server), 1)
+      assert.strictEqual(await settle(sql.end()), 'resolved')
+    } else if (name === 'begin-commit-fails') {
+      const first = (await select(sql, 'select 42 as marker')).state.pid
+      const outcome = settle(sql.begin(async t => { await marker(t) }))
+      await until(() => server.heldStatement())
+      const pooled = settle(select(sql, 'select 43 as marker'))
+      server.releaseStatement(true)
+      assert.strictEqual(await outcome, 'rejected:40002')
+      assert.strictEqual(await pooled, 'resolved')
+      assert.strictEqual(startups(server), 2)
+      assert.notStrictEqual((await select(sql, 'select 42 as marker')).state.pid, first)
+      assert.strictEqual(await settle(sql.end()), 'resolved')
+    } else if (name === 'begin-start-failed') {
+      const first = (await select(sql, 'select 42 as marker')).state.pid
+      assert.strictEqual(await settle(sql.begin('bogus', async() => assert.fail('never entered'))), 'rejected:42601')
+      assert.strictEqual((await select(sql, 'select 42 as marker')).state.pid, first)
+      assert.strictEqual(startups(server), 1)
+      assert.strictEqual(await settle(sql.end()), 'resolved')
+    } else if (name === 'reserve-raw-begin') {
+      const held = await sql.reserve()
+      await held`begin`
+      await held`commit`
+      const pid = (await select(held, 'select 42 as marker')).state.pid
+      const pooled = settle(select(sql, 'select 43 as marker'))
+      await sleep(30)
+      assert.strictEqual(sent(server, 'select 43 as marker').filter(x => x.pid === pid).length, 0)
+      held.release()
+      assert.strictEqual(await pooled, 'resolved')
+      assert.strictEqual(await settle(sql.end()), 'resolved')
+    } else if (name === 'begin-leaked-savepoint-late') {
+      let leaked
+      assert.strictEqual(await settle(sql.begin(async t => { leaked = t.savepoint(async() => { await sleep(50) }) })), 'resolved')
+      assert.strictEqual(await leaked.then(() => 'resolved', e => e === null ? 'null' : e.code), 'CONNECTION_ENDED')
+      assert.strictEqual(await settle(sql.end()), 'resolved')
+    } else if (name.endsWith('-cancel-before-send')) {
+      const cancelled = async client => {
+        const q = select(client, 'select 2')
+        q.execute()
+        q.cancel()
+        await q.catch(() => undefined)
+      }
+      if (name === 'reserve-cancel-before-send') {
+        const held = await sql.reserve()
+        await marker(held)
+        await cancelled(held)
+        assert.strictEqual(await settle(marker(held)), 'resolved')
+        held.release()
+      } else if (name === 'begin-cancel-before-send') {
+        await marker(sql)
+        assert.strictEqual(await settle(sql.begin(t => cancelled(t))), 'rejected:57014')
+      } else {
+        await marker(sql)
+        await cancelled(sql)
+      }
+      assert.strictEqual(await settle(marker(sql)), 'resolved')
+      assert.strictEqual(await settle(sql.end()), 'resolved')
+    } else if (name === 'reserve-cancel-queued') {
+      const held = await sql.reserve()
+      await marker(held)
+      const first = select(held, 'select 1')
+      first.execute()
+      const doomed = select(held, 'select 2')
+      doomed.execute()
+      doomed.cancel()
+      const outcome = settle(doomed)
+      const after = settle(select(held, 'select 3'))
+      assert.strictEqual(await settle(first), 'resolved')
+      assert.strictEqual(await outcome, 'rejected:57014')
+      assert.strictEqual(await after, 'resolved')
+      held.release()
+      assert.strictEqual(await settle(marker(sql)), 'resolved')
+      assert.strictEqual(await settle(sql.end()), 'resolved')
+    } else if (name === 'begin-cancel-queued') {
+      assert.strictEqual(await settle(sql.begin(async t => {
+        const first = select(t, 'select 1')
+        first.execute()
+        const doomed = select(t, 'select 2')
+        doomed.execute()
+        doomed.cancel()
+        doomed.catch(() => undefined)
+        await first
+        return select(t, 'select 3')
+      })), 'rejected:57014')
+      assert.strictEqual(await settle(marker(sql)), 'resolved')
+      assert.strictEqual(await settle(sql.end()), 'resolved')
+    } else if (name === 'pooled-raw-begin') {
+      await Promise.all([marker(sql), marker(sql)])
+      const raw = settle(select(sql, 'begin -- stall'))
+      settle(select(sql, 'select hang'))
+      await until(() => server.heldStatement())
+      const inside = settle(sql.begin(async t => { await marker(t) }))
+      server.releaseStatement()
+      assert.strictEqual(await raw, 'rejected:UNSAFE_TRANSACTION')
+      assert.strictEqual(await inside, 'resolved')
+    } else if (name === 'pooled-retry') {
+      const statement = () => sql`select 77 as marker`
+      await Promise.all([statement(), statement()])
+      server.hold('select 77')
+      const pooled = settle(statement())
+      settle(select(sql, 'select hang'))
+      await until(() => server.heldStatement())
+      const inside = settle(sql.begin(async t => { await marker(t) }))
+      server.releaseStatement('RevalidateCachedQuery')
+      assert.strictEqual(await pooled, 'rejected:40002')
+      assert.strictEqual(await inside, 'resolved')
+      assert.strictEqual(server.events.filter(x => x.type === 'P' && x.text === 'select 77 as marker').length, 2)
+    } else if (name === 'owned-lifetime') {
+      const held = await sql.reserve()
+      await marker(held)
+      await sleep(400)
+      assert.strictEqual(await settle(marker(held)), 'resolved')
+      const pooled = settle(select(sql, 'select 43 as marker'))
+      held.release()
+      assert.strictEqual(await pooled, 'resolved')
+      assert.strictEqual(startups(server), 2)
+      assert.strictEqual(await settle(marker(sql)), 'resolved')
+      assert.strictEqual(await settle(sql.end()), 'resolved')
+    } else if (settling.length) {
+      const [, mode, statement] = settling
+      const first = (await select(sql, 'select 42 as marker')).state.pid
+      const outcome = settle(sql.begin(async t => {
+        await marker(t)
+        statement === 'prepare' && t.prepare('tx1')
+        if (statement === 'rollback')
+          throw Object.assign(new Error('user'), { code: 'USER' })
+      }))
+      await until(() => server.heldStatement())
+      const pooled = settle(sql`select 43 as marker`)
+      await sleep(5)
+      let ending
+      if (mode === 'disconnect') {
+        server.disconnect()
+      } else if (mode === 'end') {
+        ending = settle(sql.end())
+        await sleep(30)
+        server.releaseStatement()
+      } else {
+        server.releaseStatement(true)
+      }
+      assert.strictEqual(await outcome, mode === 'disconnect' ? closed : mode === 'fail' ? 'rejected:40002'
+        : statement === 'rollback' ? 'rejected:USER' : 'resolved')
+      assert.strictEqual(await pooled, 'resolved')
+      mode === 'fail' && assert.strictEqual(startups(server), 2)
+      mode === 'fail' && assert.notStrictEqual((await select(sql, 'select 42 as marker')).state.pid, first)
+      assert.strictEqual(await settle(ending || sql.end()), 'resolved')
+    } else if (name.startsWith('outcome-')) {
+      const pidOf = async() => (await select(sql, 'select 42 as marker')).state.pid
+      const first = await pidOf()
+      if (name === 'outcome-commit-released') {
+        assert.strictEqual(await settle(sql.begin(async t => { await marker(t) })), 'resolved')
+      } else if (name === 'outcome-release-released') {
+        const held = await sql.reserve()
+        await marker(held)
+        held.release()
+      }
+      const second = await pidOf()
+      assert.strictEqual(second, first)
+      assert.strictEqual(startups(server), 1)
       assert.strictEqual(await settle(sql.end()), 'resolved')
     } else if (name === 'raw-begin-unsafe') {
       assert.strictEqual(await settle(sql`begin`), 'rejected:UNSAFE_TRANSACTION')
