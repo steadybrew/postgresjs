@@ -6,9 +6,12 @@ import { ownership } from './ownership.js'
 import { leases } from './lease.js'
 import { compat } from './compat.js'
 import { cf } from './cf.js'
+import { install, verify, violations } from './invariants.js'
+
+install()
 
 const name = process.argv[2]
-const finish = () => process.send({ completed: name })
+const finish = () => (verify(), process.send({ completed: name }))
 
 async function main() {
   const { default: postgres } = await import(process.argv[3] === 'cjs' ? '../cjs/src/index.js' : '../src/index.js')
@@ -103,6 +106,6 @@ async function main() {
 }
 
 main().catch(error => {
-  console.error(error) // eslint-disable-line no-console
+  console.error(error, violations) // eslint-disable-line no-console
   process.exitCode = 1
 })

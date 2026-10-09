@@ -450,11 +450,11 @@ function Postgres(a, b) {
     if (initial && initial.reserve)
       return initial.reserve(move(c, reserved))
 
-    if (queries.length === 0)
+    if (!initial && !queries.length)
       return move(c, open)
 
     let max = Math.ceil(queries.length / (connecting.length + 1))
-      , ready = true
+      , ready = !initial || c.execute(initial)
 
     while (ready && queries.length && max-- > 0) {
       const query = queries.shift()
@@ -481,6 +481,7 @@ function Postgres(a, b) {
         ? query.reject(Errors.connection('CONNECTION_ENDED', options))
         : (drained = true, ready = c.execute(query))
     }
+    drained && move(c, ended)
     return drained
   }
 

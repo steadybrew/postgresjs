@@ -23,6 +23,7 @@ const Sync = b().S().end()
     , noop = () => { /* noop */ }
 
 const Phase = { Closed: 0, Backoff: 1, Opening: 2, Negotiating: 3, Authenticating: 4, Initializing: 5, Ready: 6, Draining: 7, Closing: 8 }
+const phaseNames = Object.keys(Phase)
 
 const retryRoutines = new Set([
   'FetchPreparedStatement',
@@ -108,6 +109,8 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     , query = null
     , final = null
 
+  const check = globalThis[Symbol.for('postgres.js:check')]
+
   const connection = {
     queue: queues.closed,
     idleTimer,
@@ -120,11 +123,15 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     id
   }
 
+  check && Object.defineProperty(connection, Symbol.for('postgres.js:phase'), { get: () => phaseNames[phase] })
+  check && check('created', connection, queues)
+
   queues.closed && queues.closed.push(connection)
 
   return connection
 
   function transition(next) {
+    check && check('edge', connection, phaseNames[phase], phaseNames[next])
     generation++
     phase = next
   }
@@ -339,6 +346,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
 
   function closing() {
     transition(Phase.Closing)
+    onend(connection)
     idleTimer.cancel()
     lifeTimer.cancel()
     socket.readyState === 'open'
@@ -364,11 +372,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
       return execute(owner)
     }
 
-    owner.reserve
-      ? onopen(connection, owner)
-      : owner.cancelled
-        ? onopen(connection)
-        : execute(owner)
+    onopen(connection, owner.cancelled ? undefined : owner)
   }
 
   function execute(q) {
@@ -579,10 +583,13 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
       return done
 
     if (phase === Phase.Ready) {
-      !held() && onend(connection)
-      idle() && !held()
-        ? closing()
-        : transition(Phase.Draining)
+      const owned = held()
+      if (idle() && !owned) {
+        closing()
+      } else {
+        transition(Phase.Draining)
+        owned || onend(connection)
+      }
       return done
     }
 
@@ -613,9 +620,10 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
   }
 
   function release() {
-    phase === Phase.Ready
-      ? onopen(connection)
-      : phase === Phase.Draining && idle() && drained()
+    if (phase === Phase.Ready)
+      onopen(connection)
+    else if (phase === Phase.Draining)
+      idle() ? drained() : onend(connection)
   }
 
   function closed(hadError) {

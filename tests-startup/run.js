@@ -27,7 +27,8 @@ const phaseNames = ['stale-ending-lifetime', 'stale-ending-close', 'stale-ending
                     'cancel-errors', 'fatal-backoff', 'gap-query-pool', 'gap-listen',
                     'begin-socket-cause', 'begin-fatal-inflight', 'fatal-initializing', 'fatal-initializing-inflight',
                     'cancel-pipelined', 'cancel-pipelined-lost', 'cancel-settled', 'cancel-request-tls-error',
-                    'cancel-request-refused', 'cancel-unawaited']
+                    'cancel-request-refused', 'cancel-unawaited',
+                    'first-query-pipeline', 'release-inflight', 'draining-release-busy']
 
 const childPath = fileURLToPath(new URL('./case.js', import.meta.url))
 
