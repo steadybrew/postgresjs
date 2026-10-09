@@ -22,6 +22,7 @@ import {
 
 import Connection from './connection.js'
 import { cancelRequest } from './transport.js'
+import clampedTimeout from './timeout.js'
 import { Query, CLOSE } from './query.js'
 import Queue from './queue.js'
 import { Errors, PostgresError } from './errors.js'
@@ -415,7 +416,7 @@ function Postgres(a, b) {
     await 1
     let timer
     return ending = Promise.resolve().then(() => Promise.race([
-      new Promise(r => timeout !== null && (timer = setTimeout(() => destroy(r), timeout * 1000))),
+      new Promise(r => timeout !== null && (timer = clampedTimeout(() => destroy(r), timeout * 1000))),
       endConnections()
     ])).then(() => {
       clearTimeout(timer)

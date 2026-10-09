@@ -60,14 +60,14 @@ async function timerArguments(postgres) {
     const query = ending.unsafe('select pg_sleep(60)', [], { simple: true }).execute()
     const rejected = assert.rejects(query, error => error.code === 'CONNECTION_DESTROYED')
     await sleep(50)
-    const outcome = await Promise.race([ending.end({ timeout: 0.1 }).then(() => 'resolved'), sleep(2000).then(() => 'hung')])
+    const outcome = await Promise.race([ending.end({ timeout: 0.15 }).then(() => 'resolved'), sleep(2000).then(() => 'hung')])
     assert.strictEqual(outcome, 'resolved')
     await rejected
 
     assert(calls.some(x => x[0] === 100), 'idle_timeout timer not armed')
     assert(calls.some(x => x[0] === 200), 'max_lifetime timer not armed')
     assert(calls.some(x => x[0] === 300), 'connect_timeout timer not armed')
-    assert(calls.some(x => x[0] === 100), 'end timeout timer not armed')
+    assert(calls.some(x => x[0] === 150), 'end timeout timer not armed')
     assert(calls.every(x => x[1] === 0), 'setTimeout received extra arguments')
   } finally {
     globalThis.setTimeout = real

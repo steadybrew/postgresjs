@@ -853,6 +853,17 @@ export async function phases(name, postgres, onEvent) {
       assert.strictEqual(await queued, 'resolved')
       assert.strictEqual(await ending, 'resolved')
       assert.strictEqual(startups(server), 2)
+    } else if (name === 'delay-clamp') {
+      const sql = make({ host: ['127.0.0.1', '127.0.0.1'], port: [server.port, server.port], connect_timeout: 2 ** 30 })
+      assert.strictEqual(await settle(marker(sql), 3000), 'resolved')
+      await sql.end({ timeout: 0 })
+    } else if (name === 'idle-clamp') {
+      const sql = make({ idle_timeout: 60 * 60 * 24 * 30 })
+      assert.strictEqual(await settle(marker(sql)), 'resolved')
+      await sleep(100)
+      assert.strictEqual(await settle(marker(sql)), 'resolved')
+      assert.strictEqual(startups(server), 1)
+      await sql.end({ timeout: 0 })
     } else if (name === 'first-query-pipeline') {
       const sql = make({ connect_timeout: 2 })
       server.hold('stall')

@@ -1,6 +1,7 @@
 import { net } from '../polyfills.js'
 import { tls } from '../polyfills.js'
 import b from './bytes.js'
+import clampedTimeout from './timeout.js'
 
 export const SSLRequest = b().i32(8).i32(80877103).end(8)
 
@@ -64,7 +65,7 @@ function sendCancel(options, { pid, secret }, s) {
 
     try {
       watch(s)
-      options.connect_timeout && (timeout = setTimeout(() => s.destroy(), options.connect_timeout * 1000))
+      options.connect_timeout && (timeout = clampedTimeout(() => s.destroy(), options.connect_timeout * 1000))
 
       if (options.socket)
         return start()

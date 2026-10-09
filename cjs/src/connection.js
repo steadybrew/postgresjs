@@ -8,6 +8,7 @@ const { stringify, handleValue, addArrayType } = require('./types.js')
 const { Errors } = require('./errors.js')
 const Result = require('./result.js')
 const Queue = require('./queue.js')
+const clampedTimeout = require('./timeout.js')
 const { SSLRequest, tlsConfig, cancelRequest } = require('./transport.js')
 const { Query, CLOSE } = require('./query.js')
 const b = require('./bytes.js')
@@ -172,7 +173,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     const attempt = generation
     const left = a.deadline === null ? Infinity : Math.max(0, a.deadline - performance.now())
     a.expired = left <= ms
-    backoffTimer = setTimeout(() => {
+    backoffTimer = clampedTimeout(() => {
       backoffTimer = null
       attempt === generation && (a.expired
         ? enterClosed(a.lastError || Errors.connection('CONNECT_TIMEOUT', options))
@@ -189,7 +190,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
       const now = performance.now()
       a.deadline === null && (a.deadline = now + ms * host.length)
       const left = a.deadline - now
-      connectTimer = setTimeout(() => connectTimedOut(left <= ms), Math.min(ms, left))
+      connectTimer = clampedTimeout(() => connectTimedOut(left <= ms), Math.min(ms, left))
     }
     a.hostsTried++
     backendParameters = {}
@@ -1257,7 +1258,7 @@ function timer(fn, seconds) {
     },
     start(...args) {
       timer && clearTimeout(timer)
-      timer = setTimeout(() => done(args), seconds * 1000)
+      timer = clampedTimeout(() => done(args), seconds * 1000)
     }
   }
 
