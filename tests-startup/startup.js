@@ -398,7 +398,7 @@ export async function phases(name, postgres, onEvent) {
                 'ending-other-open', 'terminate-ready', 'terminate-draining', 'terminate-pipeline'].includes(name)
   const cause = name.startsWith('cause-') ? name.split('-')[2] : ''
   const holding = ['reserve-end', 'cancel-initial', 'failover-timeout', 'deadline-attempt-error', 'deadline-attempt-timeout',
-                   'timeout-keeps-error', 'ending-during-retry', 'terminate-authenticating'].includes(name) || cause === 'timeout'
+                   'timeout-keeps-error', 'ending-during-retry', 'terminate-authenticating', 'lifetime-startup'].includes(name) || cause === 'timeout'
   const server = await peer({ holdQuery: hang ? 'hang' : '', holdStartup: holding, readOnly: name === 'single-host-read-only',
                               closeStartup: cause === 'close' || name === 'deadline-backoff' ? Infinity : name === 'prefer-standby-passes' ? 2 : 0,
                               fatalQuery: name === 'begin-fatal-inflight' ? 'fatal' : name === 'fatal-catalog' ? 'pg_catalog.pg_type' : '',
@@ -767,6 +767,14 @@ export async function phases(name, postgres, onEvent) {
       const gaps = attempts.slice(1).map((x, i) => x - attempts[i])
       assert(attempts.length >= 3, 'end() must reconnect once for the queued queries, saw ' + attempts.length)
       assert(Math.min(...gaps) >= 120, 'A failure while ending must pace the next attempt, gaps ' + gaps.map(Math.round).join(','))
+    } else if (name === 'lifetime-startup') {
+      const sql = make({ max_lifetime: 0.05, connect_timeout: 2 })
+      const result = settle(sql.begin(transaction => marker(transaction)))
+      await until(() => startups(server) >= 1)
+      await sleep(100)
+      server.releaseStartup()
+      assert.strictEqual(await result, 'resolved')
+      await sql.end({ timeout: 0 })
     } else if (name === 'cancel-errors') {
       const created = []
       const sql = make({ connect_timeout: 2, socket: async() => {

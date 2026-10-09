@@ -364,7 +364,6 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
       needsTypes = options.fetch_types
       statementId = Math.random().toString(36).slice(2)
       statementCount = 1
-      lifeTimer.start()
       socket.on('data', data)
       keep_alive && socket.setKeepAlive && socket.setKeepAlive(true, 1000 * keep_alive)
       write(StartupMessage())
@@ -493,6 +492,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     clearAcquisitionTimers()
     acquisition = null
     options.shared.retries = 0
+    lifeTimer.start()
 
     if (ending) {
       if (owner.cancelled)
