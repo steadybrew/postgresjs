@@ -44,7 +44,10 @@
   ],
   "author": "Rasmus Porsager <rasmus@porsager.com> (https://www.porsager.com)",
   "license": "Unlicense",
-  "repository": "github:steadybrew/postgresjs",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/steadybrew/postgresjs.git"
+  },
   "homepage": "https://github.com/steadybrew/postgresjs",
   "bugs": "https://github.com/steadybrew/postgresjs/issues",
   "keywords": [
