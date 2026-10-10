@@ -530,9 +530,9 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
         && !q.cursorFn
         && sent.length < max_pipeline
     } catch (error) {
-      sent.length === 0 && write(Sync)
-      errored(error)
-      return true
+      sent.remove(q) || write(Sync)
+      queryError(q, error)
+      return sent.length < max_pipeline
     }
   }
 

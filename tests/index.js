@@ -3150,3 +3150,222 @@ t('query during copy error', async() => {
     await sql`drop table test`
   ]
 })
+
+const idleStats = { executingCount: 0, waitingCount: 0 }
+const pick = ({ executingCount, waitingCount }) => ({ executingCount, waitingCount })
+
+t('a query that fails to build rejects alone and does not shift pipelined responses', async() => {
+  const sql = postgres({ ...options, max: 1 })
+  await sql`select 1`
+  const a = sql`select pg_sleep(0.2) as a`.execute().catch(e => e.code)
+  const b = sql.unsafe('select 1', Array(70000).fill(1)).execute().catch(e => e.code)
+  await delay(500)
+  const c = sql`select 2 as c`.execute().catch(e => e.code)
+  const results = await Promise.all([a, b, c])
+  await delay(50)
+  const stats = pick(sql.stats())
+  await sql.end()
+
+  return [
+    JSON.stringify([[{ a: '' }], 'MAX_PARAMETERS_EXCEEDED', [{ c: 2 }], idleStats]),
+    JSON.stringify([...results, stats])
+  ]
+})
+
+t('a query that fails to build in the middle of pipelined queries leaves the others intact', async() => {
+  const sql = postgres({ ...options, max: 1 })
+  await sql`select 1`
+  const results = await Promise.all([
+    sql`select pg_sleep(0.1), 1 as x`.then(x => x[0].x, e => e.code),
+    sql.unsafe('select 1', Array(70000).fill(1)).then(x => x, e => e.code),
+    sql`select 3 as x`.then(x => x[0].x, e => e.code),
+    sql`select 4 as x`.then(x => x[0].x, e => e.code)
+  ])
+  await delay(50)
+  const stats = pick(sql.stats())
+  await sql.end()
+
+  return [
+    JSON.stringify([1, 'MAX_PARAMETERS_EXCEEDED', 3, 4, idleStats]),
+    JSON.stringify([...results, stats])
+  ]
+})
+
+t('a query that fails to build on a reserved connection leaves the others intact', async() => {
+  const sql = postgres({ ...options, max: 1 })
+  const reserved = await sql.reserve()
+  const results = await Promise.all([
+    reserved`select pg_sleep(0.1), 1 as x`.then(x => x[0].x, e => e.code),
+    reserved.unsafe('select 1', Array(70000).fill(1)).then(x => x, e => e.code),
+    reserved`select 3 as x`.then(x => x[0].x, e => e.code),
+    reserved`select 4 as x`.then(x => x[0].x, e => e.code)
+  ])
+  const held = pick(reserved.stats())
+  reserved.release()
+  await delay(50)
+  const stats = pick(sql.stats())
+  await sql.end()
+
+  return [
+    JSON.stringify([1, 'MAX_PARAMETERS_EXCEEDED', 3, 4, idleStats, idleStats]),
+    JSON.stringify([...results, held, stats])
+  ]
+})
+
+t('a debug callback that throws rejects only that query', async() => {
+  let thrown = false
+  const boom = new Error('debug boom')
+  const sql = postgres({
+    ...options,
+    max: 1,
+    fetch_types: false,
+    debug: () => {
+      if (thrown)
+        return
+
+      thrown = true
+      throw boom
+    }
+  })
+  const first = await sql`select 1 as x`.catch(e => e)
+  const second = await Promise.race([sql`select 2 as x`.then(x => x[0].x, e => e), delay(2000).then(() => 'hung')])
+  await delay(50)
+  const stats = pick(sql.stats())
+  await sql.end()
+
+  return [
+    JSON.stringify([true, 2, idleStats]),
+    JSON.stringify([first === boom, second, stats])
+  ]
+})
+
+t('stats return to idle after a query fails to build on an idle connection', async() => {
+  const sql = postgres({ ...options, max: 1 })
+  const code = await sql.unsafe('select 1', Array(70000).fill(1)).catch(e => e.code)
+  await delay(50)
+  const stats = pick(sql.stats())
+  const next = await sql`select 5 as x`
+  await sql.end()
+
+  return [
+    JSON.stringify(['MAX_PARAMETERS_EXCEEDED', idleStats, [{ x: 5 }]]),
+    JSON.stringify([code, stats, next])
+  ]
+})
+
+t('a debug callback that throws behind a running query rejects only that query', async() => {
+  const boom = new Error('debug boom')
+  const sql = postgres({
+    ...options,
+    max: 1,
+    fetch_types: false,
+    debug: (id, string) => {
+      if (string.includes('throw_me'))
+        throw boom
+    }
+  })
+  await sql`select 1`
+  const results = await Promise.all([
+    sql`select pg_sleep(0.1), 1 as x`.then(x => x[0].x, e => e),
+    sql`select 2 as throw_me`.then(x => x, e => e === boom),
+    sql`select 3 as x`.then(x => x[0].x, e => e)
+  ])
+  await delay(50)
+  const stats = pick(sql.stats())
+  await sql.end()
+
+  return [
+    JSON.stringify([1, true, 3, idleStats]),
+    JSON.stringify([...results, stats])
+  ]
+})
+
+t('a query that fails to build behind copy from stdin leaves copy and later queries intact', { timeout: 10 }, async() => {
+  const sql = postgres({ ...options, max: 1 })
+  await sql`create table test (x int)`
+  const copy = sql`copy test from stdin`.simple()
+  copy.streaming = true
+  copy.execute()
+  const failed = sql.unsafe('select 1', Array(70000).fill(1)).then(x => x, e => e.code)
+  const writable = await copy
+  writable.write('1\n')
+  writable.end('2\n')
+  await new Promise(r => writable.on('finish', r))
+  const results = await Promise.race([
+    Promise.all([failed, sql`select 7 as x`.then(x => x[0].x, e => e), sql`select count(*)::int as n from test`.then(x => x[0].n, e => e)]),
+    delay(2000).then(() => 'hung')
+  ])
+  await delay(50)
+  const stats = pick(sql.stats())
+  await sql`drop table test`
+  await sql.end()
+
+  return [
+    JSON.stringify(['MAX_PARAMETERS_EXCEEDED', 7, 2, idleStats]),
+    JSON.stringify([...results, stats])
+  ]
+})
+
+t('an undefined value in a transaction rejects with UNDEFINED_VALUE and the pool keeps working', { timeout: 10 }, async() => {
+  const sql = postgres({ ...options, max: 1 })
+  const error = await Promise.race([
+    sql.begin(sql => [sql`select 1`, sql`select ${ undefined }`]).catch(e => e.code),
+    delay(2000).then(() => 'hung')
+  ])
+  const next = await Promise.race([sql`select 5 as x`.then(x => x[0].x, e => e.code), delay(2000).then(() => 'hung')])
+  await sql.end()
+
+  return [
+    JSON.stringify(['UNDEFINED_VALUE', 5]),
+    JSON.stringify([error, next])
+  ]
+})
+
+t('an undefined value behind a running query rejects alone', { timeout: 10 }, async() => {
+  const sql = postgres({ ...options, max: 1 })
+  await sql`select 1`
+  const results = await Promise.race([
+    Promise.all([
+      sql`select pg_sleep(0.1), 1 as x`.then(x => x[0].x, e => e.code),
+      sql`select ${ undefined } as x`.then(x => x[0].x, e => e.code),
+      sql`select 3 as x`.then(x => x[0].x, e => e.code)
+    ]),
+    delay(2000).then(() => 'hung')
+  ])
+  await delay(50)
+  const stats = pick(sql.stats())
+  await sql.end()
+
+  return [
+    JSON.stringify([1, 'UNDEFINED_VALUE', 3, idleStats]),
+    JSON.stringify([...results, stats])
+  ]
+})
+
+t('a retried query whose rebuild throws rejects alone', { timeout: 10 }, async() => {
+  const boom = new Error('debug boom')
+  let calls = 0
+  const sql = postgres({
+    ...options,
+    max: 1,
+    fetch_types: false,
+    debug: (id, string) => {
+      if (string.includes('retry_me') && ++calls === 3)
+        throw boom
+    }
+  })
+  const select = () => sql`select name as retry_me from test`
+  await sql`create table test (name text)`
+  await sql`insert into test values ('1')`
+  await select()
+  await sql`alter table test alter column name type int using name::integer`
+  const error = await Promise.race([select().catch(e => e), delay(2000).then(() => 'hung')])
+  const next = await Promise.race([sql`select 5 as x`.then(x => x[0].x, e => e.code), delay(2000).then(() => 'hung')])
+  await sql`drop table test`
+  await sql.end()
+
+  return [
+    JSON.stringify([true, 5]),
+    JSON.stringify([error === boom, next])
+  ]
+})

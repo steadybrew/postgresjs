@@ -6,6 +6,10 @@
 
 - **`sql.stats()`** returns a snapshot of the pool: `totalCount` and `idleCount` as in node-postgres, `waitingCount` extending node-postgres's to pipelined, lease-queued and connection-opening work, the computed `activeCount` and `availableCount`, and `busyCount`, `reservedCount`, `connectingCount`, `closingCount`, `executingCount`, `listenCount` and `subscribeCount`. The same method is on the handle returned by `sql.reserve()`. Closes porsager/postgres#443 and porsager/postgres#908. Based on porsager's `connection-stats` proposal.
 
+### Fixes
+
+- **A query that fails to build no longer corrupts pipelined queries.** When a query threw while it was built (an undefined parameter value, too many parameters, a throwing `debug` callback) behind a running query, the running query received its error, the failing query never settled, and later queries received each other's responses. Queued behind `copy ... from stdin`, it could also hang the connection. Only the failing query now rejects, and the others keep their own results. Closes #20. Fixes porsager/postgres#1082 and porsager/postgres#729.
+
 ## v4.2.0 - 2026-10-10
 
 ### Features
