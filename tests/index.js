@@ -4095,6 +4095,49 @@ t('a row transform that returns nothing skips the change before any subscriber r
   ]
 })
 
+t('a one-character table name is subscribed to by its own inserts and decode errors only', { timeout: 4 }, async() => {
+  const sentinel = new Error('transform sentinel')
+  const sql = postgres({
+    database: 'postgres_js_test',
+    publications: 'alltables',
+    fetch_types: false,
+    transform: {
+      row: {
+        from: row => {
+          if (row.name === 'bad')
+            throw sentinel
+          return row
+        }
+      }
+    }
+  })
+
+  await sql.unsafe('create publication alltables for all tables')
+  await sql`create table t (id serial primary key, name text)`
+  await sql`create table other (id serial primary key, name text)`
+
+  const xs = []
+  const errors = []
+  const { state } = await sql.subscribe('insert:t', row => xs.push(row.name), noop, e => errors.push(e))
+  const pid = state.pid
+  await sql`insert into other (name) values ('bad')`
+  await sql`insert into t (name) values ('a')`
+  for (let i = 0; i < 100 && xs.length < 1; i++)
+    await delay(10)
+  await sql`insert into t (name) values ('bad')`
+  for (let i = 0; i < 100 && errors.length < 1; i++)
+    await delay(10)
+
+  return [
+    'a 1 true true',
+    [xs.join(), errors.length, errors.every(e => e === sentinel), state.pid === pid].join(' '),
+    await sql`drop table t`,
+    await sql`drop table other`,
+    await sql`drop publication alltables`,
+    await sql.end()
+  ]
+})
+
 t('a query sent while a retried statement waits for its parameter types gets its own rows', { timeout: 10 }, async() => {
   let calls = 0
   let next

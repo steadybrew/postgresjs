@@ -302,7 +302,7 @@ function tuples(x, columns, xi, transform) {
 }
 
 function parseEvent(x) {
-  const xs = x.match(/^(\*|insert|update|delete)?:?([^.]+?\.?[^=]+)?=?(.+)?/i) || []
+  const xs = x.match(/^(\*|insert|update|delete)?:?([^.=]+(?:\.[^=]+)?)?=?(.+)?/i) || []
 
   if (!xs)
     throw new Error('Malformed subscribe pattern: ' + x)
