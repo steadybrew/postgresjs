@@ -11,6 +11,7 @@ import Queue from './queue.js'
 import clampedTimeout from './timeout.js'
 import { SSLRequest, tlsConfig, cancelRequest } from './transport.js'
 import { Query, CLOSE } from './query.js'
+import callback from './callback.js'
 import b from './bytes.js'
 
 export default Connection
@@ -594,7 +595,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
       ? statements[q.signature]
       : { string, types, name: q.prepare ? statementId + statementCount++ : '' }
 
-    typeof options.debug === 'function' && options.debug(id, string, parameters, types)
+    typeof options.debug === 'function' && callback(options.debug, id, string, parameters, types)
   }
 
   function write(x, fn) {
@@ -765,7 +766,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     backendParameters[k] = v
     if (options.parameters[k] !== v) {
       options.parameters[k] = v
-      onparameter && onparameter(k, v)
+      callback(onparameter, k, v)
     }
   }
 
@@ -1070,7 +1071,8 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
 
     let index = 9
     while (x[index++] !== 0);
-    onnotify(
+    callback(
+      onnotify,
       x.toString('utf8', 9, index - 1),
       x.toString('utf8', index, x.length - 1)
     )
@@ -1158,7 +1160,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
 
   function NoticeResponse(x) {
     onnotice
-      ? onnotice(parseError(x))
+      ? callback(onnotice, parseError(x))
       : console.log(parseError(x)) // eslint-disable-line
 
   }

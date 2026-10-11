@@ -869,7 +869,7 @@ const sql = postgres({
 When you call `.listen`, a dedicated connection will be created to ensure that you receive notifications instantly. This connection will be used for any further calls to `.listen`. The connection will automatically reconnect according to a backoff reconnection pattern to not overload the database server.
 
 ### Listen `await sql.listen(channel, onnotify, [onlisten]) -> { state }`
-`.listen` takes the channel name, a function to handle each notify, and an optional function to run every time listen is registered and ready (happens on initial connect and reconnects). It returns a promise which resolves once the `LISTEN` query to Postgres completes, or if there is already a listener active.
+`.listen` takes the channel name, a function to handle each notify, and an optional function to run every time listen is registered and ready (happens on initial connect and reconnects). It returns a promise which resolves once the `LISTEN` query to Postgres completes, or if there is already a listener active. If either function throws, the error is rethrown as an uncaught exception, and the other listeners and the returned promise are not affected.
 
 ```js
 await sql.listen('news', payload => {
@@ -925,6 +925,8 @@ const { unsubscribe } = await sql.subscribe(
   }
 )
 ```
+
+If either callback throws, the error is rethrown as an uncaught exception, and other subscribers and the replication stream are not affected.
 
 ### Subscribe pattern
 
@@ -1050,6 +1052,8 @@ const sql = postgres('postgres://username:password@host:port/database', {
                                         // on initial connection.
 })
 ```
+
+The `onnotice`, `onparameter`, `onnotify`, `onclose`, `onidle` and `debug` callbacks passed in the options are called synchronously from inside the driver. If one throws, the error is rethrown as an uncaught exception and the connection and its queries are not affected; under Node's default handling that ends the process.
 
 Note that `max_lifetime = 60 * (30 + Math.random() * 30)` by default. This resolves to an interval between 30 and 60 minutes to optimize for the benefits of prepared statements **and** working nicely with Linux's OOM killer.
 

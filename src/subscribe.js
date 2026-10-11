@@ -1,3 +1,5 @@
+import callback from './callback.js'
+
 const noop = () => { /* noop */ }
 
 export default function Subscribe(postgres, options) {
@@ -27,7 +29,7 @@ export default function Subscribe(postgres, options) {
       stream = null
       state.pid = state.secret = undefined
       connected(await init(sql, slot, options.publications))
-      subscribers.forEach(event => event.forEach(({ onsubscribe }) => onsubscribe()))
+      subscribers.forEach(event => event.forEach(({ onsubscribe }) => callback(onsubscribe)))
     },
     no_subscribe: true
   })
@@ -66,7 +68,7 @@ export default function Subscribe(postgres, options) {
 
     return connection.then(x => {
       connected(x)
-      onsubscribe()
+      callback(onsubscribe)
       stream && stream.on('error', onerror)
       return { unsubscribe, state, sql }
     })
@@ -137,7 +139,7 @@ export default function Subscribe(postgres, options) {
   }
 
   function call(x, a, b) {
-    subscribers.has(x) && subscribers.get(x).forEach(({ fn }) => fn(a, b, x))
+    subscribers.has(x) && subscribers.get(x).forEach(({ fn }) => callback(fn, a, b, x))
   }
 }
 

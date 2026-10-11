@@ -27,6 +27,7 @@ import Queue from './queue.js'
 import { Errors, PostgresError } from './errors.js'
 import Subscribe from './subscribe.js'
 import largeObject from './large.js'
+import callback from './callback.js'
 
 const Lease = { Active: 0, Settling: 1, Released: 2, Discarded: 3, Closed: 4 }
 
@@ -218,7 +219,7 @@ function Postgres(a, b) {
         })
       },
       onnotify(c, x) {
-        c in listen.channels && listen.channels[c].listeners.forEach(l => l.fn(x))
+        c in listen.channels && listen.channels[c].listeners.forEach(l => callback(l.fn, x))
       }
     }))
 
@@ -228,7 +229,7 @@ function Postgres(a, b) {
     if (exists) {
       channels[name].listeners.push(listener)
       const result = await channels[name].result
-      listener.onlisten && listener.onlisten()
+      callback(listener.onlisten)
       return { state: result.state, unlisten }
     }
 
@@ -236,7 +237,7 @@ function Postgres(a, b) {
       sql.unsafe('"' + name.replace(/"/g, '""') + '"')
     }`, listeners: [listener] }
     const result = await channels[name].result
-    listener.onlisten && listener.onlisten()
+    callback(listener.onlisten)
     return { state: result.state, unlisten }
 
     async function unlisten() {
@@ -426,14 +427,6 @@ function Postgres(a, b) {
     return c
   }
 
-  function callback(fn, ...args) {
-    try {
-      fn && fn(...args)
-    } catch (e) {
-      queueMicrotask(() => { throw e })
-    }
-  }
-
   function json(x) {
     return new Parameter(x, 3802)
   }
@@ -583,7 +576,7 @@ function Postgres(a, b) {
   function onclose(c, e) {
     move(c, closed)
     c.owner && settle(c.owner, Lease.Closed, e)
-    options.onclose && options.onclose(c.id)
+    callback(options.onclose, c.id)
     if (ending)
       return closedWhileEnding(c, e)
 

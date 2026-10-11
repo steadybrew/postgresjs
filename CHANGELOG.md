@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Behavior changes
+
+- **Errors thrown by callbacks are rethrown as uncaught exceptions.** This applies to `onnotice`, `onparameter`, `onnotify`, `onclose` and `debug`, to the callback and `onlisten` of `sql.listen()`, and to the callback and `onsubscribe` of `sql.subscribe()`, as it already did to `onidle`, and the query, connection or subscription carries on. A throwing `debug` no longer rejects or stops the query it was called for, which runs as usual, and under Node's default handling an uncaught exception ends the process.
+
+### Fixes
+
+- **A throwing callback no longer breaks connections, queries or subscriptions.** `onnotice`, `onnotify` and `onparameter` rejected the running query with their own error, `onparameter` also failed new connections at startup, and a `debug` that threw during type discovery made that connection return arrays as strings. A throwing `onclose` left a query queued for the closed connection waiting, a throwing `sql.listen()` or `sql.subscribe()` callback kept later listeners from running and restarted the replication stream, and a throwing `onlisten` or `onsubscribe` rejected the call although the listener stayed registered. Closes #13.
+
 ## v4.3.0 - 2026-10-11
 
 ### Features

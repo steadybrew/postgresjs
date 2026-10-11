@@ -67,14 +67,11 @@ interface BaseOptions<T extends Record<string, postgres.PostgresType>> {
    * @default true
    */
   prepare: boolean;
-  /**
-   * Called when a notice is received
-   * @default console.log
-   */
+  /** Called when a notice is received, console.log by default; if it throws, the error is rethrown as an uncaught exception */
   onnotice: (notice: postgres.Notice) => void;
-  /** (key; value) when a server param change */
+  /** (key; value) when a server param change; if it throws, the error is rethrown as an uncaught exception */
   onparameter: (key: string, value: any) => void;
-  /** Is called with (connection; query; parameters) */
+  /** Is called with (connection; query; parameters); if it throws, the error is rethrown as an uncaught exception and the query still runs */
   debug: boolean | ((connection: number, query: string, parameters: any[], paramTypes: any[]) => void);
   /** Transform hooks */
   transform: {
@@ -118,6 +115,7 @@ interface BaseOptions<T extends Record<string, postgres.PostgresType>> {
    * @default 'alltables'
    */
   publications: string
+  /** Called with the connection id each time a connection closes; if it throws, the error is rethrown as an uncaught exception */
   onclose: (connId: number) => void;
   /** Called with the connection id each time a connection returns to the pool idle and its idle timer starts */
   onidle: (connId: number) => void;

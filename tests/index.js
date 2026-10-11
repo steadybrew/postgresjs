@@ -3154,6 +3154,26 @@ t('query during copy error', async() => {
 const idleStats = { executingCount: 0, waitingCount: 0 }
 const pick = ({ executingCount, waitingCount }) => ({ executingCount, waitingCount })
 
+const noop = () => undefined
+
+async function uncaught(fn) {
+  const errors = []
+  const capture = e => errors.push(e)
+  const dispatched = e => (e.preventDefault(), errors.push(e.error))
+  globalThis.addEventListener
+    ? globalThis.addEventListener('error', dispatched)
+    : process.on('uncaughtException', capture)
+  try {
+    const result = await fn(errors)
+    await delay(50)
+    return [result, errors]
+  } finally {
+    globalThis.addEventListener
+      ? globalThis.removeEventListener('error', dispatched)
+      : process.off('uncaughtException', capture)
+  }
+}
+
 t('a query that fails to build rejects alone and does not shift pipelined responses', async() => {
   const sql = postgres({ ...options, max: 1 })
   await sql`select 1`
@@ -3212,30 +3232,21 @@ t('a query that fails to build on a reserved connection leaves the others intact
   ]
 })
 
-t('a debug callback that throws rejects only that query', async() => {
-  let thrown = false
-  const boom = new Error('debug boom')
-  const sql = postgres({
-    ...options,
-    max: 1,
-    fetch_types: false,
-    debug: () => {
-      if (thrown)
-        return
-
-      thrown = true
-      throw boom
-    }
+t('a throwing debug callback is rethrown as an uncaught exception and its query runs', async() => {
+  const sentinel = new Error('debug sentinel')
+  const sql = postgres({ ...options, max: 1, fetch_types: false, debug: () => { throw sentinel } })
+  const [results, errors] = await uncaught(async() => {
+    const first = await sql`select 1 as x`.then(x => x[0].x, e => e.message)
+    const second = await sql`select 2 as x`.then(x => x[0].x, e => e.message)
+    await delay(50)
+    const stats = pick(sql.stats())
+    await sql.end()
+    return [first, second, stats]
   })
-  const first = await sql`select 1 as x`.catch(e => e)
-  const second = await Promise.race([sql`select 2 as x`.then(x => x[0].x, e => e), delay(2000).then(() => 'hung')])
-  await delay(50)
-  const stats = pick(sql.stats())
-  await sql.end()
 
   return [
-    JSON.stringify([true, 2, idleStats]),
-    JSON.stringify([first === boom, second, stats])
+    JSON.stringify([1, 2, idleStats, 2, true]),
+    JSON.stringify([...results, errors.length, errors.every(e => e === sentinel)])
   ]
 })
 
@@ -3253,30 +3264,33 @@ t('stats return to idle after a query fails to build on an idle connection', asy
   ]
 })
 
-t('a debug callback that throws behind a running query rejects only that query', async() => {
-  const boom = new Error('debug boom')
+t('a throwing debug callback behind a running query leaves every query its own result', async() => {
+  const sentinel = new Error('debug sentinel')
   const sql = postgres({
     ...options,
     max: 1,
     fetch_types: false,
     debug: (id, string) => {
       if (string.includes('throw_me'))
-        throw boom
+        throw sentinel
     }
   })
   await sql`select 1`
-  const results = await Promise.all([
-    sql`select pg_sleep(0.1), 1 as x`.then(x => x[0].x, e => e),
-    sql`select 2 as throw_me`.then(x => x, e => e === boom),
-    sql`select 3 as x`.then(x => x[0].x, e => e)
-  ])
-  await delay(50)
-  const stats = pick(sql.stats())
-  await sql.end()
+  const [results, errors] = await uncaught(async() => {
+    const results = await Promise.all([
+      sql`select pg_sleep(0.1), 1 as x`.then(x => x[0].x, e => e.message),
+      sql`select 2 as throw_me`.then(x => x[0].throw_me, e => e.message),
+      sql`select 3 as x`.then(x => x[0].x, e => e.message)
+    ])
+    await delay(50)
+    const stats = pick(sql.stats())
+    await sql.end()
+    return [...results, stats]
+  })
 
   return [
-    JSON.stringify([1, true, 3, idleStats]),
-    JSON.stringify([...results, stats])
+    JSON.stringify([1, 2, 3, idleStats, 1, true]),
+    JSON.stringify([...results, errors.length, errors.every(e => e === sentinel)])
   ]
 })
 
@@ -3343,18 +3357,10 @@ t('an undefined value behind a running query rejects alone', { timeout: 10 }, as
 })
 
 t('a retried query whose rebuild throws rejects alone', { timeout: 10 }, async() => {
-  const boom = new Error('debug boom')
-  let calls = 0
-  const sql = postgres({
-    ...options,
-    max: 1,
-    fetch_types: false,
-    debug: (id, string) => {
-      if (string.includes('retry_me') && ++calls === 3)
-        throw boom
-    }
-  })
-  const select = () => sql`select name as retry_me from test`
+  let reads = 0
+  const row = { get x() { return ++reads === 3 ? undefined : 1 } }
+  const sql = postgres({ ...options, max: 1, fetch_types: false })
+  const select = () => sql`select name as retry_me, ${ sql(row, 'x') } from test`
   await sql`create table test (name text)`
   await sql`insert into test values ('1')`
   await select()
@@ -3365,7 +3371,209 @@ t('a retried query whose rebuild throws rejects alone', { timeout: 10 }, async()
   await sql.end()
 
   return [
-    JSON.stringify([true, 5]),
-    JSON.stringify([error === boom, next])
+    JSON.stringify(['UNDEFINED_VALUE', 5]),
+    JSON.stringify([error.code, next])
+  ]
+})
+
+t('a throwing debug callback during type discovery still registers array types', async() => {
+  const sentinel = new Error('debug sentinel')
+  const sql = postgres({
+    ...options,
+    max: 1,
+    debug: (id, string) => {
+      if (string.includes('pg_catalog.pg_type'))
+        throw sentinel
+    }
+  })
+  const [value, errors] = await uncaught(async() => {
+    const [row] = await sql`select array[1, 2]::int[] as x`
+    await sql.end()
+    return row.x
+  })
+
+  return [
+    JSON.stringify([[1, 2], 1, true]),
+    JSON.stringify([value, errors.length, errors.every(e => e === sentinel)])
+  ]
+})
+
+t('a throwing onnotice callback is rethrown as an uncaught exception and its query succeeds', async() => {
+  const sentinel = new Error('onnotice sentinel')
+  const sql = postgres({ ...options, max: 1, fetch_types: false, onnotice: () => { throw sentinel } })
+  await sql`select 1`
+  const [results, errors] = await uncaught(async() => {
+    const results = await Promise.all([
+      sql`select pg_sleep(0.05), 1 as x`.then(x => x[0].x, e => e.message),
+      sql`do $$ begin raise notice 'onnotice'; end $$`.then(x => x.command, e => e.message),
+      sql`select 3 as x`.then(x => x[0].x, e => e.message)
+    ])
+    await sql.end()
+    return results
+  })
+
+  return [
+    JSON.stringify([1, 'DO', 3, 1, true]),
+    JSON.stringify([...results, errors.length, errors.every(e => e === sentinel)])
+  ]
+})
+
+t('a throwing onparameter callback is rethrown as an uncaught exception and sessions start', async() => {
+  const sentinel = new Error('onparameter sentinel')
+  const sql = postgres({ ...options, max: 1, fetch_types: false, onparameter: () => { throw sentinel } })
+  const [results, errors] = await uncaught(async() => {
+    const first = await sql`select 1 as x`.then(x => x[0].x, e => e.message)
+    const set = await sql`set application_name = 'onparameter_throw'`.then(x => x.command, e => e.message)
+    const next = await sql`select 3 as x`.then(x => x[0].x, e => e.message)
+    const name = sql.parameters.application_name
+    await sql.end()
+    return [first, set, next, name]
+  })
+
+  return [
+    JSON.stringify([1, 'SET', 3, 'onparameter_throw', true, true]),
+    JSON.stringify([...results, errors.length > 1, errors.every(e => e === sentinel)])
+  ]
+})
+
+t('a throwing onnotify callback is rethrown as an uncaught exception and its query succeeds', async() => {
+  const sentinel = new Error('onnotify sentinel')
+  const sql = postgres({ ...options, max: 1, fetch_types: false, onnotify: () => { throw sentinel } })
+  const [results, errors] = await uncaught(async() => {
+    await sql`listen onnotify_throw`
+    const notify = await sql`notify onnotify_throw, 'x'`.then(x => x.command, e => e.message)
+    const next = await sql`select 2 as x`.then(x => x[0].x, e => e.message)
+    await sql.end()
+    return [notify, next]
+  })
+
+  return [
+    JSON.stringify(['NOTIFY', 2, 1, true]),
+    JSON.stringify([...results, errors.length, errors.every(e => e === sentinel)])
+  ]
+})
+
+t('a throwing onclose callback does not strand a query queued for the closed connection', { timeout: 5 }, async() => {
+  const sentinel = new Error('onclose sentinel')
+  const sql = postgres(options)
+  const pool = postgres({ ...options, max: 1, fetch_types: false, onclose: () => { throw sentinel } })
+  const [result, errors] = await uncaught(async() => {
+    const reserved = await pool.reserve()
+    const [{ pid }] = await reserved`select pg_backend_pid() as pid`
+    const queued = pool`select 7 as x`.then(x => x[0].x, e => e.code)
+    await sql`select pg_terminate_backend(${ pid })`
+    const x = await Promise.race([queued, delay(1000).then(() => 'hung')])
+    await pool.end()
+    return x
+  })
+  await sql.end()
+
+  return [
+    JSON.stringify([7, 2, true]),
+    JSON.stringify([result, errors.length, errors.every(e => e === sentinel)])
+  ]
+})
+
+t('a throwing listen callback does not stop the other listeners on its channel', async() => {
+  const sentinel = new Error('listen sentinel')
+  const pool = postgres({ ...options, max: 1, fetch_types: false })
+  const xs = []
+  const [, errors] = await uncaught(async() => {
+    await pool.listen('listen_throw', () => { throw sentinel })
+    await pool.listen('listen_throw', x => xs.push(x))
+    await pool.notify('listen_throw', 'a')
+    await delay(50)
+    await pool.end()
+  })
+
+  return [
+    'a 1 true',
+    [xs.join(''), errors.length, errors.every(e => e === sentinel)].join(' ')
+  ]
+})
+
+t('a throwing onlisten callback is rethrown as an uncaught exception on listen and on reconnect', { timeout: 4 }, async() => {
+  const sentinel = new Error('onlisten sentinel')
+  const sql = postgres(options)
+  const pool = postgres({ ...options, max: 1, fetch_types: false })
+  const xs = []
+  const [result, errors] = await uncaught(async captured => {
+    const first = await pool.listen('onlisten_throw', x => xs.push(x), () => { throw sentinel }).catch(e => e)
+    const second = await pool.listen('onlisten_throw', noop, () => { throw sentinel }).catch(e => e)
+    await pool.notify('onlisten_throw', 'a')
+    await delay(50)
+    first.state && await sql`select pg_terminate_backend(${ first.state.pid })`
+    for (let i = 0; i < 200 && captured.length < 4; i++)
+      await delay(10)
+    await pool.notify('onlisten_throw', 'b')
+    await delay(50)
+    await pool.end()
+    return typeof first.unlisten + ' ' + typeof second.unlisten
+  })
+  await sql.end()
+
+  return [
+    'function function ab 4 true',
+    [result, xs.join(''), errors.length, errors.every(e => e === sentinel)].join(' ')
+  ]
+})
+
+t('a throwing subscribe callback does not stop other subscribers or the replication stream', { timeout: 4 }, async() => {
+  const sentinel = new Error('subscribe sentinel')
+  const sql = postgres({
+    database: 'postgres_js_test',
+    publications: 'alltables',
+    fetch_types: false
+  })
+
+  await sql.unsafe('create publication alltables for all tables')
+  await sql`create table test (id serial primary key, name text)`
+
+  const xs = []
+  const [, errors] = await uncaught(async() => {
+    await sql.subscribe('insert:test', () => { throw sentinel })
+    await sql.subscribe('insert:test', row => xs.push(row.name))
+    await sql`insert into test (name) values ('a')`
+    for (let i = 0; i < 100 && xs.length < 1; i++)
+      await delay(10)
+    await sql`insert into test (name) values ('b')`
+    for (let i = 0; i < 100 && xs.length < 2; i++)
+      await delay(10)
+  })
+
+  return [
+    'ab 2 true',
+    [xs.join(''), errors.length, errors.every(e => e === sentinel)].join(' '),
+    await sql`drop table test`,
+    await sql`drop publication alltables`,
+    await sql.end()
+  ]
+})
+
+t('a throwing onsubscribe callback is rethrown as an uncaught exception on subscribe and on reconnect', { timeout: 4 }, async() => {
+  const sentinel = new Error('onsubscribe sentinel')
+  const sql = postgres({
+    database: 'postgres_js_test',
+    publications: 'alltables',
+    fetch_types: false
+  })
+
+  await sql.unsafe('create publication alltables for all tables')
+
+  const subscribes = []
+  const [result, errors] = await uncaught(async() => {
+    const subscription = await sql.subscribe('*', noop, () => { throw sentinel }).catch(e => e)
+    const { sql: subscribeSql } = await sql.subscribe('*', noop, () => subscribes.push(1))
+    await subscribeSql.close()
+    for (let i = 0; i < 200 && subscribes.length < 2; i++)
+      await delay(10)
+    return typeof subscription.unsubscribe
+  })
+
+  return [
+    'function 2 2 true',
+    [result, subscribes.length, errors.length, errors.every(e => e === sentinel)].join(' '),
+    await sql`drop publication alltables`,
+    await sql.end()
   ]
 })
