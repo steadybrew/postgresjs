@@ -1189,10 +1189,12 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
   }
 
   function NoticeResponse(x) {
+    if (onnotice === false)
+      return
+
     onnotice
       ? callback(onnotice, parseError(x))
       : console.log(parseError(x)) // eslint-disable-line
-
   }
 
   /* c8 ignore next 3 */

@@ -67,8 +67,8 @@ interface BaseOptions<T extends Record<string, postgres.PostgresType>> {
    * @default true
    */
   prepare: boolean;
-  /** Called when a notice is received, console.log by default; if it throws, the error is rethrown as an uncaught exception */
-  onnotice: (notice: postgres.Notice) => void;
+  /** Called when a notice is received, console.log by default and false to ignore them; if it throws, the error is rethrown as an uncaught exception */
+  onnotice: ((notice: postgres.Notice) => void) | false;
   /** (key; value) when a server param change; if it throws, the error is rethrown as an uncaught exception */
   onparameter: (key: string, value: any) => void;
   /** Is called with (connection; query; parameters); if it throws, the error is rethrown as an uncaught exception and the query still runs */

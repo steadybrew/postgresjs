@@ -1702,6 +1702,21 @@ t('notice', async() => {
   return ['NOTICE', notice.severity]
 })
 
+t('onnotice false ignores notices', async() => {
+  const logged = []
+  const log = globalThis.console.log
+  globalThis.console.log = x => logged.push(x)
+  try {
+    const sql = postgres({ ...options, onnotice: false })
+    await sql`do $$ begin raise notice 'silenced'; end $$`
+    await sql.end()
+  } finally {
+    globalThis.console.log = log
+  }
+
+  return [0, logged.length]
+})
+
 t('notice hook', async() => {
   let notice
   const sql = postgres({
