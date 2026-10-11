@@ -85,5 +85,6 @@ function exit() {
         : console.error('⚠️', 'Not good')
 
   !process.exitCode && (!success || only || ignored) && (process.exitCode = 1)
+  success || setTimeout(() => process.exit(process.exitCode), 1000) // eslint-disable-line no-process-exit
 }
 
