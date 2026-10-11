@@ -2261,6 +2261,53 @@ t('transaction control statements are sent unprepared and survive deallocate all
   ]
 })
 
+t('sql.begin rejects when the server rolls the transaction back at commit', { timeout: 10 }, async() => {
+  const sql = postgres({ ...options, max: 1 })
+  await sql`create table test (x int)`
+  const error = await sql.begin(s => {
+    s`insert into test values (1)`.execute()
+    s`select 1/0`.execute().catch(noop)
+    return 'done'
+  }).then(x => x, e => e)
+  const rows = (await sql`select count(*)::int as n from test`)[0].n
+  const next = (await sql`select 4 as x`)[0].x
+  await sql`drop table test`
+  await sql.end()
+
+  return [
+    JSON.stringify(['TRANSACTION_ROLLED_BACK', '22012', 0, 4]),
+    JSON.stringify([error.code, error.cause && error.cause.code, rows, next])
+  ]
+})
+
+t('sql.begin rejects when COMMIT rolls back after a caught savepoint whose rollback to failed', { timeout: 10 }, async() => {
+  const sql = postgres({ ...options, max: 1 })
+  await sql`create table test (x int)`
+  let childCode
+  const error = await sql.begin(async tx => {
+    await tx`insert into test values (1)`
+    await tx`savepoint parent_marker`
+    try {
+      await tx.savepoint(async sp => {
+        await sp`rollback to savepoint parent_marker`
+        throw new Error('rollback to the removed child savepoint')
+      })
+    } catch (e) {
+      childCode = e.code
+    }
+    return 'success'
+  }).then(x => x, e => e)
+  const rows = (await sql`select count(*)::int as n from test`)[0].n
+  const next = (await sql`select 4 as x`)[0].x
+  await sql`drop table test`
+  await sql.end()
+
+  return [
+    JSON.stringify(['3B001', 'TRANSACTION_ROLLED_BACK', 0, 4]),
+    JSON.stringify([childCode, error.code, rows, next])
+  ]
+})
+
 t('Recreate prepared statements on RevalidateCachedQuery error', async() => {
   const select = () => sql`select name from test`
   await sql`create table test (name text)`

@@ -1465,6 +1465,11 @@ If the only attempt times out, the error is `CONNECT_TIMEOUT`. Once earlier atte
 
 This error is thrown for a statement on a `sql.reserve()` or `sql.begin()` handle while its copy operation (writable / readable) runs, including statements sent before the server started it. Queries through `sql` wait instead.
 
+##### TRANSACTION_ROLLED_BACK
+> The server rolled the transaction back instead of committing it
+
+This error is thrown by `sql.begin()` when the server answers the final `COMMIT` (or `PREPARE TRANSACTION`) with `ROLLBACK`, because the transaction was aborted by a statement whose error the callback did not surface, such as a failing query that was not awaited. Nothing was committed. When such a query's error was already recorded, it is the error's `cause`.
+
 ## TypeScript support
 
 `postgres` has TypeScript support. You can pass a row list type for your queries in this way:

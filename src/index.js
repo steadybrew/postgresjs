@@ -354,14 +354,16 @@ function Postgres(a, b) {
     }
 
     async function finish(statement) {
+      let result
       l.state = Lease.Settling
       try {
-        await statement(Sql(q => send(l, q, Lease.Settling)))
+        result = await statement(Sql(q => send(l, q, Lease.Settling)))
       } catch (e) {
         settle(l, Lease.Discarded)
         throw e
       }
       settle(l, Lease.Released)
+      return result
     }
 
     async function scope(fn, name) {
@@ -396,10 +398,18 @@ function Postgres(a, b) {
       if (l.state !== Lease.Active)
         throw l.error || leaseError(l.state)
 
-      name || await finish(final => prepare
-        ? final.unsafe('prepare transaction ' + prepare)
-        : final.unsafe('commit')
-      )
+      if (!name) {
+        const done = await finish(final => prepare
+          ? final.unsafe('prepare transaction ' + prepare)
+          : final.unsafe('commit')
+        )
+        if (done.command === 'ROLLBACK') {
+          throw Object.assign(
+            Errors.generic('TRANSACTION_ROLLED_BACK', 'The server rolled the transaction back instead of committing it'),
+            uncaughtError && { cause: uncaughtError }
+          )
+        }
+      }
 
       return result
 

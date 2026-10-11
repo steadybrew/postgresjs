@@ -461,7 +461,8 @@ declare namespace postgres {
     | 'COPY_IN_PROGRESS'
     | 'INVALID_TRANSACTION_NAME'
     | 'TARGET_SESSION_ATTRS'
-    | 'UNSAFE_TRANSACTION';
+    | 'UNSAFE_TRANSACTION'
+    | 'TRANSACTION_ROLLED_BACK';
     message: string;
   }
 
