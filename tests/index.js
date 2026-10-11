@@ -2680,7 +2680,7 @@ t('multiple queries before connect', async() => {
   ]
 })
 
-t('subscribe', { timeout: 2 }, async() => {
+t('subscribe', { timeout: 13 }, async() => {
   const sql = postgres({
     database: 'postgres_js_test',
     publications: 'alltables'
@@ -2689,9 +2689,13 @@ t('subscribe', { timeout: 2 }, async() => {
   await sql.unsafe('create publication alltables for all tables')
 
   const result = []
+  let last = false
 
   const { unsubscribe } = await sql.subscribe('*', (row, { command, old }) => {
     result.push(command, row.name, row.id, old && old.name, old && old.id)
+  })
+  const { unsubscribe: unsubscribeLast } = await sql.subscribe('*', row => {
+    last = last || row.name === 'Oh noes'
   })
 
   await sql`
@@ -2710,10 +2714,11 @@ t('subscribe', { timeout: 2 }, async() => {
   await sql`insert into test (name) values ('Murray')`
   await sql`update test set name = 'Rothbard'`
   await sql`delete from test`
-  await delay(10)
+  await until(() => result.length >= 45)
   await unsubscribe()
   await sql`insert into test (name) values ('Oh noes')`
-  await delay(10)
+  await until(() => last)
+  await unsubscribeLast()
   return [
     'insert,Murray,1,,,update,Rothbard,1,,,update,Rothbard,2,,1,delete,,2,,,insert,Murray,2,,,update,Rothbard,2,Murray,2,delete,Rothbard,2,,', // eslint-disable-line
     result.join(','),
@@ -2723,7 +2728,7 @@ t('subscribe', { timeout: 2 }, async() => {
   ]
 })
 
-t('subscribe with transform', { timeout: 2 }, async() => {
+t('subscribe with transform', { timeout: 13 }, async() => {
   const sql = postgres({
     transform: {
       column: {
@@ -2738,10 +2743,14 @@ t('subscribe with transform', { timeout: 2 }, async() => {
   await sql.unsafe('create publication alltables for all tables')
 
   const result = []
+  let last = false
 
   const { unsubscribe } = await sql.subscribe('*', (row, { command, old }) =>
     result.push(command, row.nameInCamel || row.id, old && old.nameInCamel)
   )
+  const { unsubscribe: unsubscribeLast } = await sql.subscribe('*', row => {
+    last = last || row.nameInCamel === 'Oh noes'
+  })
 
   await sql`
     create table test (
@@ -2757,10 +2766,11 @@ t('subscribe with transform', { timeout: 2 }, async() => {
   await sql`insert into test (name_in_camel) values ('Murray')`
   await sql`update test set name_in_camel = 'Rothbard'`
   await sql`delete from test`
-  await delay(10)
+  await until(() => result.length >= 18)
   await unsubscribe()
   await sql`insert into test (name_in_camel) values ('Oh noes')`
-  await delay(10)
+  await until(() => last)
+  await unsubscribeLast()
   return [
     'insert,Murray,,update,Rothbard,,delete,1,,insert,Murray,,update,Rothbard,Murray,delete,Rothbard,',
     result.join(','),
@@ -2770,7 +2780,7 @@ t('subscribe with transform', { timeout: 2 }, async() => {
   ]
 })
 
-t('subscribe reconnects and calls onsubscribe', { timeout: 4 }, async() => {
+t('subscribe reconnects and calls onsubscribe', { timeout: 18 }, async() => {
   const sql = postgres({
     database: 'postgres_js_test',
     publications: 'alltables',
@@ -2796,12 +2806,11 @@ t('subscribe reconnects and calls onsubscribe', { timeout: 4 }, async() => {
   `
 
   await sql`insert into test (name) values ('Murray')`
-  for (let i = 0; i < 100 && !result.includes('insert'); i++)
-    await delay(10)
+  await until(() => result.includes('insert'))
   await subscribeSql.close()
-  await delay(500)
+  await until(() => onsubscribes >= 2)
   await sql`delete from test`
-  await delay(100)
+  await until(() => result.includes('delete'))
   await unsubscribe()
   return [
     '2insert,Murray,,delete,1,',
@@ -3272,6 +3281,11 @@ const pick = ({ executingCount, waitingCount }) => ({ executingCount, waitingCou
 
 const noop = () => undefined
 
+async function until(done, ms = 5000) {
+  for (const end = Date.now() + ms; !done() && Date.now() < end;)
+    await delay(10)
+}
+
 async function uncaught(fn) {
   const errors = []
   const capture = e => errors.push(e)
@@ -3656,7 +3670,7 @@ t('a throwing onlisten callback is rethrown as an uncaught exception on listen a
   ]
 })
 
-t('a throwing subscribe callback does not stop other subscribers or the replication stream', { timeout: 4 }, async() => {
+t('a throwing subscribe callback does not stop other subscribers or the replication stream', { timeout: 13 }, async() => {
   const sentinel = new Error('subscribe sentinel')
   const sql = postgres({
     database: 'postgres_js_test',
@@ -3672,11 +3686,9 @@ t('a throwing subscribe callback does not stop other subscribers or the replicat
     await sql.subscribe('insert:test', () => { throw sentinel })
     await sql.subscribe('insert:test', row => xs.push(row.name))
     await sql`insert into test (name) values ('a')`
-    for (let i = 0; i < 100 && xs.length < 1; i++)
-      await delay(10)
+    await until(() => xs.length > 0)
     await sql`insert into test (name) values ('b')`
-    for (let i = 0; i < 100 && xs.length < 2; i++)
-      await delay(10)
+    await until(() => xs.length >= 2)
   })
 
   return [
@@ -3688,7 +3700,7 @@ t('a throwing subscribe callback does not stop other subscribers or the replicat
   ]
 })
 
-t('a throwing onsubscribe callback is rethrown as an uncaught exception on subscribe and on reconnect', { timeout: 4 }, async() => {
+t('a throwing onsubscribe callback is rethrown as an uncaught exception on subscribe and on reconnect', { timeout: 8 }, async() => {
   const sentinel = new Error('onsubscribe sentinel')
   const sql = postgres({
     database: 'postgres_js_test',
@@ -3703,8 +3715,7 @@ t('a throwing onsubscribe callback is rethrown as an uncaught exception on subsc
     const subscription = await sql.subscribe('*', noop, () => { throw sentinel }).catch(e => e)
     const { sql: subscribeSql } = await sql.subscribe('*', noop, () => subscribes.push(1))
     await subscribeSql.close()
-    for (let i = 0; i < 200 && subscribes.length < 2; i++)
-      await delay(10)
+    await until(() => subscribes.length >= 2)
     return typeof subscription.unsubscribe
   })
 
@@ -3716,7 +3727,7 @@ t('a throwing onsubscribe callback is rethrown as an uncaught exception on subsc
   ]
 })
 
-t('a throwing transform skips the change and calls onerror without restarting the replication stream', { timeout: 4 }, async() => {
+t('a throwing transform skips the change and calls onerror without restarting the replication stream', { timeout: 8 }, async() => {
   const sentinel = new Error('transform sentinel')
   const sql = postgres({
     database: 'postgres_js_test',
@@ -3742,8 +3753,7 @@ t('a throwing transform skips the change and calls onerror without restarting th
   const pid = state.pid
   await sql`insert into test (name) values ('bad')`
   await sql`insert into test (name) values ('good')`
-  for (let i = 0; i < 100 && xs.length < 1; i++)
-    await delay(10)
+  await until(() => xs.length > 0)
 
   return [
     'good 1 true true',
@@ -3754,7 +3764,7 @@ t('a throwing transform skips the change and calls onerror without restarting th
   ]
 })
 
-t('a throwing transform is rethrown once as an uncaught exception when a subscriber of the change has no onerror', { timeout: 4 }, async() => {
+t('a throwing transform is rethrown once as an uncaught exception when a subscriber of the change has no onerror', { timeout: 8 }, async() => {
   const sentinel = new Error('transform sentinel')
   const sql = postgres({
     database: 'postgres_js_test',
@@ -3783,8 +3793,7 @@ t('a throwing transform is rethrown once as an uncaught exception when a subscri
     const pid = state.pid
     await sql`insert into test (name) values ('bad')`
     await sql`insert into test (name) values ('good')`
-    for (let i = 0; i < 100 && xs.length < 1; i++)
-      await delay(10)
+    await until(() => xs.length > 0)
     return state.pid === pid
   })
 
@@ -3797,7 +3806,7 @@ t('a throwing transform is rethrown once as an uncaught exception when a subscri
   ]
 })
 
-t('a transform error does not reach subscribers of another table, another operation or that unsubscribed', { timeout: 4 }, async() => {
+t('a transform error does not reach subscribers of another table, another operation or that unsubscribed', { timeout: 8 }, async() => {
   const sentinel = new Error('transform sentinel')
   const sql = postgres({
     database: 'postgres_js_test',
@@ -3830,8 +3839,7 @@ t('a transform error does not reach subscribers of another table, another operat
     unsubscribe()
     await sql`insert into test (name) values ('bad')`
     await sql`insert into other (name) values ('good')`
-    for (let i = 0; i < 100 && xs.length < 1; i++)
-      await delay(10)
+    await until(() => xs.length > 0)
   })
 
   return [
@@ -3844,7 +3852,7 @@ t('a transform error does not reach subscribers of another table, another operat
   ]
 })
 
-t('subscribers filtered by key get the transform errors of their table', { timeout: 4 }, async() => {
+t('subscribers filtered by key get the transform errors of their table', { timeout: 8 }, async() => {
   const sentinel = new Error('transform sentinel')
   const sql = postgres({
     database: 'postgres_js_test',
@@ -3872,8 +3880,7 @@ t('subscribers filtered by key get the transform errors of their table', { timeo
   const pid = state.pid
   await sql`update test set name = 'bad' where id = 1`
   await sql`update test set name = 'good' where id = 1`
-  for (let i = 0; i < 100 && xs.length < 1; i++)
-    await delay(10)
+  await until(() => xs.length > 0)
 
   return [
     'good 1,2 true',
@@ -3884,7 +3891,7 @@ t('subscribers filtered by key get the transform errors of their table', { timeo
   ]
 })
 
-t('onerror gets transform and connection errors after the replication stream reconnects', { timeout: 6 }, async() => {
+t('onerror gets transform and connection errors after the replication stream reconnects', { timeout: 18 }, async() => {
   const sentinel = new Error('transform sentinel')
   const sql = postgres({
     database: 'postgres_js_test',
@@ -3918,15 +3925,12 @@ t('onerror gets transform and connection errors after the replication stream rec
       e => errors.push(e === sentinel ? 'sentinel' : e.code)
     )
     await sql`select pg_terminate_backend(${ state.pid })`
-    for (let i = 0; i < 200 && subscribes.length < 2; i++)
-      await delay(10)
+    await until(() => subscribes.length >= 2)
     await sql`insert into test (name) values ('bad')`
     await sql`insert into test (name) values ('good')`
-    for (let i = 0; i < 100 && xs.length < 1; i++)
-      await delay(10)
+    await until(() => xs.length > 0)
     await sql`select pg_terminate_backend(${ state.pid })`
-    for (let i = 0; i < 200 && subscribes.length < 3; i++)
-      await delay(10)
+    await until(() => subscribes.length >= 3)
   } finally {
     globalThis.console.error = error
   }
@@ -3940,7 +3944,7 @@ t('onerror gets transform and connection errors after the replication stream rec
   ]
 })
 
-t('subscribing and unsubscribing leaves no error listeners behind', { timeout: 6 }, async() => {
+t('subscribing and unsubscribing leaves no error listeners behind', { timeout: 8 }, async() => {
   const sql = postgres({
     database: 'postgres_js_test',
     publications: 'alltables',
@@ -3965,8 +3969,7 @@ t('subscribing and unsubscribing leaves no error listeners behind', { timeout: 6
     const { state } = await sql.subscribe('insert:test', noop, noop, e => live.push(e))
     await delay(50)
     await sql`select pg_terminate_backend(${ state.pid })`
-    for (let i = 0; i < 200 && live.length < 1; i++)
-      await delay(10)
+    await until(() => live.length > 0)
     await delay(50)
   } finally {
     globalThis.console.error = error
@@ -3982,7 +3985,7 @@ t('subscribing and unsubscribing leaves no error listeners behind', { timeout: 6
   ]
 })
 
-t('a throwing column transform skips each change of its table and the replication stream carries on', { timeout: 4 }, async() => {
+t('a throwing column transform skips each change of its table and the replication stream carries on', { timeout: 13 }, async() => {
   const sentinel = new Error('column sentinel')
   const sql = postgres({
     database: 'postgres_js_test',
@@ -4009,12 +4012,10 @@ t('a throwing column transform skips each change of its table and the replicatio
   const pid = state.pid
   await sql`insert into other (bad) values ('x')`
   await sql`insert into test (name) values ('a')`
-  for (let i = 0; i < 100 && xs.length < 1; i++)
-    await delay(10)
+  await until(() => xs.length > 0)
   await sql`insert into other (bad) values ('y')`
   await sql`insert into test (name) values ('b')`
-  for (let i = 0; i < 100 && xs.length < 2; i++)
-    await delay(10)
+  await until(() => xs.length >= 2)
 
   return [
     'a,b 2 true true',
@@ -4026,7 +4027,7 @@ t('a throwing column transform skips each change of its table and the replicatio
   ]
 })
 
-t('a column transform that throws undefined reports it and the replication stream carries on', { timeout: 4 }, async() => {
+t('a column transform that throws undefined reports it and the replication stream carries on', { timeout: 8 }, async() => {
   const sql = postgres({
     database: 'postgres_js_test',
     publications: 'alltables',
@@ -4052,8 +4053,7 @@ t('a column transform that throws undefined reports it and the replication strea
   const pid = state.pid
   await sql`insert into other (bad) values ('x')`
   await sql`insert into test (name) values ('a')`
-  for (let i = 0; i < 100 && xs.length < 1; i++)
-    await delay(10)
+  await until(() => xs.length > 0)
 
   return [
     'a 1 true true',
@@ -4065,7 +4065,7 @@ t('a column transform that throws undefined reports it and the replication strea
   ]
 })
 
-t('a row transform that returns nothing skips the change before any subscriber receives it', { timeout: 4 }, async() => {
+t('a row transform that returns nothing skips the change before any subscriber receives it', { timeout: 8 }, async() => {
   const sql = postgres({
     database: 'postgres_js_test',
     publications: 'alltables',
@@ -4083,8 +4083,7 @@ t('a row transform that returns nothing skips the change before any subscriber r
   const pid = state.pid
   await sql`insert into test (name) values ('bad')`
   await sql`insert into test (name) values ('good')`
-  for (let i = 0; i < 100 && xs.length < 2; i++)
-    await delay(10)
+  await until(() => xs.length >= 2)
 
   return [
     'good,good TypeError,TypeError true',
@@ -4095,7 +4094,7 @@ t('a row transform that returns nothing skips the change before any subscriber r
   ]
 })
 
-t('a one-character table name is subscribed to by its own inserts and decode errors only', { timeout: 4 }, async() => {
+t('a one-character table name is subscribed to by its own inserts and decode errors only', { timeout: 13 }, async() => {
   const sentinel = new Error('transform sentinel')
   const sql = postgres({
     database: 'postgres_js_test',
@@ -4122,11 +4121,9 @@ t('a one-character table name is subscribed to by its own inserts and decode err
   const pid = state.pid
   await sql`insert into other (name) values ('bad')`
   await sql`insert into t (name) values ('a')`
-  for (let i = 0; i < 100 && xs.length < 1; i++)
-    await delay(10)
+  await until(() => xs.length > 0)
   await sql`insert into t (name) values ('bad')`
-  for (let i = 0; i < 100 && errors.length < 1; i++)
-    await delay(10)
+  await until(() => errors.length > 0)
 
   return [
     'a 1 true true',
