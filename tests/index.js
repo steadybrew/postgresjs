@@ -3499,6 +3499,28 @@ t('a throwing debug callback during type discovery still registers array types',
   ]
 })
 
+t('a throwing backoff function is rethrown as an uncaught exception and the connection still closes', { timeout: 10 }, async() => {
+  const sentinel = new Error('backoff sentinel')
+  const sql = postgres({ ...options, max: 1, backoff: () => { throw sentinel } })
+  const [results, errors] = await uncaught(async() => {
+    const reserved = await sql.reserve()
+    const [{ pid }] = await reserved`select pg_backend_pid() as pid`
+    const queued = sql`select 3 as x`.then(x => x[0].x, e => e.code)
+    const other = postgres(options)
+    await other`select pg_terminate_backend(${ pid })`
+    await other.end()
+    const result = await Promise.race([queued, delay(3000).then(() => 'hung')])
+    reserved.release()
+    await sql.end({ timeout: 1 })
+    return result
+  })
+
+  return [
+    JSON.stringify([3, true]),
+    JSON.stringify([results, errors.length === 1 && errors[0] === sentinel])
+  ]
+})
+
 t('a throwing onnotice callback is rethrown as an uncaught exception and its query succeeds', async() => {
   const sentinel = new Error('onnotice sentinel')
   const sql = postgres({ ...options, max: 1, fetch_types: false, onnotice: () => { throw sentinel } })

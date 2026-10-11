@@ -29,6 +29,7 @@ import { Errors, PostgresError } from './errors.js'
 import Subscribe from './subscribe.js'
 import largeObject from './large.js'
 import callback from './callback.js'
+import defaultBackoff from './backoff.js'
 
 const Lease = { Active: 0, Settling: 1, Released: 2, Discarded: 3, Closed: 4 }
 
@@ -658,7 +659,7 @@ function parseOptions(a, b) {
     connect_timeout : 30,
     max_lifetime    : max_lifetime,
     max_pipeline    : 100,
-    backoff         : backoff,
+    backoff         : defaultBackoff,
     keep_alive      : 60,
     prepare         : true,
     debug           : false,
@@ -715,10 +716,6 @@ function tsa(o, url, env) {
     return x
 
   throw new Error('target_session_attrs ' + x + ' is not supported')
-}
-
-function backoff(retries) {
-  return (0.5 + Math.random() / 2) * Math.min(3 ** retries / 100, 20)
 }
 
 function max_lifetime() {

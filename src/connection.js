@@ -9,6 +9,7 @@ import { Errors } from './errors.js'
 import Result from './result.js'
 import Queue from './queue.js'
 import clampedTimeout from './timeout.js'
+import defaultBackoff from './backoff.js'
 import { SSLRequest, tlsConfig, cancelRequest } from './transport.js'
 import { Query, CLOSE } from './query.js'
 import callback from './callback.js'
@@ -279,7 +280,16 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
   }
 
   function backoffMs() {
-    return (typeof backoff === 'function' ? backoff(options.shared.retries) : backoff) * 1000
+    const retries = options.shared.retries
+    if (typeof backoff !== 'function')
+      return backoff * 1000
+
+    try {
+      return backoff(retries) * 1000
+    } catch (e) {
+      queueMicrotask(() => { throw e })
+      return defaultBackoff(retries) * 1000
+    }
   }
 
   function standbyPass() {
