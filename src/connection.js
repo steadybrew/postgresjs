@@ -27,6 +27,8 @@ const Sync = b().S().end()
 const Phase = { Closed: 0, Backoff: 1, Connecting: 2, Initializing: 3, Ready: 4, Draining: 5, Closing: 6 }
 const phaseNames = Object.keys(Phase)
 
+const endsAbortedState = /^\s*(rollback|abort)\b/i
+
 const retryRoutines = new Set([
   'FetchPreparedStatement',
   'RevalidateCachedQuery',
@@ -783,7 +785,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     }
   }
 
-  function ReadyForQuery() {
+  function ReadyForQuery(x) {
     query === barrier && (barrier = null)
     if (query) {
       if (errorResponse) {
@@ -793,6 +795,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
         query.retried
           ? errored(query.retried)
           : query.prepared && retryRoutines.has(errorResponse.routine) && query.owner === connection.owner && !barrier
+            && (x[5] !== 69 || endsAbortedState.test(query.string))
             ? retry(query, errorResponse)
             : errored(errorResponse)
       } else {

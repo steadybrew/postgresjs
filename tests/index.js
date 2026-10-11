@@ -2336,15 +2336,19 @@ t('Does not re-serialize json parameters when retrying on RevalidateCachedQuery 
 })
 
 t('Does not re-serialize json parameters when retrying on FetchPreparedStatement error', async() => {
+  const sql = postgres(options)
   const insert = () => sql`insert into test (config) values (${ sql.json({ warmup: 2100000000 }) })`
   await sql`create table test (config jsonb)`
   await insert()
   await sql`deallocate all`
   await insert()
+  const actual = (await sql`select jsonb_typeof(config) as type from test`).map(x => x.type).join()
+  await sql`drop table test`
+  await sql.end()
+
   return [
     'object,object',
-    (await sql`select jsonb_typeof(config) as type from test`).map(x => x.type).join(),
-    await sql`drop table test`
+    actual
   ]
 })
 
@@ -2363,15 +2367,19 @@ t('Does not re-serialize boolean parameters when retrying on RevalidateCachedQue
 })
 
 t('Does not re-serialize boolean parameters when retrying on FetchPreparedStatement error', async() => {
+  const sql = postgres(options)
   const insert = () => sql`insert into test (enabled) values (${ true })`
   await sql`create table test (enabled bool)`
   await insert()
   await sql`deallocate all`
   await insert()
+  const actual = (await sql`select enabled from test`).map(x => x.enabled).join()
+  await sql`drop table test`
+  await sql.end()
+
   return [
     'true,true',
-    (await sql`select enabled from test`).map(x => x.enabled).join(),
-    await sql`drop table test`
+    actual
   ]
 })
 
@@ -2390,15 +2398,41 @@ t('Does not re-serialize bytea parameters when retrying on RevalidateCachedQuery
 })
 
 t('Does not re-serialize bytea parameters when retrying on FetchPreparedStatement error', async() => {
+  const sql = postgres(options)
   const insert = () => sql`insert into test (data) values (${ Buffer.from('hello') })`
   await sql`create table test (data bytea)`
   await insert()
   await sql`deallocate all`
   await insert()
+  const actual = (await sql`select data from test`).map(x => x.data.toString()).join()
+  await sql`drop table test`
+  await sql.end()
+
   return [
     'hello,hello',
-    (await sql`select data from test`).map(x => x.data.toString()).join(),
-    await sql`drop table test`
+    actual
+  ]
+})
+
+t('a prepared rollback to savepoint is retried inside a failed transaction after deallocate all', { timeout: 10 }, async() => {
+  const sql = postgres({ ...options, max: 1 })
+  await sql.begin(async s => {
+    await s`savepoint a`
+    await s`rollback to a`
+  })
+  await sql`deallocate all`
+  const code = await sql.begin(async s => {
+    await s.unsafe('savepoint a')
+    await s`select 1/0`.catch(noop)
+    await s`rollback to a`
+    return await s`select 5 as x`
+  }).then(() => 'resolved', e => e.code)
+  const next = (await sql`select 6 as x`)[0].x
+  await sql.end()
+
+  return [
+    JSON.stringify(['22012', 6]),
+    JSON.stringify([code, next])
   ]
 })
 
@@ -3729,7 +3763,7 @@ t('concurrent statements in a transaction after a cached plan changes roll back 
   await sql.end()
 
   return [
-    JSON.stringify(['25P02', 5, true]),
+    JSON.stringify(['0A000', 5, true]),
     JSON.stringify([error, next, before === after]),
     await postgres(options)`drop table test`
   ]
