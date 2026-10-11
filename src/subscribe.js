@@ -1,4 +1,5 @@
 import callback from './callback.js'
+import defaultBackoff from './backoff.js'
 
 const noop = () => { /* noop */ }
     , commands = { 68: 'delete', 73: 'insert', 85: 'update' }
@@ -10,6 +11,9 @@ export default function Subscribe(postgres, options) {
 
   let connection
     , stream
+    , timer
+    , inflight = false
+    , retries = 0
     , ended = false
 
   const sql = subscribe.sql = postgres({
@@ -24,13 +28,12 @@ export default function Subscribe(postgres, options) {
       ...options.connection,
       replication: 'database'
     },
-    onclose: async function() {
+    onclose: function() {
       if (ended)
         return
       stream = null
       state.pid = state.secret = undefined
-      connected(await init(sql, slot, options.publications))
-      subscribers.forEach(event => event.forEach(({ onsubscribe }) => callback(onsubscribe)))
+      inflight || timer || !connection || connect().catch(noop)
     },
     no_subscribe: true
   })
@@ -40,6 +43,9 @@ export default function Subscribe(postgres, options) {
 
   sql.end = async() => {
     ended = true
+    clearTimeout(timer)
+    timer = null
+    connection && await connection.catch(noop)
     stream && (await new Promise(r => (stream.once('close', r), stream.end())))
     return end()
   }
@@ -54,30 +60,77 @@ export default function Subscribe(postgres, options) {
   async function subscribe(event, fn, onsubscribe = noop, onerror) {
     event = parseEvent(event)
 
-    if (!connection)
-      connection = init(sql, slot, options.publications)
-
     const subscriber = { fn, onsubscribe, onerror }
-    const fns = subscribers.has(event)
-      ? subscribers.get(event).add(subscriber)
-      : subscribers.set(event, new Set([subscriber])).get(event)
 
-    const unsubscribe = () => {
-      fns.delete(subscriber)
-      fns.size === 0 && subscribers.delete(event)
-    }
+    return (connection || connect()).then(() => {
+      const fns = subscribers.has(event)
+        ? subscribers.get(event).add(subscriber)
+        : subscribers.set(event, new Set([subscriber])).get(event)
 
-    return connection.then(x => {
-      connected(x)
+      const unsubscribe = () => {
+        fns.delete(subscriber)
+        fns.size === 0 && subscribers.delete(event)
+        subscribers.size === 0 && (clearTimeout(timer), timer = null)
+      }
+
       callback(onsubscribe)
       return { unsubscribe, state, sql }
     })
   }
 
-  function connected(x) {
-    stream = x.stream
-    state.pid = x.state.pid
-    state.secret = x.state.secret
+  function connect() {
+    clearTimeout(timer)
+    timer = null
+    inflight = true
+    const resume = subscribers.size > 0
+    const current = connection = init(sql, slot, options.publications).then(x => {
+      stream = x.stream
+      state.pid = x.state.pid
+      state.secret = x.state.secret
+    })
+
+    current.then(
+      () => {
+        inflight = false
+        retries = 0
+        resume && !ended && subscribers.forEach(event => event.forEach(({ onsubscribe }) => callback(onsubscribe)))
+      },
+      error => {
+        inflight = false
+        connection === current && (connection = null)
+        if (ended || subscribers.size === 0)
+          return
+        reportConnection(error)
+        timer = setTimeout(() => connect().catch(noop), retryDelay(retries++))
+      }
+    )
+
+    return current
+  }
+
+  function retryDelay(n) {
+    const backoff = sql.options.backoff
+    let seconds
+    try {
+      seconds = typeof backoff === 'function' ? backoff(n) : backoff
+    } catch (e) {
+      callback(() => { throw e })
+    }
+    seconds = Number.isFinite(seconds) ? seconds : defaultBackoff(n)
+    return Math.min(Math.max(seconds * 1000, 100), 2 ** 31 - 1)
+  }
+
+  function reportConnection(error) {
+    console.error('Unexpected error during logical streaming - reconnecting', error) // eslint-disable-line
+    subscribers.forEach(fns => fns.forEach(({ onerror }) => callback(onerror, error)))
+  }
+
+  function report(error, match) {
+    let uncaught = false
+    subscribers.forEach((fns, event) => match(event) && fns.forEach(({ onerror }) =>
+      onerror ? callback(onerror, error) : uncaught = true
+    ))
+    uncaught && callback(() => { throw error })
   }
 
   async function init(sql, slot, publications) {
@@ -101,15 +154,10 @@ export default function Subscribe(postgres, options) {
     }
 
     stream.on('data', data)
-    stream.on('error', error)
+    stream.on('error', reportConnection)
     stream.on('close', sql.close)
 
     return { stream, state: xs.state }
-
-    function error(e) {
-      console.error('Unexpected error during logical streaming - reconnecting', e) // eslint-disable-line
-      subscribers.forEach(fns => fns.forEach(({ onerror }) => callback(onerror, e)))
-    }
 
     function data(x) {
       if (x[0] === 0x77) {
@@ -145,11 +193,7 @@ export default function Subscribe(postgres, options) {
       const path = relation.schema + '.' + relation.table
           , events = ['*', '*:' + path, command, command + ':' + path]
 
-      let uncaught = false
-      subscribers.forEach((fns, event) => events.includes(event.split('=')[0]) && fns.forEach(({ onerror }) =>
-        onerror ? callback(onerror, error) : uncaught = true
-      ))
-      uncaught && callback(() => { throw error })
+      report(error, event => events.includes(event.split('=')[0]))
     }
 
     function pong() {

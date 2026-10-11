@@ -3985,6 +3985,317 @@ t('subscribing and unsubscribing leaves no error listeners behind', { timeout: 8
   ]
 })
 
+const releaseReplication = admin => admin`
+  select pg_terminate_backend(active_pid) from pg_replication_slots where active_pid is not null
+`
+
+t('sql.end() while sql.subscribe() reconnects ends the new replication connection and rejects nothing', { timeout: 18 }, async() => {
+  const admin = postgres({ database: 'postgres_js_test', fetch_types: false })
+  await admin.unsafe('create publication alltables for all tables')
+
+  const results = []
+  const error = globalThis.console.error
+  globalThis.console.error = noop
+  try {
+    const [, errors] = await uncaught(async() => {
+      for (const step of ['CREATE_REPLICATION_SLOT', 'START_REPLICATION']) {
+        let sent = 0
+        let ending = null
+        const sql = postgres({
+          database: 'postgres_js_test',
+          publications: 'alltables',
+          fetch_types: false,
+          debug: (id, query) => query.startsWith(step) && ++sent === 2 && (ending = sql.end())
+        })
+        const { state } = await sql.subscribe('*', noop, noop, noop)
+        await admin`select pg_terminate_backend(${ state.pid })`
+        await until(() => ending)
+        const result = await Promise.race([
+          ending ? ending.then(() => 'ended') : 'not ending',
+          delay(2000).then(() => 'hung')
+        ])
+        result === 'ended' || await releaseReplication(admin)
+        results.push(result)
+      }
+    })
+    results.push(errors.length)
+  } finally {
+    globalThis.console.error = error
+  }
+
+  return [
+    'ended ended 0',
+    results.join(' '),
+    await admin`drop publication alltables`,
+    await admin.end()
+  ]
+})
+
+t('a subscription made after a reconnect uses the new replication connection and sql.end() ends it', { timeout: 16 }, async() => {
+  const admin = postgres({ database: 'postgres_js_test', fetch_types: false })
+  await admin.unsafe('create publication alltables for all tables')
+  await admin`create table test (id serial primary key, name text)`
+
+  const sql = postgres({
+    database: 'postgres_js_test',
+    publications: 'alltables',
+    fetch_types: false
+  })
+
+  const xs = []
+  const subscribes = []
+  const error = globalThis.console.error
+  globalThis.console.error = noop
+  let result
+  try {
+    const { state } = await sql.subscribe('insert:test', noop, () => subscribes.push(1), noop)
+    await admin`select pg_terminate_backend(${ state.pid })`
+    await until(() => subscribes.length >= 2)
+    await sql.subscribe('insert:test', row => xs.push(row.name))
+    await admin`insert into test (name) values ('a')`
+    await until(() => xs.length > 0)
+    result = [xs.join(), subscribes.length]
+    result.push(await Promise.race([
+      sql.end().then(() => 'ended'),
+      delay(2000).then(() => 'hung')
+    ]))
+    result[2] === 'ended' || await releaseReplication(admin)
+  } finally {
+    globalThis.console.error = error
+  }
+
+  return [
+    'a 2 ended',
+    result.join(' '),
+    await admin`drop table test`,
+    await admin`drop publication alltables`,
+    await admin.end()
+  ]
+})
+
+function holdReplicationSlots(admin) {
+  const names = []
+  const hold = { on: true }
+  let full
+  const filled = new Promise(resolve => full = resolve)
+  const loop = (async() => {
+    while (hold.on) {
+      try {
+        const name = 'fill' + names.length
+        await admin`select pg_create_logical_replication_slot(${ name }, 'pgoutput')`
+        names.push(name)
+      } catch (e) {
+        if (e.code !== '53400')
+          throw e
+        full()
+        await new Promise(setImmediate)
+      }
+    }
+  })()
+  loop.catch(noop)
+
+  const release = async() => {
+    hold.on = false
+    await loop
+    for (const name of names)
+      await admin`select pg_drop_replication_slot(${ name })`
+  }
+  release.full = filled
+  return release
+}
+
+t('a rejected sql.subscribe() while the replication connection cannot be restored is the only signal its caller gets', { timeout: 18 }, async() => {
+  const admin = postgres({ database: 'postgres_js_test', fetch_types: false })
+  await admin.unsafe('create publication alltables for all tables')
+  await admin`create table test (id serial primary key, name text)`
+
+  const sql = postgres({
+    database: 'postgres_js_test',
+    publications: 'alltables',
+    fetch_types: false,
+    backoff: 0.2
+  })
+
+  const xs = []
+  const late = []
+  const errors = []
+  const lateErrors = []
+  const subscribes = []
+  const lateSubscribes = []
+  const error = globalThis.console.error
+  globalThis.console.error = noop
+  let rejected
+  let uncaughts
+  let release
+  try {
+    [, uncaughts] = await uncaught(async() => {
+      const { state } = await sql.subscribe('insert:test', row => xs.push(row.name), () => subscribes.push(1), e => errors.push(e.code))
+      release = holdReplicationSlots(admin)
+      await release.full
+      await admin`select pg_terminate_backend(${ state.pid })`
+      await until(() => errors.includes('53400'))
+      rejected = await sql.subscribe(
+        'insert:test',
+        row => late.push(row.name),
+        () => lateSubscribes.push(1),
+        e => lateErrors.push(e.code)
+      ).catch(e => e.code)
+      await until(() => errors.filter(x => x === '53400').length > 2)
+      await release()
+      release = null
+      await until(() => subscribes.length > 1)
+      await admin`insert into test (name) values ('a')`
+      await until(() => xs.length > 0)
+    })
+  } finally {
+    globalThis.console.error = error
+    release && await release()
+  }
+
+  return [
+    JSON.stringify(['53400', 2, 'a', 0, 0, 0, 0]),
+    JSON.stringify([rejected, subscribes.length, xs.join(), late.length, lateErrors.length, lateSubscribes.length, uncaughts.length]),
+    await sql.end(),
+    await admin`drop table test`,
+    await admin`drop publication alltables`,
+    await admin.end()
+  ]
+})
+
+t('a failed reconnect of sql.subscribe() is retried until it succeeds and a later sql.subscribe() works', { timeout: 18 }, async() => {
+  const admin = postgres({ database: 'postgres_js_test', fetch_types: false })
+  await admin.unsafe('create publication alltables for all tables')
+  await admin`create table test (id serial primary key, name text)`
+
+  const sql = postgres({
+    database: 'postgres_js_test',
+    publications: 'alltables',
+    fetch_types: false,
+    backoff: 0.2
+  })
+
+  const xs = []
+  const ys = []
+  const errors = []
+  const subscribes = []
+  const error = globalThis.console.error
+  globalThis.console.error = noop
+  let release
+  let again
+  try {
+    const { state } = await sql.subscribe('insert:test', row => xs.push(row.name), () => subscribes.push(1), e => errors.push(e.code))
+    release = holdReplicationSlots(admin)
+    await release.full
+    await admin`select pg_terminate_backend(${ state.pid })`
+    await until(() => errors.filter(x => x === '53400').length > 1)
+    await release()
+    release = null
+    await until(() => subscribes.length > 1)
+    await admin`insert into test (name) values ('a')`
+    await until(() => xs.length > 0)
+    again = await sql.subscribe('insert:test', row => ys.push(row.name)).then(() => 'subscribed', e => e.code)
+    await admin`insert into test (name) values ('b')`
+    await until(() => ys.length > 0)
+  } finally {
+    globalThis.console.error = error
+    release && await release()
+  }
+
+  return [
+    JSON.stringify([true, 2, 'a,b', 'subscribed', 'b']),
+    JSON.stringify([errors.filter(x => x === '53400').length > 1, subscribes.length, xs.join(), again, ys.join()]),
+    await sql.end(),
+    await admin`drop table test`,
+    await admin`drop publication alltables`,
+    await admin.end()
+  ]
+})
+
+t('a failed reconnect of sql.subscribe() is logged and never rethrown for a subscriber without onerror', { timeout: 18 }, async() => {
+  const admin = postgres({ database: 'postgres_js_test', fetch_types: false })
+  await admin.unsafe('create publication alltables for all tables')
+  await admin`create table test (id serial primary key, name text)`
+
+  const sql = postgres({
+    database: 'postgres_js_test',
+    publications: 'alltables',
+    fetch_types: false,
+    backoff: 0.2
+  })
+
+  const xs = []
+  const logged = []
+  const subscribes = []
+  const error = globalThis.console.error
+  globalThis.console.error = (message, e) => logged.push(e && e.code)
+  let release
+  let uncaughts
+  try {
+    [, uncaughts] = await uncaught(async() => {
+      const { state } = await sql.subscribe('insert:test', row => xs.push(row.name), () => subscribes.push(1))
+      release = holdReplicationSlots(admin)
+      await release.full
+      await admin`select pg_terminate_backend(${ state.pid })`
+      await until(() => logged.filter(x => x === '53400').length > 1)
+      await release()
+      release = null
+      await until(() => subscribes.length > 1)
+      await admin`insert into test (name) values ('a')`
+      await until(() => xs.length > 0)
+    })
+  } finally {
+    globalThis.console.error = error
+    release && await release()
+  }
+
+  return [
+    JSON.stringify([0, true, 2, 'a']),
+    JSON.stringify([uncaughts.length, logged.filter(x => x === '53400').length > 1, subscribes.length, xs.join()]),
+    await sql.end(),
+    await admin`drop table test`,
+    await admin`drop publication alltables`,
+    await admin.end()
+  ]
+})
+
+t('a subscription made while sql.subscribe() reconnects calls onsubscribe once', { timeout: 13 }, async() => {
+  const admin = postgres({ database: 'postgres_js_test', fetch_types: false })
+  await admin.unsafe('create publication alltables for all tables')
+
+  let sent = 0
+  let during
+  const subscribes = []
+  const lateSubscribes = []
+  const sql = postgres({
+    database: 'postgres_js_test',
+    publications: 'alltables',
+    fetch_types: false,
+    debug: (id, query) => query.startsWith('CREATE_REPLICATION_SLOT') && ++sent === 2 &&
+      (during = sql.subscribe('*', noop, () => lateSubscribes.push(1), noop))
+  })
+
+  const error = globalThis.console.error
+  globalThis.console.error = noop
+  try {
+    const { state } = await sql.subscribe('*', noop, () => subscribes.push(1), noop)
+    await admin`select pg_terminate_backend(${ state.pid })`
+    await until(() => during)
+    await during
+    await until(() => subscribes.length > 1)
+    await admin`select 1`
+  } finally {
+    globalThis.console.error = error
+  }
+
+  return [
+    JSON.stringify([2, 1]),
+    JSON.stringify([subscribes.length, lateSubscribes.length]),
+    await sql.end(),
+    await admin`drop publication alltables`,
+    await admin.end()
+  ]
+})
+
 t('a throwing column transform skips each change of its table and the replication stream carries on', { timeout: 13 }, async() => {
   const sentinel = new Error('column sentinel')
   const sql = postgres({
