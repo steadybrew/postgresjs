@@ -3716,6 +3716,385 @@ t('a throwing onsubscribe callback is rethrown as an uncaught exception on subsc
   ]
 })
 
+t('a throwing transform skips the change and calls onerror without restarting the replication stream', { timeout: 4 }, async() => {
+  const sentinel = new Error('transform sentinel')
+  const sql = postgres({
+    database: 'postgres_js_test',
+    publications: 'alltables',
+    fetch_types: false,
+    transform: {
+      row: {
+        from: row => {
+          if (row.name === 'bad')
+            throw sentinel
+          return row
+        }
+      }
+    }
+  })
+
+  await sql.unsafe('create publication alltables for all tables')
+  await sql`create table test (id serial primary key, name text)`
+
+  const xs = []
+  const errors = []
+  const { state } = await sql.subscribe('insert:test', row => xs.push(row.name), noop, e => errors.push(e))
+  const pid = state.pid
+  await sql`insert into test (name) values ('bad')`
+  await sql`insert into test (name) values ('good')`
+  for (let i = 0; i < 100 && xs.length < 1; i++)
+    await delay(10)
+
+  return [
+    'good 1 true true',
+    [xs.join(), errors.length, errors[0] === sentinel, state.pid === pid].join(' '),
+    await sql`drop table test`,
+    await sql`drop publication alltables`,
+    await sql.end()
+  ]
+})
+
+t('a throwing transform is rethrown once as an uncaught exception when a subscriber of the change has no onerror', { timeout: 4 }, async() => {
+  const sentinel = new Error('transform sentinel')
+  const sql = postgres({
+    database: 'postgres_js_test',
+    publications: 'alltables',
+    fetch_types: false,
+    transform: {
+      row: {
+        from: row => {
+          if (row.name === 'bad')
+            throw sentinel
+          return row
+        }
+      }
+    }
+  })
+
+  await sql.unsafe('create publication alltables for all tables')
+  await sql`create table test (id serial primary key, name text)`
+
+  const xs = []
+  const errors = []
+  const [same, thrown] = await uncaught(async() => {
+    const { state } = await sql.subscribe('insert:test', row => xs.push(row.name))
+    await sql.subscribe('*', noop)
+    await sql.subscribe('*:test', noop, noop, e => errors.push(e))
+    const pid = state.pid
+    await sql`insert into test (name) values ('bad')`
+    await sql`insert into test (name) values ('good')`
+    for (let i = 0; i < 100 && xs.length < 1; i++)
+      await delay(10)
+    return state.pid === pid
+  })
+
+  return [
+    'good 1 true 1 true',
+    [xs.join(), thrown.length, thrown.every(e => e === sentinel), errors.length, same].join(' '),
+    await sql`drop table test`,
+    await sql`drop publication alltables`,
+    await sql.end()
+  ]
+})
+
+t('a transform error does not reach subscribers of another table, another operation or that unsubscribed', { timeout: 4 }, async() => {
+  const sentinel = new Error('transform sentinel')
+  const sql = postgres({
+    database: 'postgres_js_test',
+    publications: 'alltables',
+    fetch_types: false,
+    transform: {
+      row: {
+        from: row => {
+          if (row.name === 'bad')
+            throw sentinel
+          return row
+        }
+      }
+    }
+  })
+
+  await sql.unsafe('create publication alltables for all tables')
+  await sql`create table test (id serial primary key, name text)`
+  await sql`create table other (id serial primary key, name text)`
+
+  const xs = []
+  const errors = []
+  const [, thrown] = await uncaught(async() => {
+    await sql.subscribe('*:other', row => xs.push(row.name))
+    await sql.subscribe('delete:test', noop)
+    await sql.subscribe('update', noop, noop, () => errors.push('update'))
+    await sql.subscribe('insert:other', noop, noop, () => errors.push('other'))
+    const { unsubscribe } = await sql.subscribe('insert:test', noop, noop, () => errors.push('unsubscribed'))
+    await sql.subscribe('insert:test', noop, noop, () => errors.push('test'))
+    unsubscribe()
+    await sql`insert into test (name) values ('bad')`
+    await sql`insert into other (name) values ('good')`
+    for (let i = 0; i < 100 && xs.length < 1; i++)
+      await delay(10)
+  })
+
+  return [
+    'good test 0',
+    [xs.join(), errors.join(), thrown.length].join(' '),
+    await sql`drop table test`,
+    await sql`drop table other`,
+    await sql`drop publication alltables`,
+    await sql.end()
+  ]
+})
+
+t('subscribers filtered by key get the transform errors of their table', { timeout: 4 }, async() => {
+  const sentinel = new Error('transform sentinel')
+  const sql = postgres({
+    database: 'postgres_js_test',
+    publications: 'alltables',
+    fetch_types: false,
+    transform: {
+      value: {
+        from: x => {
+          if (x === 'bad')
+            throw sentinel
+          return x
+        }
+      }
+    }
+  })
+
+  await sql.unsafe('create publication alltables for all tables')
+  await sql`create table test (id serial primary key, name text)`
+  await sql`insert into test (name) values ('a'), ('b')`
+
+  const xs = []
+  const errors = []
+  const { state } = await sql.subscribe('update:test=1', row => xs.push(row.name), noop, e => errors.push(e === sentinel && 1))
+  await sql.subscribe('update:test=2', noop, noop, e => errors.push(e === sentinel && 2))
+  const pid = state.pid
+  await sql`update test set name = 'bad' where id = 1`
+  await sql`update test set name = 'good' where id = 1`
+  for (let i = 0; i < 100 && xs.length < 1; i++)
+    await delay(10)
+
+  return [
+    'good 1,2 true',
+    [xs.join(), errors.join(), state.pid === pid].join(' '),
+    await sql`drop table test`,
+    await sql`drop publication alltables`,
+    await sql.end()
+  ]
+})
+
+t('onerror gets transform and connection errors after the replication stream reconnects', { timeout: 6 }, async() => {
+  const sentinel = new Error('transform sentinel')
+  const sql = postgres({
+    database: 'postgres_js_test',
+    publications: 'alltables',
+    fetch_types: false,
+    transform: {
+      row: {
+        from: row => {
+          if (row.name === 'bad')
+            throw sentinel
+          return row
+        }
+      }
+    }
+  })
+
+  await sql.unsafe('create publication alltables for all tables')
+  await sql`create table test (id serial primary key, name text)`
+
+  const xs = []
+  const errors = []
+  const logged = []
+  const error = globalThis.console.error
+  globalThis.console.error = x => logged.push(x)
+  const subscribes = []
+  try {
+    const { state } = await sql.subscribe(
+      'insert:test',
+      row => xs.push(row.name),
+      () => subscribes.push(1),
+      e => errors.push(e === sentinel ? 'sentinel' : e.code)
+    )
+    await sql`select pg_terminate_backend(${ state.pid })`
+    for (let i = 0; i < 200 && subscribes.length < 2; i++)
+      await delay(10)
+    await sql`insert into test (name) values ('bad')`
+    await sql`insert into test (name) values ('good')`
+    for (let i = 0; i < 100 && xs.length < 1; i++)
+      await delay(10)
+    await sql`select pg_terminate_backend(${ state.pid })`
+    for (let i = 0; i < 200 && subscribes.length < 3; i++)
+      await delay(10)
+  } finally {
+    globalThis.console.error = error
+  }
+
+  return [
+    'good 3 CONNECTION_CLOSED,sentinel,CONNECTION_CLOSED 2',
+    [xs.join(), subscribes.length, errors.join(), logged.length].join(' '),
+    await sql`drop table test`,
+    await sql`drop publication alltables`,
+    await sql.end()
+  ]
+})
+
+t('subscribing and unsubscribing leaves no error listeners behind', { timeout: 6 }, async() => {
+  const sql = postgres({
+    database: 'postgres_js_test',
+    publications: 'alltables',
+    fetch_types: false
+  })
+
+  await sql.unsafe('create publication alltables for all tables')
+  await sql`create table test (id serial primary key, name text)`
+
+  const warnings = []
+  const onwarning = w => warnings.push(w.name)
+  process.on('warning', onwarning)
+  const stale = []
+  const live = []
+  const error = globalThis.console.error
+  globalThis.console.error = noop
+  try {
+    for (let i = 0; i < 20; i++) {
+      const { unsubscribe } = await sql.subscribe('insert:test', noop, noop, e => stale.push(e))
+      unsubscribe()
+    }
+    const { state } = await sql.subscribe('insert:test', noop, noop, e => live.push(e))
+    await delay(50)
+    await sql`select pg_terminate_backend(${ state.pid })`
+    for (let i = 0; i < 200 && live.length < 1; i++)
+      await delay(10)
+    await delay(50)
+  } finally {
+    globalThis.console.error = error
+    process.off('warning', onwarning)
+  }
+
+  return [
+    JSON.stringify([0, 0, true]),
+    JSON.stringify([stale.length, warnings.filter(x => x === 'MaxListenersExceededWarning').length, live.length > 0]),
+    await sql`drop table test`,
+    await sql`drop publication alltables`,
+    await sql.end()
+  ]
+})
+
+t('a throwing column transform skips each change of its table and the replication stream carries on', { timeout: 4 }, async() => {
+  const sentinel = new Error('column sentinel')
+  const sql = postgres({
+    database: 'postgres_js_test',
+    publications: 'alltables',
+    fetch_types: false,
+    transform: {
+      column: {
+        from: x => {
+          if (x === 'bad')
+            throw sentinel
+          return x
+        }
+      }
+    }
+  })
+
+  await sql.unsafe('create publication alltables for all tables')
+  await sql`create table test (id serial primary key, name text)`
+  await sql`create table other (id serial primary key, bad text)`
+
+  const xs = []
+  const errors = []
+  const { state } = await sql.subscribe('insert', row => xs.push(row.name), noop, e => errors.push(e))
+  const pid = state.pid
+  await sql`insert into other (bad) values ('x')`
+  await sql`insert into test (name) values ('a')`
+  for (let i = 0; i < 100 && xs.length < 1; i++)
+    await delay(10)
+  await sql`insert into other (bad) values ('y')`
+  await sql`insert into test (name) values ('b')`
+  for (let i = 0; i < 100 && xs.length < 2; i++)
+    await delay(10)
+
+  return [
+    'a,b 2 true true',
+    [xs.join(), errors.length, errors.every(e => e === sentinel), state.pid === pid].join(' '),
+    await sql`drop table test`,
+    await sql`drop table other`,
+    await sql`drop publication alltables`,
+    await sql.end()
+  ]
+})
+
+t('a column transform that throws undefined reports it and the replication stream carries on', { timeout: 4 }, async() => {
+  const sql = postgres({
+    database: 'postgres_js_test',
+    publications: 'alltables',
+    fetch_types: false,
+    transform: {
+      column: {
+        from: x => {
+          if (x === 'bad')
+            throw [][0]
+          return x
+        }
+      }
+    }
+  })
+
+  await sql.unsafe('create publication alltables for all tables')
+  await sql`create table test (id serial primary key, name text)`
+  await sql`create table other (id serial primary key, bad text)`
+
+  const xs = []
+  const errors = []
+  const { state } = await sql.subscribe('insert', row => xs.push(row.name), noop, e => errors.push(e))
+  const pid = state.pid
+  await sql`insert into other (bad) values ('x')`
+  await sql`insert into test (name) values ('a')`
+  for (let i = 0; i < 100 && xs.length < 1; i++)
+    await delay(10)
+
+  return [
+    'a 1 true true',
+    [xs.join(), errors.length, errors.every(e => e === undefined), state.pid === pid].join(' '),
+    await sql`drop table test`,
+    await sql`drop table other`,
+    await sql`drop publication alltables`,
+    await sql.end()
+  ]
+})
+
+t('a row transform that returns nothing skips the change before any subscriber receives it', { timeout: 4 }, async() => {
+  const sql = postgres({
+    database: 'postgres_js_test',
+    publications: 'alltables',
+    fetch_types: false,
+    transform: { row: { from: row => row.name === 'bad' ? undefined : row } }
+  })
+
+  await sql.unsafe('create publication alltables for all tables')
+  await sql`create table test (id serial primary key, name text)`
+
+  const xs = []
+  const errors = []
+  const { state } = await sql.subscribe('*:test', row => xs.push(row ? row.name : 'none'), noop, e => errors.push(e.name))
+  await sql.subscribe('insert:test', row => xs.push(row ? row.name : 'none'), noop, e => errors.push(e.name))
+  const pid = state.pid
+  await sql`insert into test (name) values ('bad')`
+  await sql`insert into test (name) values ('good')`
+  for (let i = 0; i < 100 && xs.length < 2; i++)
+    await delay(10)
+
+  return [
+    'good,good TypeError,TypeError true',
+    [xs.join(), errors.join(), state.pid === pid].join(' '),
+    await sql`drop table test`,
+    await sql`drop publication alltables`,
+    await sql.end()
+  ]
+})
+
 t('a query sent while a retried statement waits for its parameter types gets its own rows', { timeout: 10 }, async() => {
   let calls = 0
   let next

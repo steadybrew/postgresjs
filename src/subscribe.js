@@ -1,6 +1,7 @@
 import callback from './callback.js'
 
 const noop = () => { /* noop */ }
+    , commands = { 68: 'delete', 73: 'insert', 85: 'update' }
 
 export default function Subscribe(postgres, options) {
   const subscribers = new Map()
@@ -50,13 +51,13 @@ export default function Subscribe(postgres, options) {
 
   return subscribe
 
-  async function subscribe(event, fn, onsubscribe = noop, onerror = noop) {
+  async function subscribe(event, fn, onsubscribe = noop, onerror) {
     event = parseEvent(event)
 
     if (!connection)
       connection = init(sql, slot, options.publications)
 
-    const subscriber = { fn, onsubscribe }
+    const subscriber = { fn, onsubscribe, onerror }
     const fns = subscribers.has(event)
       ? subscribers.get(event).add(subscriber)
       : subscribers.set(event, new Set([subscriber])).get(event)
@@ -69,7 +70,6 @@ export default function Subscribe(postgres, options) {
     return connection.then(x => {
       connected(x)
       callback(onsubscribe)
-      stream && stream.on('error', onerror)
       return { unsubscribe, state, sql }
     })
   }
@@ -108,11 +108,16 @@ export default function Subscribe(postgres, options) {
 
     function error(e) {
       console.error('Unexpected error during logical streaming - reconnecting', e) // eslint-disable-line
+      subscribers.forEach(fns => fns.forEach(({ onerror }) => callback(onerror, e)))
     }
 
     function data(x) {
       if (x[0] === 0x77) {
-        parse(x.subarray(25), state, sql.options.parsers, handle, options.transform)
+        try {
+          parse(x.subarray(25), state, sql.options.parsers, handle, options.transform)
+        } catch (error) {
+          skip(x.subarray(25), error)
+        }
       } else if (x[0] === 0x6b && x[17]) {
         state.lsn = x.subarray(1, 9)
         pong()
@@ -121,12 +126,30 @@ export default function Subscribe(postgres, options) {
 
     function handle(a, b) {
       const path = b.relation.schema + '.' + b.relation.table
+          , key = b.relation.keys.length && '=' + b.relation.keys.map(x => a[x.name])
       call('*', a, b)
       call('*:' + path, a, b)
-      b.relation.keys.length && call('*:' + path + '=' + b.relation.keys.map(x => a[x.name]), a, b)
+      key && call('*:' + path + key, a, b)
       call(b.command, a, b)
       call(b.command + ':' + path, a, b)
-      b.relation.keys.length && call(b.command + ':' + path + '=' + b.relation.keys.map(x => a[x.name]), a, b)
+      key && call(b.command + ':' + path + key, a, b)
+    }
+
+    function skip(x, error) {
+      const command = commands[x[0]]
+          , relation = command && state[x.readUInt32BE(1)]
+
+      if (!relation)
+        throw error
+
+      const path = relation.schema + '.' + relation.table
+          , events = ['*', '*:' + path, command, command + ':' + path]
+
+      let uncaught = false
+      subscribers.forEach((fns, event) => events.includes(event.split('=')[0]) && fns.forEach(({ onerror }) =>
+        onerror ? callback(onerror, error) : uncaught = true
+      ))
+      uncaught && callback(() => { throw error })
     }
 
     function pong() {
@@ -164,19 +187,24 @@ function parse(x, state, parsers, handle, transform) {
       let columnIndex = 0
         , column
 
-      while (i < x.length) {
-        column = r.columns[columnIndex++] = {
-          key: x[i++],
-          name: transform.column.from
-            ? transform.column.from(x.toString('utf8', i, i = x.indexOf(0, i)))
-            : x.toString('utf8', i, i = x.indexOf(0, i)),
-          type: x.readUInt32BE(i += 1),
-          parser: parsers[x.readUInt32BE(i)],
-          atttypmod: x.readUInt32BE(i += 4)
-        }
+      try {
+        while (i < x.length) {
+          column = r.columns[columnIndex++] = {
+            key: x[i++],
+            name: transform.column.from
+              ? transform.column.from(x.toString('utf8', i, i = x.indexOf(0, i)))
+              : x.toString('utf8', i, i = x.indexOf(0, i)),
+            type: x.readUInt32BE(i += 1),
+            parser: parsers[x.readUInt32BE(i)],
+            atttypmod: x.readUInt32BE(i += 4)
+          }
 
-        column.key && r.keys.push(column)
-        i += 4
+          column.key && r.keys.push(column)
+          i += 4
+        }
+      } catch (error) {
+        r.error = error
+        r.failed = true
       }
     },
     Y: () => { /* noop */ }, // Type
@@ -187,7 +215,7 @@ function parse(x, state, parsers, handle, transform) {
     },
     I: x => { // Insert
       let i = 1
-      const relation = state[x.readUInt32BE(i)]
+      const relation = decodable(state[x.readUInt32BE(i)])
       const { row } = tuples(x, relation.columns, i += 7, transform)
 
       handle(row, {
@@ -197,7 +225,7 @@ function parse(x, state, parsers, handle, transform) {
     },
     D: x => { // Delete
       let i = 1
-      const relation = state[x.readUInt32BE(i)]
+      const relation = decodable(state[x.readUInt32BE(i)])
       i += 4
       const key = x[i] === 75
       handle(key || x[i] === 79
@@ -211,7 +239,7 @@ function parse(x, state, parsers, handle, transform) {
     },
     U: x => { // Update
       let i = 1
-      const relation = state[x.readUInt32BE(i)]
+      const relation = decodable(state[x.readUInt32BE(i)])
       i += 4
       const key = x[i] === 75
       const xs = key || x[i] === 79
@@ -232,6 +260,13 @@ function parse(x, state, parsers, handle, transform) {
     T: () => { /* noop */ }, // Truncate,
     C: () => { /* noop */ }  // Commit
   }).reduce(char, {})[x[0]](x)
+}
+
+function decodable(relation) {
+  if (relation.failed)
+    throw relation.error
+
+  return relation
 }
 
 function tuples(x, columns, xi, transform) {
