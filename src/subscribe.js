@@ -1,5 +1,5 @@
-import callback from './callback.js'
-import defaultBackoff from './backoff.js'
+import { callback } from './errors.js'
+import { defaultBackoff, backoffSeconds } from './connection.js'
 
 const noop = () => { /* noop */ }
     , commands = { 68: 'delete', 73: 'insert', 85: 'update' }
@@ -109,13 +109,7 @@ export default function Subscribe(postgres, options) {
   }
 
   function retryDelay(n) {
-    const backoff = sql.options.backoff
-    let seconds
-    try {
-      seconds = typeof backoff === 'function' ? backoff(n) : backoff
-    } catch (e) {
-      callback(() => { throw e })
-    }
+    let seconds = backoffSeconds(sql.options.backoff, n)
     seconds = Number.isFinite(seconds) ? seconds : defaultBackoff(n)
     return Math.min(Math.max(seconds * 1000, 100), 2 ** 31 - 1)
   }

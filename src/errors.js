@@ -6,6 +6,14 @@ export class PostgresError extends Error {
   }
 }
 
+export function callback(fn, ...args) {
+  try {
+    fn && fn(...args)
+  } catch (e) {
+    queueMicrotask(() => { throw e })
+  }
+}
+
 export const Errors = {
   connection,
   postgres,

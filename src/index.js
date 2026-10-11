@@ -20,16 +20,14 @@ import {
   fromKebab
 } from './types.js'
 
-import Connection from './connection.js'
+import { Connection, defaultBackoff } from './connection.js'
 import { cancelRequest } from './transport.js'
 import clampedTimeout from './timeout.js'
 import { Query, CLOSE } from './query.js'
 import Queue from './queue.js'
-import { Errors, PostgresError } from './errors.js'
+import { Errors, PostgresError, callback } from './errors.js'
 import Subscribe from './subscribe.js'
 import largeObject from './large.js'
-import callback from './callback.js'
-import defaultBackoff from './backoff.js'
 
 const Lease = { Active: 0, Settling: 1, Released: 2, Discarded: 3, Closed: 4 }
 

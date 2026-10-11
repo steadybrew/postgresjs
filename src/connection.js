@@ -5,17 +5,15 @@ import Stream from 'stream'
 import { performance } from 'perf_hooks'
 
 import { stringify, handleValue, addArrayType } from './types.js'
-import { Errors } from './errors.js'
+import { Errors, callback } from './errors.js'
 import Result from './result.js'
 import Queue from './queue.js'
 import clampedTimeout from './timeout.js'
-import defaultBackoff from './backoff.js'
 import { SSLRequest, tlsConfig, cancelRequest } from './transport.js'
 import { Query, CLOSE } from './query.js'
-import callback from './callback.js'
 import b from './bytes.js'
 
-export default Connection
+export { Connection }
 
 let uid = 1
 
@@ -280,16 +278,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
   }
 
   function backoffMs() {
-    const retries = options.shared.retries
-    if (typeof backoff !== 'function')
-      return backoff * 1000
-
-    try {
-      return backoff(retries) * 1000
-    } catch (e) {
-      queueMicrotask(() => { throw e })
-      return defaultBackoff(retries) * 1000
-    }
+    return backoffSeconds(backoff, options.shared.retries) * 1000
   }
 
   function standbyPass() {
@@ -1343,5 +1332,21 @@ function timer(fn, seconds) {
     timer = null
     due = null
     fn.apply(null, args)
+  }
+}
+
+export function defaultBackoff(retries) {
+  return (0.5 + Math.random() / 2) * Math.min(3 ** retries / 100, 20)
+}
+
+export function backoffSeconds(backoff, retries) {
+  if (typeof backoff !== 'function')
+    return backoff
+
+  try {
+    return backoff(retries)
+  } catch (e) {
+    callback(() => { throw e })
+    return defaultBackoff(retries)
   }
 }
