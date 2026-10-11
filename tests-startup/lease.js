@@ -226,7 +226,7 @@ export async function leases(name, postgres, onEvent) {
       const pid = begins[0].pid
       assert.notStrictEqual(result[2], pid)
       const own = server.events.filter(x => x.type === 'Q' && x.pid === pid).map(x => x.sql)
-      assert.deepStrictEqual(own, [begins[0].sql, 'select 42 as marker', 'select 42 as marker'])
+      assert.deepStrictEqual(own, [begins[0].sql, 'select 42 as marker', 'select 42 as marker', 'commit'])
       assert.strictEqual(sent(server, 'select 43 as marker').every(x => x.pid !== pid), true)
       assert.strictEqual(await settle(marker(sql)), 'resolved')
       assert.strictEqual(await settle(sql.end()), 'resolved')
@@ -278,7 +278,7 @@ export async function leases(name, postgres, onEvent) {
         throw new Error('outer')
       }))
       assert.strictEqual(await outcome, 'rejected:outer')
-      const texts = server.events.filter(x => x.type === 'P').map(x => x.text.toLowerCase())
+      const texts = server.events.filter(x => x.type === 'P' || x.type === 'Q').map(x => (x.text || x.sql).toLowerCase())
       const savepoint = texts.findIndex(x => x.startsWith('savepoint'))
       const rollbackTo = texts.findIndex(x => x.startsWith('rollback to'))
       const rollback = texts.findIndex(x => x === 'rollback')

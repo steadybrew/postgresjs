@@ -2241,6 +2241,26 @@ t('Throws correct error when retrying in transactions', async() => {
   ]
 })
 
+t('transaction control statements are sent unprepared and survive deallocate all', { timeout: 10 }, async() => {
+  const sql = postgres({ ...options, max: 1 })
+  await sql`create table test (x int)`
+  await sql.begin(s => s`insert into test values (1)`)
+  await sql.begin(s => s`select 1/0`).catch(noop)
+  const before = (await sql`select pg_backend_pid() as pid`)[0].pid
+  await sql`deallocate all`
+  const committed = await sql.begin(s => s`insert into test values (2)`).then(() => 'resolved', e => e.code)
+  const rows = (await sql`select count(*)::int as n from test`)[0].n
+  const failed = await sql.begin(s => s`select 2/0`).then(() => 'resolved', e => e.code)
+  const after = (await sql`select pg_backend_pid() as pid`)[0].pid
+  await sql`drop table test`
+  await sql.end()
+
+  return [
+    JSON.stringify(['resolved', 2, '22012', true]),
+    JSON.stringify([committed, rows, failed, before === after])
+  ]
+})
+
 t('Recreate prepared statements on RevalidateCachedQuery error', async() => {
   const select = () => sql`select name from test`
   await sql`create table test (name text)`

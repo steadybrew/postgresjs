@@ -8,6 +8,7 @@ import {
   Parameter,
   Identifier,
   Builder,
+  escapeIdentifier,
   toPascal,
   pascal,
   toCamel,
@@ -375,7 +376,7 @@ function Postgres(a, b) {
       let uncaughtError
         , result
 
-      name && await sql`savepoint ${ sql(name) }`
+      name && await sql.unsafe('savepoint ' + escapeIdentifier(name))
       try {
         result = await new Promise((resolve, reject) => {
           const x = fn(sql)
@@ -386,8 +387,8 @@ function Postgres(a, b) {
           throw uncaughtError
       } catch (e) {
         l.state === Lease.Active && await (name
-          ? sql`rollback to ${ sql(name) }`
-          : finish(final => final`rollback`)
+          ? sql.unsafe('rollback to ' + escapeIdentifier(name))
+          : finish(final => final.unsafe('rollback'))
         )
         throw e instanceof PostgresError && e.code === '25P02' && uncaughtError || e
       }
@@ -396,8 +397,8 @@ function Postgres(a, b) {
         throw l.error || leaseError(l.state)
 
       name || await finish(final => prepare
-        ? final`prepare transaction ${ final.unsafe(prepare) }`
-        : final`commit`
+        ? final.unsafe('prepare transaction ' + prepare)
+        : final.unsafe('commit')
       )
 
       return result
