@@ -3138,15 +3138,15 @@ t('Ensure reserve on query throws proper error', async() => {
   ]
 })
 
-t('query during copy error', async() => {
+t('a query sent while copy from stdin runs waits for the copy', async() => {
   const sql = postgres(options) // eslint-disable-line
   await sql`create table test (id serial primary key, name text)`
-  const copy = await sql`copy test from stdin`.writable()
-  const error = await sql`select 1`.catch(e => e)
-  await copy.end()
+  const copy = await sql`copy test (name) from stdin`.writable()
+  const next = sql`select count(*)::int as n from test`.then(x => x[0].n, e => e.code)
+  await new Promise(r => copy.end('a\n', r))
 
   return [
-    'COPY_IN_PROGRESS', error.code,
+    1, await next,
     await sql`drop table test`
   ]
 })
@@ -3575,5 +3575,217 @@ t('a throwing onsubscribe callback is rethrown as an uncaught exception on subsc
     [result, subscribes.length, errors.length, errors.every(e => e === sentinel)].join(' '),
     await sql`drop publication alltables`,
     await sql.end()
+  ]
+})
+
+t('a query sent while a retried statement waits for its parameter types gets its own rows', { timeout: 10 }, async() => {
+  let calls = 0
+  let next
+  const sql = postgres({
+    ...options,
+    max: 1,
+    fetch_types: false,
+    debug: (id, string) => {
+      if (string.includes('retry_me') && ++calls === 3)
+        next = sql`select 3 as x`.then(x => x[0].x, e => e.message)
+    }
+  })
+  const select = () => sql`select name as retry_me, ${ 1 }::int as p from test`
+  await sql`create table test (name text)`
+  await sql`insert into test values ('1')`
+  await select()
+  await sql`alter table test alter column name type int using name::integer`
+  const retried = await Promise.race([select().then(x => x[0], e => e.message), delay(2000).then(() => 'hung')])
+  const sent = await Promise.race([next, delay(2000).then(() => 'hung')])
+  const again = await select().then(x => x[0], e => e.message)
+  await delay(50)
+  const stats = pick(sql.stats())
+  await sql`drop table test`
+  await sql.end()
+
+  return [
+    JSON.stringify([{ retry_me: 1, p: 1 }, 3, { retry_me: 1, p: 1 }, idleStats]),
+    JSON.stringify([retried, sent, again, stats])
+  ]
+})
+
+t('a statement sent on a reserved connection while a retried statement waits for its parameter types gets its own rows', { timeout: 10 }, async() => {
+  let calls = 0
+  let next
+  const sql = postgres({
+    ...options,
+    max: 1,
+    fetch_types: false,
+    debug: (id, string) => {
+      if (string.includes('retry_me') && ++calls === 3)
+        next = reserved`select 3 as x`.then(x => x[0].x, e => e.message)
+    }
+  })
+  const reserved = await sql.reserve()
+  const select = () => reserved`select name as retry_me, ${ 1 }::int as p from test`
+  await reserved`create table test (name text)`
+  await reserved`insert into test values ('1')`
+  await select()
+  await reserved`alter table test alter column name type int using name::integer`
+  const retried = await Promise.race([select().then(x => x[0], e => e.message), delay(2000).then(() => 'hung')])
+  const sent = await Promise.race([next, delay(2000).then(() => 'hung')])
+  const again = await select().then(x => x[0], e => e.message)
+  await reserved`drop table test`
+  reserved.release()
+  await delay(50)
+  const stats = pick(sql.stats())
+  await sql.end()
+
+  return [
+    JSON.stringify([{ retry_me: 1, p: 1 }, 3, { retry_me: 1, p: 1 }, idleStats]),
+    JSON.stringify([retried, sent, again, stats])
+  ]
+})
+
+t('concurrent statements in a transaction after a cached plan changes roll back and free the connection', { timeout: 10 }, async() => {
+  const sql = postgres({ ...options, max: 1 })
+  await sql`create table test (id int primary key, a int)`
+  await sql`insert into test values (1, 1)`
+  const before = (await sql`select pg_backend_pid() as pid`)[0].pid
+  await sql`select * from test where id = ${ 1 }`
+  await sql`select id from test where id = ${ 1 } and a > ${ 0 }`
+  await sql`alter table test add column b int`
+  const error = await Promise.race([
+    sql.begin(sql => [
+      sql`select * from test where id = ${ 1 }`,
+      sql`select id from test where id = ${ 1 } and a > ${ 0 }`
+    ]).catch(e => e.code),
+    delay(2000).then(() => 'hung')
+  ])
+  const next = await Promise.race([sql`select 5 as x`.then(x => x[0].x, e => e.code), delay(2000).then(() => 'hung')])
+  const after = await sql`select pg_backend_pid() as pid`.then(x => x[0].pid, e => e.code)
+  await sql.end()
+
+  return [
+    JSON.stringify(['25P02', 5, true]),
+    JSON.stringify([error, next, before === after]),
+    await postgres(options)`drop table test`
+  ]
+})
+
+t('a query sent behind copy from stdin runs after the copy', { timeout: 10 }, async() => {
+  const sql = postgres({ ...options, max: 1 })
+  await sql`create table test (x int)`
+  const copy = sql.unsafe('copy test from stdin').execute()
+  const next = sql`select 7 as x`.then(x => x[0].x, e => e.code)
+  const writable = await copy
+  const done = new Promise(r => (writable.on('finish', () => r('finish')), writable.on('error', e => r(e.code))))
+  writable.end('1\n')
+  const results = await Promise.race([
+    Promise.all([done, next, sql`select count(*)::int as n from test`.then(x => x[0].n, e => e.code)]),
+    delay(2000).then(() => 'hung')
+  ])
+  await delay(50)
+  const stats = pick(sql.stats())
+  await sql`drop table test`
+  await sql.end()
+
+  return [
+    JSON.stringify(['finish', 7, 1, idleStats]),
+    JSON.stringify([...results, stats])
+  ]
+})
+
+t('statements sent on a reserved connection behind copy from stdin reject with COPY_IN_PROGRESS and the copy completes', { timeout: 10 }, async() => {
+  const sql = postgres({ ...options, max: 1 })
+  await sql`create table test (x int)`
+  const reserved = await sql.reserve()
+  const copy = reserved.unsafe('copy test from stdin').execute()
+  const first = reserved`select 7 as x`.then(x => x[0].x, e => e.code)
+  const second = reserved`select 8 as x`.then(x => x[0].x, e => e.code)
+  const writable = await copy
+  const done = new Promise(r => (writable.on('finish', () => r('finish')), writable.on('error', e => r(e.code))))
+  writable.end('1\n')
+  const results = await Promise.race([Promise.all([done, first, second]), delay(2000).then(() => 'hung')])
+  const count = await reserved`select count(*)::int as n from test`.then(x => x[0].n, e => e.code)
+  reserved.release()
+  await delay(50)
+  const stats = pick(sql.stats())
+  await sql`drop table test`
+  await sql.end()
+
+  return [
+    JSON.stringify(['finish', 'COPY_IN_PROGRESS', 'COPY_IN_PROGRESS', 1, idleStats]),
+    JSON.stringify([...results, count, stats])
+  ]
+})
+
+t('a statement whose plan changed rejects with the plan error when a new statement is described behind it', { timeout: 10 }, async() => {
+  const sql = postgres({ ...options, max: 1 })
+  const select = () => sql`select name from test`
+  await sql`create table test (name text)`
+  await sql`insert into test values ('1')`
+  await select()
+  await sql`alter table test alter column name type int using name::integer`
+  const results = await Promise.race([
+    Promise.all([
+      select().then(x => x, e => e.code),
+      sql`select ${ 5 }::int as x`.then(x => x[0], e => e.message)
+    ]),
+    delay(2000).then(() => 'hung')
+  ])
+  const again = await sql`select ${ 5 }::int as x`.then(x => x[0], e => e.message)
+  const rerun = await select().then(x => x[0], e => e.code)
+  await delay(50)
+  const stats = pick(sql.stats())
+  await sql`drop table test`
+  await sql.end()
+
+  return [
+    JSON.stringify(['0A000', { x: 5 }, { x: 5 }, { name: 1 }, idleStats]),
+    JSON.stringify([...results, again, rerun, stats])
+  ]
+})
+
+t('releasing a reserved connection while its statement is described does not hand the connection pool queries', { timeout: 10 }, async() => {
+  const sql = postgres({ ...options, max: 1, fetch_types: false })
+  const reserved = await sql.reserve()
+  const first = sql`select ${ 1 }::int as a`.then(x => x[0].a, e => e.message)
+  const second = sql`select ${ 2 }::int as b`.then(x => x[0].b, e => e.message)
+  const pending = reserved`select ${ 7 }::int as p`.execute().then(x => x[0].p, e => e.message)
+  await new Promise(r => setImmediate(r))
+  reserved.release()
+  const results = await Promise.race([Promise.all([pending, first, second]), delay(2000).then(() => 'hung')])
+  const again = await Promise.race([
+    sql`select ${ 7 }::int as p`.then(x => x[0], e => e.message),
+    delay(2000).then(() => 'hung')
+  ])
+  await delay(50)
+  const stats = pick(sql.stats())
+  await sql.end({ timeout: 1 })
+
+  return [
+    JSON.stringify([[7, 1, 2], { p: 7 }, idleStats]),
+    JSON.stringify([results, again, stats])
+  ]
+})
+
+t('a connection that lost its session during copy from stdin retries a statement whose plan changed', { timeout: 10 }, async() => {
+  const sql = postgres({ ...options, max: 1, fetch_types: false })
+  const other = postgres(options)
+  await sql`create table test (id int primary key, a int)`
+  const pid = (await sql`select pg_backend_pid() as pid`)[0].pid
+  const copy = await sql.unsafe('copy test from stdin').execute()
+  const lost = new Promise(r => (copy.on('error', e => r(e.code)), copy.on('close', () => r('close'))))
+  await other`select pg_terminate_backend(${ pid })`
+  const cause = await Promise.race([lost, delay(2000).then(() => 'hung')])
+  await sql`select a from test`
+  await sql`alter table test alter column a type text using a::text`
+  const rows = await Promise.race([
+    sql`select a from test`.then(x => x.length, e => e.code),
+    delay(2000).then(() => 'hung')
+  ])
+  await other`drop table test`
+  await other.end()
+  await sql.end()
+
+  return [
+    JSON.stringify([true, 0]),
+    JSON.stringify([typeof cause === 'string', rows])
   ]
 })

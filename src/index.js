@@ -295,9 +295,9 @@ function Postgres(a, b) {
   function send(l, q, expected = Lease.Active) {
     const c = l.connection
     l.state === expected
-      ? c.queue === full
-        ? (q.queue = l.queue, l.queue.push(q))
-        : c.execute(q) || move(c, full)
+      ? c.copying || (c.queue !== full && c.accepting)
+        ? c.execute(q) || move(c, full)
+        : (move(c, full), q.queue = l.queue, l.queue.push(q))
       : q.reject(leaseError(l.state))
   }
 
@@ -449,9 +449,22 @@ function Postgres(a, b) {
     if (closed.length)
       return connect(closed.shift(), query)
 
-    busy.length
-      ? go(busy.shift(), query)
+    const c = takeBusy()
+    c
+      ? go(c, query)
       : queries.push(query)
+  }
+
+  function takeBusy() {
+    while (busy.length) {
+      const c = busy.shift()
+      if (c.accepting)
+        return c
+
+      move(c, full)
+    }
+
+    return null
   }
 
   function takeOpen() {
@@ -537,6 +550,9 @@ function Postgres(a, b) {
   function onopen(c, initial) {
     if (initial && initial.reserve)
       return initial.reserve(c)
+
+    if (!initial && !c.accepting)
+      return move(c, full)
 
     if (!initial && !queries.length)
       return move(c, open)

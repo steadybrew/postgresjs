@@ -592,6 +592,8 @@ for await (const chunk of readableStream) {
 
 > **NOTE** This is a low-level API which does not provide any type safety. To make this work, you must match your [`copy query` parameters](https://www.postgresql.org/docs/14/sql-copy.html) correctly to your [Node.js stream read or write](https://nodejs.org/api/stream.html) code. Ensure [Node.js stream backpressure](https://nodejs.org/en/learn/modules/backpressuring-in-streams) is handled correctly to avoid memory exhaustion.
 
+A `COPY` holds its connection until it finishes. Postgres.js cannot tell that a simple-protocol query is a `COPY` until the server answers, so it sends nothing behind a simple query whose text contains the word `copy` (`sql.unsafe()` or `sql.file()` without parameters, `.simple()`, `.readable()`, `.writable()`). Queries sent through `sql` meanwhile run on another connection or wait for one. With `max: 1`, or when every connection is running a `COPY`, a query awaited before the `COPY` is ended therefore waits forever. Statements on a `sql.reserve()` or `sql.begin()` handle reject with `COPY_IN_PROGRESS` while its `COPY` runs.
+
 ### Canceling Queries in Progress
 
 Postgres.js supports, [canceling queries in progress](https://www.postgresql.org/docs/7.1/protocol-protocol.html#AEN39000). It works by opening a new connection with a protocol level startup message to cancel the current query running on a specific connection. That means there is no guarantee that the query will be canceled, and due to the possible race conditions it might even result in canceling another query. This is fine for long running queries, but in the case of high load and fast queries it might be better to simply ignore results instead of canceling.
@@ -1461,7 +1463,7 @@ If the only attempt times out, the error is `CONNECT_TIMEOUT`. Once earlier atte
 ##### COPY_IN_PROGRESS
 > You cannot execute queries during copy
 
-This error is thrown if trying to run a query during a copy operation (writable / readable).
+This error is thrown for a statement on a `sql.reserve()` or `sql.begin()` handle while its copy operation (writable / readable) runs, including statements sent before the server started it. Queries through `sql` wait instead.
 
 ## TypeScript support
 

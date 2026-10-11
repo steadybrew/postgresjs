@@ -167,7 +167,7 @@ What a statement sent on a lease handle gets:
 
 | Lease state | Result |
 |---|---|
-| Active | Runs, or waits in the lease's queue while the connection is `full` |
+| Active | Runs, or waits in the lease's queue while the connection is `full` or not accepting; rejects with `COPY_IN_PROGRESS` while the connection's COPY stream is open |
 | Settling | `CONNECTION_ENDED`, except the settle statement itself |
 | Released, Discarded | `CONNECTION_ENDED` |
 | Closed | `CONNECTION_CLOSED` |
@@ -184,11 +184,15 @@ Each connection sits in exactly one pool queue, and the queue it is in must be o
 | Acquisition in progress | `connecting` |
 | Acquisition in progress with `end()` requested | `ended` |
 | Ready, unowned and idle | `open` |
-| Ready, unowned, running queries and able to take more | `busy` |
-| Ready, unowned, pipeline full or under write backpressure | `full` |
+| Ready, unowned, running queries and able to take more; briefly also a connection that stopped accepting after a retry, until the next query is routed | `busy` |
+| Ready, unowned, pipeline full, under write backpressure, or not accepting (see [Admission](#admission)) | `full` |
 | Owned, idle or waiting for queued statements | `reserved` |
-| Owned, statement in flight | `full` |
+| Owned, statement in flight | `full`; `reserved` while a COPY is running, once the server has opened its stream |
 | Draining or Closing, unowned | `ended` |
+
+**Admission.** Replies are matched to queries by position, so nothing may be written while the server is partway through an exchange. The connection records the one query nothing may be written behind, its barrier: a describe-first statement, a cursor, or a simple query whose text contains the word `copy`, set when it is written and cleared at its ReadyForQuery (and in `endSession`). `connection.accepting` is true when the connection is idle, or has no barrier and room under `max_pipeline`, and `execute()` returns false when the connection stops accepting or the socket needs draining (and true after the COPY guard rejects a statement). The pool reads it: `handler()` takes a `busy` connection only if it accepts and files the others in `full`, and a lease sends only to a connection that accepts, otherwise queues the statement and files the connection in `full`. A barrier is always the last query in the line, so it lifts when the connection goes idle, and the existing `onopen` and `owner.next()` calls are the signal that it accepts again. A retry after a plan-invalidation error is made only when no barrier is queued behind the failing statement; otherwise the statement rejects with its plan error.
+
+COPY is recognised from the text because the client cannot know a simple query is a COPY until the server answers. A false positive only stops pipelining behind that query. When the server opens a COPY stream the connection calls `owner.next()`, so statements a lease queued before that are rejected with `COPY_IN_PROGRESS`, as are statements sent while the stream is open. Queries sent through the pool never go to a connection with a COPY in flight. `release()` of a handle whose connection is partway through an exchange files it in `full` instead of handing it pool queries; the next ReadyForQuery picks it up.
 
 The connection drives its own queue through four callbacks:
 

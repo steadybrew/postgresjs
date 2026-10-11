@@ -111,6 +111,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     , chunk = null
     , nonce = null
     , query = null
+    , barrier = null
     , final = null
 
   const check = globalThis[Symbol.for('postgres.js:check')]
@@ -225,6 +226,8 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     owner: null,
     get active() { return query ? 1 : 0 },
     get pipelined() { return sent.length },
+    get accepting() { return accepting() },
+    get copying() { return stream !== null },
     get acquiring() { return acquisition && !acquisition.owner.cancelled ? 1 : 0 },
     count: 0,
     id
@@ -267,6 +270,10 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
 
   function idle() {
     return !query && sent.length === 0
+  }
+
+  function accepting() {
+    return !query || (!barrier && sent.length < max_pipeline)
   }
 
   function backoffMs() {
@@ -447,7 +454,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
       queryError(pending, err)
       pending.cancelled && pending.cancelled.resolve()
     }
-    query = results = errorResponse = chunk = nextWriteTimer = null
+    query = results = errorResponse = chunk = nextWriteTimer = barrier = null
     result = new Result()
     rows = 0
     nonce = serverSignature = null
@@ -511,8 +518,10 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
   }
 
   function submit(q) {
-    if (stream)
-      return queryError(q, Errors.generic('COPY_IN_PROGRESS', 'You cannot execute queries during copy'))
+    if (stream) {
+      queryError(q, Errors.generic('COPY_IN_PROGRESS', 'You cannot execute queries during copy'))
+      return true
+    }
 
     if (q.cancelled)
       return true
@@ -526,15 +535,19 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
         : (query = q, query.active = true)
 
       build(q)
-      return write(toBuffer(q))
-        && !q.describeFirst
-        && !q.cursorFn
-        && sent.length < max_pipeline
+      const written = write(toBuffer(q))
+      if (q.describeFirst || q.cursorFn || mayCopy(q))
+        barrier = q
+      return written && accepting()
     } catch (error) {
       sent.remove(q) || write(Sync)
       queryError(q, error)
-      return sent.length < max_pipeline
+      return accepting()
     }
+  }
+
+  function mayCopy(q) {
+    return q.options.simple && /\bcopy\b/i.test(q.string)
   }
 
   function toBuffer(q) {
@@ -771,13 +784,15 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
   }
 
   function ReadyForQuery() {
+    query === barrier && (barrier = null)
     if (query) {
       if (errorResponse) {
         if (query.initialization)
           return dispatch('initFailed', errorResponse)
+        query.prepared && retryRoutines.has(errorResponse.routine) && delete statements[query.signature]
         query.retried
           ? errored(query.retried)
-          : query.prepared && retryRoutines.has(errorResponse.routine) && query.owner === connection.owner
+          : query.prepared && retryRoutines.has(errorResponse.routine) && query.owner === connection.owner && !barrier
             ? retry(query, errorResponse)
             : errored(errorResponse)
       } else {
@@ -1060,7 +1075,6 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
   }
 
   function retry(q, error) {
-    delete statements[q.signature]
     q.retried = error
     execute(q)
   }
@@ -1118,6 +1132,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
       }
     })
     query.resolve(stream)
+    connection.owner && connection.owner.next()
   }
 
   function CopyOutResponse() {
@@ -1125,6 +1140,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
       read() { socket.resume() }
     })
     query.resolve(stream)
+    connection.owner && connection.owner.next()
   }
 
   /* c8 ignore next 3 */
@@ -1147,6 +1163,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
       }
     })
     query.resolve(stream)
+    connection.owner && connection.owner.next()
   }
 
   function CopyData(x) {
