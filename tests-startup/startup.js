@@ -384,13 +384,7 @@ const tracked = server => {
 export const marker = async client => (await client.unsafe('select 42 as marker', [], { simple: true }))[0].marker
 
 export async function phases(name, postgres, onEvent) {
-  const refused = await new Promise(resolve => {
-    const probe = net.createServer()
-    probe.listen(0, '127.0.0.1', () => {
-      const port = probe.address().port
-      probe.close(() => resolve(port))
-    })
-  })
+  const refused = 1
   const base = { host: '127.0.0.1', user: 'fixture', database: 'fixture', ssl: false, max: 1, fetch_types: true, onnotice: () => { /* Quiet. */ } }
   const hang = ['forced-queued', 'cancel-errors', 'gap-query', 'gap-query-pool', 'stale-ending-lifetime', 'stale-ending-close',
                 'stale-ending-rst', 'fin-inflight', 'rst-inflight', 'begin-socket-cause',
