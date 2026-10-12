@@ -273,7 +273,9 @@ function Postgres(a, b) {
           const query = { reserve: c => resolve(own(c, l)), reject }
           closed.length
             ? connect(closed.shift(), query)
-            : queries.push(query)
+            : allHeldByCopy()
+              ? reject(copyInProgress())
+              : queries.push(query)
         })
     return l
   }
@@ -462,7 +464,17 @@ function Postgres(a, b) {
     const c = takeBusy()
     c
       ? go(c, query)
-      : queries.push(query)
+      : allHeldByCopy()
+        ? query.reject(copyInProgress())
+        : queries.push(query)
+  }
+
+  function allHeldByCopy() {
+    return connections.every(c => c.copyHeld)
+  }
+
+  function copyInProgress() {
+    return Errors.generic('COPY_IN_PROGRESS', 'You cannot execute queries during copy')
   }
 
   function takeBusy() {

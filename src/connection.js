@@ -229,6 +229,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     get pipelined() { return sent.length },
     get accepting() { return accepting() },
     get copying() { return stream !== null },
+    get copyHeld() { return stream !== null && !stream.writableEnded },
     get acquiring() { return acquisition && !acquisition.owner.cancelled ? 1 : 0 },
     count: 0,
     id

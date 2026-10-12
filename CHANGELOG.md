@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixes
+
+- **A query awaited while your own COPY is still open fails with `COPY_IN_PROGRESS` instead of hanging forever.** The hang was new in 4.4.0 and needed `max: 1`, or every connection running a COPY: a query, `sql.reserve()` or `sql.begin()` awaited before ending your own `copy ... from stdin`, or before reading your own `copy ... to stdout`, waited with no error. When every connection is running a COPY whose writable has not been ended, these now reject with `COPY_IN_PROGRESS`, as in 4.3.0. That includes queries from elsewhere in your program, so raise `max` if they should wait for a free connection instead. A query sent before the COPY started, or after `end()` was called on its writable, still waits and runs after the COPY.
+
 ## v4.4.0 - 2026-10-12
 
 A correctness release. A connection no longer takes a query while it is partway through an exchange, `sql.begin()` no longer resolves when nothing was committed, and an error thrown by your callbacks or transforms no longer breaks connections or subscriptions. No API is removed, but three behaviours change; read them before upgrading.

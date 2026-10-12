@@ -3263,16 +3263,102 @@ t('Ensure reserve on query throws proper error', async() => {
   ]
 })
 
-t('a query sent while copy from stdin runs waits for the copy', async() => {
+t('a query awaited before ending its own copy from stdin with max: 1 rejects with COPY_IN_PROGRESS', { timeout: 10 }, async() => {
   const sql = postgres(options) // eslint-disable-line
   await sql`create table test (id serial primary key, name text)`
   const copy = await sql`copy test (name) from stdin`.writable()
-  const next = sql`select count(*)::int as n from test`.then(x => x[0].n, e => e.code)
+  const next = await Promise.race([
+    sql`select 1 as x`.then(x => x[0].x, e => e.code),
+    delay(2000).then(() => 'hung')
+  ])
   await new Promise(r => copy.end('a\n', r))
+  const count = await sql`select count(*)::int as n from test`.then(x => x[0].n)
+  await sql`drop table test`
+  await sql.end()
 
   return [
-    1, await next,
-    await sql`drop table test`
+    JSON.stringify(['COPY_IN_PROGRESS', 1]),
+    JSON.stringify([next, count])
+  ]
+})
+
+t('sql.reserve() and sql.begin() reject with COPY_IN_PROGRESS while every connection runs a copy that was not ended', { timeout: 10 }, async() => {
+  const sql = postgres({ ...options, max: 1 })
+  await sql`create table test (x int)`
+  const copy = await sql`copy test from stdin`.writable()
+  const results = await Promise.race([
+    Promise.all([
+      sql.reserve().then(() => 'reserved', e => e.code),
+      sql.begin(tx => tx`select 1`).then(() => 'committed', e => e.code)
+    ]),
+    delay(2000).then(() => 'hung')
+  ])
+  await new Promise(r => copy.end('1\n', r))
+  const count = await sql`select count(*)::int as n from test`.then(x => x[0].n)
+  await sql`drop table test`
+  await sql.end()
+
+  return [
+    JSON.stringify([['COPY_IN_PROGRESS', 'COPY_IN_PROGRESS'], 1]),
+    JSON.stringify([results, count])
+  ]
+})
+
+t('a query awaited before reading its own copy to stdout with max: 1 rejects with COPY_IN_PROGRESS', { timeout: 10 }, async() => {
+  const sql = postgres({ ...options, max: 1 })
+  const readable = await sql`copy (select generate_series(1, 1000000)) to stdout`.readable()
+  await delay(100)
+  const next = await Promise.race([
+    sql`select 1 as x`.then(x => x[0].x, e => e.code),
+    delay(2000).then(() => 'hung')
+  ])
+  let lines = 0
+  for await (const chunk of readable)
+    lines += chunk.toString().split('\n').length - 1
+  const after = await sql`select 2 as x`.then(x => x[0].x)
+  await sql.end()
+
+  return [
+    JSON.stringify(['COPY_IN_PROGRESS', 1000000, 2]),
+    JSON.stringify([next, lines, after])
+  ]
+})
+
+t('a query sent after copy from stdin was ended waits for the copy', { timeout: 10 }, async() => {
+  const sql = postgres({ ...options, max: 1 })
+  await sql`create table test (x int)`
+  const copy = await sql`copy test from stdin`.writable()
+  const finished = new Promise(r => copy.on('finish', r))
+  copy.end('1\n')
+  const next = await Promise.race([
+    sql`select count(*)::int as n from test`.then(x => x[0].n, e => e.code),
+    delay(2000).then(() => 'hung')
+  ])
+  await finished
+  await sql`drop table test`
+  await sql.end()
+
+  return [1, next]
+})
+
+t('a query sent while one connection runs a copy and the other is reserved waits for the reserved one', { timeout: 10 }, async() => {
+  const sql = postgres({ ...options, max: 2 })
+  await sql`create table test (x int)`
+  const reserved = await sql.reserve()
+  const copy = await sql`copy test from stdin`.writable()
+  let settled = false
+  const next = sql`select 7 as x`.then(x => (settled = true, x[0].x), e => (settled = true, e.code))
+  await delay(100)
+  const waited = !settled
+  reserved.release()
+  const result = await Promise.race([next, delay(2000).then(() => 'hung')])
+  await new Promise(r => copy.end('1\n', r))
+  await sql`drop table test`
+  await sql.end()
+
+  return [
+    JSON.stringify([true, 7]),
+    JSON.stringify([waited, result])
   ]
 })
 

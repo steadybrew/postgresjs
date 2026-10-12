@@ -592,7 +592,7 @@ for await (const chunk of readableStream) {
 
 > **NOTE** This is a low-level API which does not provide any type safety. To make this work, you must match your [`copy query` parameters](https://www.postgresql.org/docs/14/sql-copy.html) correctly to your [Node.js stream read or write](https://nodejs.org/api/stream.html) code. Ensure [Node.js stream backpressure](https://nodejs.org/en/learn/modules/backpressuring-in-streams) is handled correctly to avoid memory exhaustion.
 
-A `COPY` holds its connection until it finishes. Postgres.js cannot tell that a simple-protocol query is a `COPY` until the server answers, so it sends nothing behind a simple query whose text contains the word `copy` (`sql.unsafe()` or `sql.file()` without parameters, `.simple()`, `.readable()`, `.writable()`). Queries sent through `sql` meanwhile run on another connection or wait for one. With `max: 1`, or when every connection is running a `COPY`, a query awaited before the `COPY` is ended therefore waits forever. Statements on a `sql.reserve()` or `sql.begin()` handle reject with `COPY_IN_PROGRESS` while its `COPY` runs.
+A `COPY` holds its connection until it finishes. Postgres.js cannot tell that a simple-protocol query is a `COPY` until the server answers, so it sends nothing behind a simple query whose text contains the word `copy` (`sql.unsafe()` or `sql.file()` without parameters, `.simple()`, `.readable()`, `.writable()`). Queries sent through `sql` meanwhile run on another connection or wait for one. When every connection is running a `COPY` that has not been ended, for example with `max: 1`, queries, `sql.reserve()` and `sql.begin()` through `sql` reject with `COPY_IN_PROGRESS` instead, because only that `COPY` finishing could free a connection. Statements on a `sql.reserve()` or `sql.begin()` handle reject with `COPY_IN_PROGRESS` while its `COPY` runs.
 
 ### Canceling Queries in Progress
 
@@ -1468,7 +1468,7 @@ If the only attempt times out, the error is `CONNECT_TIMEOUT`. Once earlier atte
 ##### COPY_IN_PROGRESS
 > You cannot execute queries during copy
 
-This error is thrown for a statement on a `sql.reserve()` or `sql.begin()` handle while its copy operation (writable / readable) runs, including statements sent before the server started it. Queries through `sql` wait instead.
+This error is thrown for a statement on a `sql.reserve()` or `sql.begin()` handle while its copy operation (writable / readable) runs, including statements sent before the server started it. A query, `sql.reserve()` or `sql.begin()` through `sql` gets it when every connection is running a copy operation whose writable has not been ended; otherwise it waits for a connection.
 
 ##### TRANSACTION_ROLLED_BACK
 > The server rolled the transaction back instead of committing it
