@@ -13,22 +13,20 @@ This is an independently maintained fork of [Postgres.js](https://github.com/por
 
 <br clear="all">
 
-## Compatibility policy
+## Compatibility
 
-**Version 4 runs on Node.js 22 or newer** and supports PostgreSQL 15–18. Versions 4.0.0 to 4.4.1 required Node.js 24. Newly maintained Node majors are tested before compatibility is claimed.
+[![test](https://github.com/steadybrew/postgresjs/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/steadybrew/postgresjs/actions/workflows/test.yml?query=branch%3Amain)
 
-| Runtime | PostgreSQL target | CI jobs | Validation status |
-| --- | --- | ---: | --- |
-| Node 22, ESM and CJS | 15, 16, 17, 18 | 2, all 4 on release tags | Passed pull-request CI on PostgreSQL 15 and 18 |
-| Node 24, ESM and CJS | 15, 16, 17, 18 | 4 | Passed release-candidate CI |
-| Node 26, ESM and CJS | 15, 16, 17, 18 | 1, all 4 on release tags | Passed release-candidate CI |
-| Deno 1.46.3 | 17 | 1 | Passed release-candidate CI; no Deno 2 claim |
-| Cloudflare workerd, Wrangler 4.123.0 | 17 | 1 | Passed release-candidate CI; known "Stream was cancelled" rejection remains |
-| Bun export | No dedicated target | 0 | Retained as best effort; unverified, without dedicated CI |
+**Version 4 runs on Node.js 22 or newer** and supports PostgreSQL 15–18. Every release passes the full test matrix before it is published.
 
-All ten [CI jobs](https://github.com/steadybrew/postgresjs/actions/runs/37943516565) passed for 4.1.0. The core Node matrix has eight jobs; Deno and Cloudflare run independently. PostgreSQL versions below 15 are outside the supported matrix. See the [release notes](./CHANGELOG.md#v410---2026-10-09) for validation details and [known limitations](./CHANGELOG.md#known-limitations), including the Cloudflare cancellation rejection tolerated by its CI gate.
+| Runtime | PostgreSQL | Notes |
+| --- | --- | --- |
+| Node 22, 24 and 26, ESM and CJS | 15–18 | |
+| Deno 1.46.3 | 17 | No Deno 2 claim |
+| Cloudflare Workers (workerd) | 17 | A "Stream was cancelled" rejection on socket close remains ([#1196](https://github.com/porsager/postgres/issues/1196), [#1202](https://github.com/porsager/postgres/issues/1202)) |
+| Bun | | Best effort, not tested in CI |
 
-Supabase PostgreSQL and Supabase Edge are separate environments. Deno 1.46.3 coverage does not imply Deno 2 or hosted Supabase Edge certification.
+[The test workflow](https://github.com/steadybrew/postgresjs/blob/main/.github/workflows/test.yml) defines which pairs run on each push. Supabase PostgreSQL and Supabase Edge are separate environments; Deno 1.46.3 coverage does not imply Deno 2 or hosted Supabase Edge.
 
 ## Upgrading to 4.0.0
 
