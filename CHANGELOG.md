@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## v4.4.1 - 2026-10-12
+
+Fixes a hang that 4.4.0 introduced for code that queries while its own COPY is still open, and a delay of up to about 10 seconds in `sql.subscribe()` on PostgreSQL 16 and later. No API changes.
 
 ### Fixes
 
