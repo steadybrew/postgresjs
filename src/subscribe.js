@@ -3,6 +3,7 @@ import { defaultBackoff, backoffSeconds } from './connection.js'
 
 const noop = () => { /* noop */ }
     , commands = { 68: 'delete', 73: 'insert', 85: 'update' }
+    , statusInterval = 1000
 
 export default function Subscribe(postgres, options) {
   const subscribers = new Map()
@@ -150,6 +151,10 @@ export default function Subscribe(postgres, options) {
     stream.on('data', data)
     stream.on('error', reportConnection)
     stream.on('close', sql.close)
+
+    // A walsender can miss the wakeup for a commit and sleep until its timeout; a status update wakes it.
+    const status = setInterval(() => stream.writable && pong(), statusInterval)
+    stream.on('close', () => clearInterval(status))
 
     return { stream, state: xs.state }
 
