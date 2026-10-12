@@ -15,12 +15,13 @@ This is an independently maintained fork of [Postgres.js](https://github.com/por
 
 ## Compatibility policy
 
-**Version 4 requires Node.js 24 or newer** and supports PostgreSQL 15–18. Version 4.0.0 raised the minimum Node.js version from 12. The minimum stays at Node 24 until an explicit policy change; newly maintained Node majors are tested before compatibility is claimed.
+**Version 4 runs on Node.js 22 or newer** and supports PostgreSQL 15–18. Versions 4.0.0 to 4.4.1 required Node.js 24. Newly maintained Node majors are tested before compatibility is claimed.
 
 | Runtime | PostgreSQL target | CI jobs | Validation status |
 | --- | --- | ---: | --- |
+| Node 22, ESM and CJS | 15, 16, 17, 18 | 2, all 4 on release tags | Passed pull-request CI on PostgreSQL 15 and 18 |
 | Node 24, ESM and CJS | 15, 16, 17, 18 | 4 | Passed release-candidate CI |
-| Node 26, ESM and CJS | 15, 16, 17, 18 | 4 | Passed release-candidate CI |
+| Node 26, ESM and CJS | 15, 16, 17, 18 | 1, all 4 on release tags | Passed release-candidate CI |
 | Deno 1.46.3 | 17 | 1 | Passed release-candidate CI; no Deno 2 claim |
 | Cloudflare workerd, Wrangler 4.123.0 | 17 | 1 | Passed release-candidate CI; known "Stream was cancelled" rejection remains |
 | Bun export | No dedicated target | 0 | Retained as best effort; unverified, without dedicated CI |
@@ -33,7 +34,7 @@ Supabase PostgreSQL and Supabase Edge are separate environments. Deno 1.46.3 cov
 
 Version 4.0.0 fixes connection startup, reservations, reconnects, shutdown, transaction ownership, and built-in array handling. When upgrading from `@steadybrew/postgresjs` 3.x:
 
-- Upgrade to **Node.js 24 or newer** before installing.
+- Upgrade to **Node.js 22 or newer** before installing.
 - Keep queries within the reservation or transaction that owns them. Reserved handles used after `release()`, and transaction handles used after completion, reject with `CONNECTION_ENDED`. A handle whose connection has closed cannot run queries on a reconnected session.
 - Pass a non-empty string without NUL characters to transaction `sql.prepare(name)`. Invalid names throw `INVALID_TRANSACTION_NAME`.
 - If you use `fetch_types: false`, review code that expects built-in arrays as raw strings: supported built-in arrays are now decoded as JavaScript arrays. SQL `NULL` elements become JavaScript `null`; quoted `"NULL"` text remains a string.
