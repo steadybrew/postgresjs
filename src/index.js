@@ -86,7 +86,8 @@ function Postgres(a, b) {
     listen,
     begin,
     close,
-    end
+    end,
+    ...Symbol.asyncDispose && { [Symbol.asyncDispose]: () => end() }
   })
 
   return sql
@@ -329,6 +330,8 @@ function Postgres(a, b) {
     const l = await lease(false)
     const sql = Sql(handler)
     sql.release = () => settle(l, Lease.Released)
+    Symbol.dispose && (sql[Symbol.dispose] = () => sql.release())
+    Symbol.asyncDispose && (sql[Symbol.asyncDispose] = async() => sql.release())
     sql.stats = stats
     return sql
 

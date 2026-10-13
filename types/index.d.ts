@@ -763,6 +763,9 @@ declare namespace postgres {
 
     end(options?: { timeout?: number | undefined } | undefined): Promise<void>;
 
+    /** Calls `end()` with no timeout when an `await using` scope exits */
+    [Symbol.asyncDispose](): Promise<void>;
+
     listen(channel: string, onnotify: (value: string) => void, onlisten?: (() => void) | undefined): ListenRequest;
 
     /** `onerror` receives replication connection errors and errors thrown while a change is decoded; such a change is skipped. */
@@ -788,6 +791,12 @@ declare namespace postgres {
 
   interface ReservedSql<TTypes extends Record<string, unknown> = {}> extends Sql<TTypes> {
     release(): void;
+
+    /** Calls `release()` when a `using` scope exits */
+    [Symbol.dispose](): void;
+
+    /** Calls `release()` when an `await using` scope exits */
+    [Symbol.asyncDispose](): Promise<void>;
   }
 }
 
