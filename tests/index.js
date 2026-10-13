@@ -5138,3 +5138,88 @@ t('identical queries pipelined on a fresh connection prepare their statement onc
 
   return [1, count]
 })
+
+t('pool asyncDispose ends the pool', async() => {
+  const sql = postgres(options)
+  await sql[Symbol.asyncDispose]()
+  return ['CONNECTION_ENDED', (await sql``.catch(x => x.code))]
+})
+
+t('pool asyncDispose after end resolves', async() => {
+  const sql = postgres(options)
+  await sql.end()
+  return [undefined, await sql[Symbol.asyncDispose]()]
+})
+
+t('reserved dispose releases the connection', async() => {
+  const sql = postgres({ ...options, max: 1 })
+  const reserved = await sql.reserve()
+  reserved[Symbol.dispose]()
+  const code = await reserved`select 1`.catch(x => x.code)
+  const [{ x }] = await sql`select 1 as x`
+  await sql.end()
+  return ['CONNECTION_ENDED 1', code + ' ' + x]
+})
+
+t('reserved asyncDispose releases the connection', async() => {
+  const sql = postgres({ ...options, max: 1 })
+  const reserved = await sql.reserve()
+  await reserved[Symbol.asyncDispose]()
+  const code = await reserved`select 1`.catch(x => x.code)
+  const [{ x }] = await sql`select 1 as x`
+  await sql.end()
+  return ['CONNECTION_ENDED 1', code + ' ' + x]
+})
+
+t('reserved dispose after release does not throw', async() => {
+  const sql = postgres({ ...options, max: 1 })
+  const reserved = await sql.reserve()
+  reserved.release()
+  reserved[Symbol.dispose]()
+  await reserved[Symbol.asyncDispose]()
+  await sql.end()
+  return [true, true]
+})
+
+t('transaction and savepoint handles are not disposable', async() => {
+  const sql = postgres({ ...options, max: 2 })
+  const reserved = await sql.reserve()
+  const seen = await sql.begin(async tx => [
+    tx[Symbol.asyncDispose],
+    await tx.savepoint(async sp => sp[Symbol.asyncDispose])
+  ])
+  reserved.release()
+  await sql.end()
+  return ['undefined undefined', seen.map(String).join(' ')]
+})
+
+t('using declarations end the pool and release the reservation', async() => {
+  const AsyncFunction = Object.getPrototypeOf(async function() {}).constructor
+  try {
+    new AsyncFunction('await using x = null')
+  } catch (e) {
+    if (!(e instanceof SyntaxError))
+      throw e
+    return [true, true]
+  }
+
+  const run = new AsyncFunction('postgres', 'options', `
+    let pool, handle
+    {
+      await using sql = postgres(options)
+      pool = sql
+      {
+        using reserved = await sql.reserve()
+        handle = reserved
+        await reserved\`select 1\`
+      }
+      const released = await handle\`select 1\`.catch(x => x.code)
+      const [{ x }] = await sql\`select 1 as x\`
+      if (released !== 'CONNECTION_ENDED' || x !== 1)
+        return 'reservation not released'
+    }
+    return await pool\`select 1\`.catch(x => x.code)
+  `)
+
+  return ['CONNECTION_ENDED', await run(postgres, { ...options, max: 2 })]
+})

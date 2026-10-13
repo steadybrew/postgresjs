@@ -1461,6 +1461,17 @@ To ensure proper teardown and cleanup on server restarts use `await sql.end()` b
 
 Calling `sql.end()` will reject new queries and return a Promise which resolves when all queries are finished and the underlying connections are closed. If a `{ timeout }` option is provided any pending queries will be rejected once the timeout (in seconds) is reached and the connections will be destroyed.
 
+With explicit resource management the pool ends itself at the end of a scope:
+
+```js
+async function main() {
+  await using sql = postgres()
+  await sql`select 1`
+}
+```
+
+This calls `sql.end()` when the scope exits, so it suits scripts and jobs, not a shared client at a module's top level. The syntax needs Node.js 24+ or TypeScript 5.2+.
+
 #### Sample shutdown using [Prexit](https://github.com/porsager/prexit)
 
 ```js
@@ -1487,6 +1498,13 @@ await reserved.release()
 ### `reserved.release()`
 
 Once you have finished with the reserved connection, call `release` to add it back to the pool.
+
+```js
+using reserved = await sql.reserve()
+await reserved`select * from users`
+```
+
+A `using` or `await using` declaration calls `release()` when the scope exits.
 
 After release, queries through that reserved handle reject with `CONNECTION_ENDED`. Call `sql.reserve()` again to acquire a new handle. A reserved handle whose connection has closed cannot be reused after reconnect.
 
