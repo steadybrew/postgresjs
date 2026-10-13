@@ -121,10 +121,12 @@ export async function peer({ catalogError = false, holdStartup = false, failAuth
         statement = frame.subarray(end + 1, queryEnd).toString()
         parameters = frame.subarray(queryEnd + 1)
         event.text = statement
+        event.name = frame.subarray(5, end).toString()
         event.types = Array.from({ length: parameters.readUInt16BE(0) }, (_, i) => parameters.readUInt32BE(2 + i * 4))
         socket.write(message('1'))
       } else if (type === 'B') {
         let at = frame.indexOf(0, 5) + 1
+        event.name = frame.subarray(at, frame.indexOf(0, at)).toString()
         at = frame.indexOf(0, at) + 1
         const formats = frame.readUInt16BE(at)
         at += 2 + formats * 2

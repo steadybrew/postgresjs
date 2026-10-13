@@ -5129,3 +5129,12 @@ for (const prepare of [true, false]) {
     ]
   })
 }
+
+t('identical queries pipelined on a fresh connection prepare their statement once', async() => {
+  const sql = postgres({ ...options, max: 1, prepare: true })
+  await Promise.all(Array.from({ length: 5 }, () => sql`select ${ true } as burst_marker`))
+  const count = (await sql`select count(*)::int as n from pg_prepared_statements where statement like 'select $1 as burst_marker%'`)[0].n
+  await sql.end()
+
+  return [1, count]
+})

@@ -4,7 +4,8 @@ import { marker, until } from './startup.js'
 
 export const parameterNames = ['known-types', 'known-types-prepared', 'unknown-types', 'simple-typed', 'warn-report',
                                'client-plain', 'client-array', 'client-array-prepared', 'client-prepared',
-                               'pipelined-typed', 'pipelined-client']
+                               'pipelined-typed', 'pipelined-client', 'first-run-typed', 'first-run-client', 'first-run-plain',
+                               'second-run-pipelines']
 
 const types = {
   'warn-report': [3802, 25],
@@ -15,14 +16,15 @@ const types = {
 }
 
 export async function parameters(name, postgres, onEvent) {
-  const server = await peer({ failQuery: name === 'simple-typed' ? 'fail_me' : '', holdStatement: name.startsWith('pipelined-') ? 'hang' : '',
+  const server = await peer({ failQuery: name === 'simple-typed' ? 'fail_me' : '',
+                              holdStatement: /^(pipelined|first-run|second-run)/.test(name) ? 'hang' : '',
                               parameterTypes: types[name] || [], onEvent })
   const reports = []
   const seen = []
   const sql = postgres({ host: '127.0.0.1', port: server.port, user: 'fixture', database: 'fixture', ssl: false,
-                         fetch_types: false, connect_timeout: 2, max: 1, prepare: name.endsWith('-prepared'),
+                         fetch_types: false, connect_timeout: 2, max: 1, prepare: name.endsWith('-prepared') || /^(first|second)-run/.test(name),
                          ...name === 'warn-report' && { parameter_types: 'warn', ontypemismatch: x => reports.push(x) },
-                         ...(name.startsWith('client-') || name === 'pipelined-client') && { parameter_types: 'client' },
+                         ...(/^client-|-client$/.test(name)) && { parameter_types: 'client' },
                          ...name === 'client-plain' && { debug: (id, query, values, described) => values.length && seen.push(described.slice()) } })
   const frames = pid => server.events.filter(x => x.pid === pid && 'PDHBES'.includes(x.type)).map(x => x.type).join('')
   const declared = () => server.events.filter(x => x.type === 'P' && x.pid === 1).map(x => x.types)
@@ -85,6 +87,34 @@ export async function parameters(name, postgres, onEvent) {
       await run([1])
       assert.strictEqual(frames(1), 'PDBESBESBES')
       assert.deepStrictEqual(bound(), [['x'], ['y'], ['[1]']])
+    } else if (name.startsWith('first-run-')) {
+      const kind = name.slice(10)
+      const run = () => (kind === 'typed' ? sql`select ${ true } as hang`
+        : kind === 'client' ? sql`select ${ 'x' } as hang`
+        : sql`select 1 as hang`).execute()
+      const first = run()
+      const second = run()
+      await until(() => server.heldStatement())
+      assert.strictEqual(frames(1), 'PDBES')
+      server.releaseStatement()
+      await Promise.all([first, second])
+      const names = server.events.filter(x => x.type === 'B').map(x => x.name)
+      assert.strictEqual(frames(1), 'PDBESBES')
+      assert.strictEqual(names.length, 2)
+      assert(names[0] && names[0] === names[1] && names[0] === server.events.find(x => x.type === 'P').name)
+    } else if (name === 'second-run-pipelines') {
+      const run = () => sql`select ${ true } as hang`.execute()
+      const first = run()
+      await until(() => server.heldStatement())
+      server.releaseStatement()
+      await first
+      server.hold('hang')
+      const held = run()
+      const next = [run(), run()]
+      await until(() => frames(1) === 'PDBESBESBESBES')
+      assert(server.heldStatement())
+      server.releaseStatement()
+      await Promise.all([held, ...next])
     } else {
       throw new Error('Unknown parameters scenario ' + name)
     }

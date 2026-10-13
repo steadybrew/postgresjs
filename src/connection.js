@@ -538,7 +538,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
 
       build(q)
       const written = write(toBuffer(q))
-      if (q.describeFirst || q.cursorFn || mayCopy(q))
+      if (q.describeFirst || q.cursorFn || mayCopy(q) || (q.prepare && !q.prepared && !q.options.simple))
         barrier = q
       return written && accepting()
     } catch (error) {
