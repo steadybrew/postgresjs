@@ -35,3 +35,4 @@ printf "ssl_cert_file = '%s/server.crt'\nssl_key_file = '%s/server.key'\n" "$tas
 sudo pg_ctlcluster "$CI_POSTGRES_VERSION" main restart
 pg_isready -p 5432
 sudo -u postgres psql -c 'SHOW hba_file;'
+bash .github/actions/setup-postgres/cluster.sh "$CI_POSTGRES_VERSION" secondary 5433

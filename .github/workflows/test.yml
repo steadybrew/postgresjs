@@ -22,19 +22,6 @@ jobs:
         exclude: ${{ fromJSON(startsWith(github.ref, 'refs/tags/v') && '[]' || '[{"node":"22","postgres":"16"},{"node":"22","postgres":"17"},{"node":"26","postgres":"15"},{"node":"26","postgres":"16"},{"node":"26","postgres":"17"}]') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
-    services:
-      postgres:
-        image: public.ecr.aws/docker/library/postgres:${{ matrix.postgres }}
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_HOST_AUTH_METHOD: trust
-        ports:
-          - 5433:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-postgres
@@ -54,19 +41,6 @@ jobs:
     name: Deno 1.46.3 on PostgreSQL 17
     runs-on: ubuntu-24.04
     timeout-minutes: 15
-    services:
-      postgres:
-        image: public.ecr.aws/docker/library/postgres:17
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_HOST_AUTH_METHOD: trust
-        ports:
-          - 5433:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-postgres
@@ -84,35 +58,24 @@ jobs:
     name: Cloudflare workerd on PostgreSQL 17
     runs-on: ubuntu-24.04
     timeout-minutes: 10
-    services:
-      postgres:
-        image: public.ecr.aws/docker/library/postgres:17
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_HOST_AUTH_METHOD: trust
-        ports:
-          - 55432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
+    env:
+      POSTGRES_VERSION: '17'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
+      - uses: ./.github/actions/setup-postgres
+        with:
+          version: ${{ env.POSTGRES_VERSION }}
       - run: npm run build:cf
-      - name: Start TLS PostgreSQL
+      - name: Start workerd PostgreSQL clusters
         run: |
           openssl req -new -x509 -nodes -days 1 -subj /CN=localhost \
             -addext subjectAltName=DNS:localhost,IP:127.0.0.1 \
             -keyout "$RUNNER_TEMP/server.key" -out "$RUNNER_TEMP/server.crt"
-          chmod 644 "$RUNNER_TEMP"/server.key "$RUNNER_TEMP"/server.crt
-          docker run -d --name pgtls -p 127.0.0.1:55433:5432 \
-            -e POSTGRES_HOST_AUTH_METHOD=trust -v "$RUNNER_TEMP:/certs:ro" --entrypoint sh public.ecr.aws/docker/library/postgres:17 -c \
-            'cp /certs/server.* /var/lib/postgresql/ && chown postgres:postgres /var/lib/postgresql/server.* && chmod 600 /var/lib/postgresql/server.key && exec docker-entrypoint.sh postgres -c ssl=on -c ssl_cert_file=/var/lib/postgresql/server.crt -c ssl_key_file=/var/lib/postgresql/server.key'
-          until docker exec pgtls pg_isready -h 127.0.0.1 -U postgres; do sleep 1; done
+          bash .github/actions/setup-postgres/cluster.sh "$POSTGRES_VERSION" workerd 55432
+          bash .github/actions/setup-postgres/cluster.sh "$POSTGRES_VERSION" workerd_tls 55433 "$RUNNER_TEMP/server.crt" "$RUNNER_TEMP/server.key"
       - run: npm run test:workerd -- . 55432
         env:
           WORKERD_TLS_PORT: 55433

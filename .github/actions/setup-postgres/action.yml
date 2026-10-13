@@ -1,5 +1,5 @@
 name: Set up test PostgreSQL
-description: Configure the primary CI cluster; the job supplies its secondary service.
+description: Configure the primary CI cluster on 5432 and a plain secondary cluster on 5433.
 inputs:
   version:
     description: PostgreSQL major version
