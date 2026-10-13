@@ -248,6 +248,11 @@ export const inferType = function inferType(x) {
   )
 }
 
+export function clientSerialize(x) {
+  const proto = typeof x === 'object' && Object.getPrototypeOf(x)
+  return proto === Object.prototype || proto === null ? JSON.stringify(x) : '' + x
+}
+
 const escapeBackslash = /\\/g
 const escapeQuote = /"/g
 

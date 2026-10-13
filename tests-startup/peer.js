@@ -54,6 +54,7 @@ export async function peer({ catalogError = false, holdStartup = false, failAuth
                              closeAfterError = false, sessionError = false, fatalAfterSession = false, fatalDuringSession = false,
                              readOnly = false, standby = false, passwordAuth = false, allowHalfOpen = false,
                              holdQuery = '', fatalQuery = '', failQuery = '', closeQuery = '', holdStatement = '', sslReply = '', port = 0,
+                             parameterTypes = [],
                              onStartup = () => { /* Optional startup barrier. */ }, onEvent = () => { /* Optional protocol observer. */ } } = {}) {
   const events = []
   const sockets = new Set()
@@ -123,9 +124,26 @@ export async function peer({ catalogError = false, holdStartup = false, failAuth
         event.types = Array.from({ length: parameters.readUInt16BE(0) }, (_, i) => parameters.readUInt32BE(2 + i * 4))
         socket.write(message('1'))
       } else if (type === 'B') {
+        let at = frame.indexOf(0, 5) + 1
+        at = frame.indexOf(0, at) + 1
+        const formats = frame.readUInt16BE(at)
+        at += 2 + formats * 2
+        const count = frame.readUInt16BE(at)
+        at += 2
+        event.values = Array.from({ length: count }, () => {
+          const length = frame.readInt32BE(at)
+          at += 4
+          if (length < 0)
+            return null
+          at += length
+          return frame.subarray(at - length, at).toString()
+        })
         socket.write(message('2'))
       } else if (type === 'D') {
-        socket.write(message('t', parameters))
+        const described = Buffer.from(parameters)
+        for (let i = 0; i < described.readUInt16BE(0); i++)
+          !described.readUInt32BE(2 + i * 4) && parameterTypes[i] && described.writeUInt32BE(parameterTypes[i], 2 + i * 4)
+        socket.write(message('t', described))
         socket.write(statement.includes('pg_catalog.pg_type') && catalogRows.length
           ? rowset([['oid', 23], ['typarray', 23]], []).subarray(0, 1 + rowset([['oid', 23], ['typarray', 23]], []).readUInt32BE(1))
           : message('n'))

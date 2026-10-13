@@ -1,20 +1,26 @@
 import assert from 'assert'
 import { peer } from './peer.js'
-import { marker } from './startup.js'
+import { marker, until } from './startup.js'
 
-export const parameterNames = ['known-types', 'known-types-prepared', 'unknown-types', 'simple-typed']
+export const parameterNames = ['known-types', 'known-types-prepared', 'unknown-types', 'simple-typed', 'warn-report',
+                               'pipelined-typed']
 
 export async function parameters(name, postgres, onEvent) {
-  const server = await peer({ failQuery: name === 'simple-typed' ? 'fail_me' : '', onEvent })
+  const server = await peer({ failQuery: name === 'simple-typed' ? 'fail_me' : '', holdStatement: name.startsWith('pipelined-') ? 'hang' : '',
+                              parameterTypes: name === 'warn-report' ? [3802, 25] : [], onEvent })
+  const reports = []
   const sql = postgres({ host: '127.0.0.1', port: server.port, user: 'fixture', database: 'fixture', ssl: false,
-                         fetch_types: false, connect_timeout: 2, max: 1, prepare: name === 'known-types-prepared' })
+                         fetch_types: false, connect_timeout: 2, max: 1, prepare: name.endsWith('-prepared'),
+                         ...name === 'warn-report' && { parameter_types: 'warn', ontypemismatch: x => reports.push(x) } })
   const frames = pid => server.events.filter(x => x.pid === pid && 'PDHBES'.includes(x.type)).map(x => x.type).join('')
   const declared = () => server.events.filter(x => x.type === 'P' && x.pid === 1).map(x => x.types)
+  const bound = () => server.events.filter(x => x.type === 'B').map(x => x.values)
   try {
     if (name === 'known-types') {
       await sql`select ${ true } as a, ${ new Date(0) } as b, ${ sql.typed('x', 25) } as c`
       assert.strictEqual(frames(1), 'PDBES')
       assert.deepStrictEqual(declared(), [[16, 1184, 25]])
+      assert.deepStrictEqual(bound(), [['t', '1970-01-01T00:00:00.000Z', 'x']])
     } else if (name === 'known-types-prepared') {
       const run = () => sql`select ${ true } as a, ${ new Date(0) } as b, ${ sql.typed('x', 25) } as c`
       await run()
@@ -30,6 +36,18 @@ export async function parameters(name, postgres, onEvent) {
       await assert.rejects(sql`select ${ true } as fail_me`.simple(), error => error.code === '42601')
       assert.strictEqual(server.events.filter(x => x.pid === 1 && x.type === 'S').length, 0)
       assert.strictEqual(await marker(sql), 42)
+    } else if (name === 'warn-report') {
+      await sql`select ${ 'x' } as a, ${ 'y' } as b`
+      assert.strictEqual(frames(1), 'PDHBES')
+      assert.deepStrictEqual(bound(), [['"x"', 'y']])
+      assert.deepStrictEqual(reports, [{ query: 'select $1 as a, $2 as b', parameters: [{ position: 1, oid: 3802, typeof: 'string' }] }])
+    } else if (name === 'pipelined-typed') {
+      const first = sql`select ${ true } as hang`.execute()
+      const second = sql`select ${ true } as b`.execute()
+      await until(() => frames(1) === 'PDBESPDBES')
+      assert(server.heldStatement())
+      server.releaseStatement()
+      await Promise.all([first, second])
     } else {
       throw new Error('Unknown parameters scenario ' + name)
     }

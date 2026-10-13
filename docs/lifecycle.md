@@ -246,7 +246,7 @@ A test is only evidence for the claim it makes, so each test should fit one of t
 - **Defensive tests** inject a failure, for example an error emitted on a destroyed socket, that no real socket has been shown to produce.
 - **Refactor guards** check only fork-internal state: the invariant hook, the phase getter, and timers left behind after a connection closes.
 
-To check a test against upstream, copy the tree, replace `src/` with `git show 411429e7:src/<file>` for each file, and run the same harness. The fake peer in `tests-startup/peer.js` speaks the simple-query protocol, and answers extended-query exchanges with empty results while recording the types each Parse declares. Cloudflare stub cases (`cf:*`) only show behaviour against the in-repo stub; `npm run test:workerd` is the evidence for real workerd.
+To check a test against upstream, copy the tree, replace `src/` with `git show 411429e7:src/<file>` for each file, and run the same harness. The fake peer in `tests-startup/peer.js` speaks the simple-query protocol, and answers extended-query exchanges with empty results while recording the types each Parse declares, the statement names and the Bind values, and filling in described types when a scenario asks for them. Cloudflare stub cases (`cf:*`) only show behaviour against the in-repo stub; `npm run test:workerd` is the evidence for real workerd.
 
 ## Open questions
 

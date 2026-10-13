@@ -112,6 +112,7 @@ const { default: postgres } = await import('@steadybrew/postgresjs')
 * [Listen & notify](#listen--notify)
 * [Realtime subscribe](#realtime-subscribe)
 * [Numbers, bigint, numeric](#numbers-bigint-numeric)
+* [Parameter types](#parameter-types)
 * [Result Array](#result-array)
 * [Connection details](#connection-details)
 * [Custom Types](#custom-types)
@@ -150,7 +151,7 @@ Postgres.js utilizes [Tagged template functions](https://developer.mozilla.org/e
 1. **Enforcing** safe query generation
 2. Giving the ` sql`` ` function powerful [utility](#dynamic-inserts) and [query building](#building-queries) features.
 
-Any generic value will be serialized according to an inferred type, and replaced by a PostgreSQL protocol placeholder `$1, $2, ...`. The parameters are then sent separately to the database which handles escaping & casting.
+Any generic value will be serialized as described in [Parameter types](#parameter-types), and replaced by a PostgreSQL protocol placeholder `$1, $2, ...`. The values are then sent separately to PostgreSQL, which handles escaping & casting.
 
 All queries will return a `Result` array, with objects mapping column names to each row.
 
@@ -976,6 +977,61 @@ const sql = postgres({
 
 There is currently no guaranteed way to handle `numeric` / `decimal` types in native Javascript. **These [and similar] types will be returned as a `string`**. The best way in this case is to use  [custom types](#custom-types).
 
+## Parameter types
+
+A `$1` placeholder has a type that PostgreSQL infers from the SQL around it (the column it is compared to or inserted into, a function argument, a cast). Postgres.js has to turn each JavaScript value into text for that type, and `parameter_types` chooses how.
+
+Some values carry a type Postgres.js can tell from the JavaScript value: `Date`, `Buffer` / `Uint8Array`, booleans, `bigint`, and anything wrapped in `sql.typed(value, oid)`, `sql.types.*`, `sql.json` or `sql.array` with elements. They are serialized for that type and sent in a single round trip, in every mode. Everything else (strings, numbers, plain objects, `sql.typed(value)` without an OID, an empty `sql.array([])`, arrays) has no such type. `null` is always SQL `NULL`.
+
+### `parameter_types: 'server'` (default)
+
+For a value whose type Postgres.js cannot tell, it first asks PostgreSQL for the type of the placeholder, which costs an extra round trip on every query with `prepare: false` and the first time each connection runs that SQL with `prepare: true`, and then serializes the value for that type. This has consequences worth knowing:
+
+- a string sent to a `json` or `jsonb` placeholder is sent as JSON, so `'{"a":1}'` is stored as a JSON string, not an object
+- a string or number sent to a `date`, `timestamp` or `timestamptz` placeholder goes through `new Date(x).toISOString()`, where a date-only string such as `'2020-01-02'` is read as UTC and a date-and-time string without an offset such as `'2020-01-02T10:00'` is read in the Node.js process time zone (`TZ`)
+- anything other than `true` sent to a `boolean` placeholder is stored as `false`, including the strings `'true'` and `'t'` and the number `1`
+- a string sent to a `bytea` placeholder is sent as hex of its UTF-8 bytes
+- a custom type registered in `types` with a `from` list runs its `serialize` function
+
+### `parameter_types: 'warn'`
+
+`'warn'` behaves exactly like `'server'`, and also reports every query in which a value would be sent differently by `'client'`. The report goes to `ontypemismatch`, or to `console.warn` when it is not set:
+
+```js
+const sql = postgres({
+  parameter_types: 'warn',
+  ontypemismatch: ({ query, parameters }) => {
+    // parameters: [{ position: 2, oid: 3802, typeof: 'string' }]
+    // position is the $n number, oid the type PostgreSQL inferred for the placeholder
+  }
+})
+```
+
+With `debug: true` each entry also carries `serverText` and `clientText`, the two texts that were compared; `clientText` is the error when the `'client'` mode would throw. A query is reported on every execution that has a difference; sample in `ontypemismatch` if that is too much. `'warn'` serializes each untyped value twice and compares the strings. The option can also be set with `?parameter_types=warn` in the connection URL or `PGPARAMETER_TYPES`.
+
+`'warn'` compares the serialized text, not the stored value, so a report does not always mean the stored value would change.
+
+These reported cases store the same value under both modes:
+
+- `0`, `'0'`, `'false'`, `'no'` and `'off'` sent to a `boolean` placeholder (the texts differ, both store `false`)
+- a date string with an explicit offset sent to a `timestamptz` placeholder, as long as it has no more than millisecond precision (`toISOString()` truncates microseconds, so a string with microseconds stores a different value under `'server'`)
+- a string without backslashes sent to a `bytea` placeholder
+
+These reported cases store a different value, or are rejected, under `'client'`:
+
+- `1`, `'t'`, `'true'`, `'yes'`, `'on'` and `'1'` sent to a `boolean` placeholder (stored `false` today, `true` under `'client'`)
+- a date string with an explicit offset sent to a `timestamp` or `date` placeholder (`'server'` converts to UTC first, `'client'` drops the offset)
+- a string sent to a `json` or `jsonb` placeholder, a plain object sent to a `text` placeholder, and a number sent to a date, timestamp or boolean placeholder
+- a string or number sent to a custom type registered in `types` with a `from` list, which skips its `serialize`
+
+Date strings without an explicit offset:
+
+| String | Placeholder | Stored the same under both modes when |
+| --- | --- | --- |
+| date and time, such as `'2020-01-02T10:00'` | `timestamptz` | the Node.js process time zone and the PostgreSQL session's `TimeZone` setting match |
+| date only, such as `'2020-01-02'` | `timestamptz` | the PostgreSQL session's `TimeZone` setting is UTC |
+| date and time | `timestamp` or `date` | the Node.js process runs in UTC (`'server'` stores the UTC wall time, `'client'` stores the text as written) |
+
 ## Result Array
 
 The `Result` Array returned from queries is a custom array allowing for easy destructuring or passing on directly to JSON.stringify or general Array usage. It includes the following properties.
@@ -1056,10 +1112,12 @@ const sql = postgres('postgres://username:password@host:port/database', {
                                         // ensure only connecting to primary
   fetch_types          : true,          // Automatically fetches types on connect
                                         // on initial connection.
+  parameter_types      : 'server',      // 'warn', see Parameter types (PGPARAMETER_TYPES)
+  ontypemismatch       : fn,            // Called by parameter_types: 'warn', default console.warn
 })
 ```
 
-The `onnotice`, `onparameter`, `onnotify`, `onclose`, `onidle` and `debug` callbacks passed in the options are called synchronously from inside the driver. If one throws, the error is rethrown as an uncaught exception and the connection and its queries are not affected; under Node's default handling that ends the process.
+The `onnotice`, `onparameter`, `ontypemismatch`, `onnotify`, `onclose`, `onidle` and `debug` callbacks passed in the options are called synchronously from inside the driver. If one throws, the error is rethrown as an uncaught exception and the connection and its queries are not affected; under Node's default handling that ends the process.
 
 Note that `max_lifetime = 60 * (30 + Math.random() * 30)` by default. This resolves to an interval between 30 and 60 minutes to optimize for the benefits of prepared statements **and** working nicely with Linux's OOM killer.
 
@@ -1275,6 +1333,7 @@ const sql = postgres()
 | `application_name` | `PGAPPNAME`              |
 | `idle_timeout`     | `PGIDLE_TIMEOUT`         |
 | `connect_timeout`  | `PGCONNECT_TIMEOUT`      |
+| `parameter_types`  | `PGPARAMETER_TYPES`      |
 
 ### Prepared statements
 
@@ -1324,6 +1383,7 @@ const [custom] = await sql`
 // custom = { name: 'wat', rect: { x: 13, y: 37, width: 42, height: 80 } }
 
 ```
+
 
 ### Custom socket
 

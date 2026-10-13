@@ -674,6 +674,7 @@ function parseOptions(a, b) {
     prepare         : true,
     debug           : false,
     fetch_types     : true,
+    parameter_types : 'server',
     publications    : 'alltables',
     target_session_attrs: null
   }
@@ -704,11 +705,13 @@ function parseOptions(a, b) {
     },
     types           : o.types || {},
     target_session_attrs: tsa(o, url, env),
+    parameter_types : parameterTypes(o, url, env),
     onnotice        : o.onnotice,
     onnotify        : o.onnotify,
     onclose         : o.onclose,
     onidle          : o.onidle,
     onparameter     : o.onparameter,
+    ontypemismatch  : o.ontypemismatch,
     socket          : o.socket,
     transform       : parseTransform(o.transform || { undefined: undefined }),
     parameters      : {},
@@ -726,6 +729,14 @@ function tsa(o, url, env) {
     return x
 
   throw new Error('target_session_attrs ' + x + ' is not supported')
+}
+
+function parameterTypes(o, url, env) {
+  const x = o.parameter_types || url.searchParams.get('parameter_types') || env.PGPARAMETER_TYPES || 'server'
+  if (['server', 'warn'].includes(x))
+    return x
+
+  throw new Error('parameter_types ' + x + ' is not supported')
 }
 
 function max_lifetime() {

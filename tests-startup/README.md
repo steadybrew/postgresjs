@@ -24,7 +24,8 @@ of exclusive full-capacity acquisition after recovery. Both `test:esm` and
 
 The peer parses startup and tagged PostgreSQL frames, including split/coalesced
 TCP chunks. It implements the simple-query path, and answers extended-query
-exchanges with empty results while recording the types each Parse declares. Real PostgreSQL tests remain necessary for type
+exchanges with empty results while recording the types each Parse declares, the statement
+names and the Bind values, and filling in described types when a scenario asks for them. Real PostgreSQL tests remain necessary for type
 semantics, authentication, and recovery capacity. It does not emulate PostgreSQL
 in general.
 

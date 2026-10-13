@@ -110,6 +110,10 @@ interface BaseOptions<T extends Record<string, postgres.PostgresType>> {
    * @default true
    */
   fetch_types: boolean;
+  /** How values whose type cannot be told from the JavaScript value are serialized: 'server' (default) asks PostgreSQL for the placeholder's type first, 'warn' does the same and reports values the planned 'client' mode would send differently */
+  parameter_types: 'server' | 'warn';
+  /** Called in parameter_types: 'warn' mode with each query whose values would be sent differently, console.warn by default; if it throws, the error is rethrown as an uncaught exception */
+  ontypemismatch: (report: postgres.TypeMismatchReport) => void;
   /**
    * Publications to subscribe to (only relevant when calling `sql.subscribe()`)
    * @default 'alltables'
@@ -409,6 +413,23 @@ declare namespace postgres {
       from: ((row: postgres.Row) => any) | undefined;
       to: undefined; // (row: postgres.Row) => any
     };
+  }
+
+  interface TypeMismatchReport {
+    query: string;
+    parameters: TypeMismatch[];
+  }
+
+  interface TypeMismatch {
+    /** The `$n` number of the placeholder */
+    position: number;
+    /** The type OID PostgreSQL inferred for the placeholder */
+    oid: number;
+    typeof: string;
+    /** Only set when debug is enabled */
+    serverText?: string;
+    /** Only set when debug is enabled; the error is what the 'client' mode would throw */
+    clientText?: string | globalThis.Error;
   }
 
   interface Notice {

@@ -4759,3 +4759,127 @@ for (const prepare of [true, false]) {
     ]
   })
 }
+
+t('parameter_types rejects unknown values', async() => {
+  let message
+  try {
+    postgres({ ...options, parameter_types: 'nope' })
+  } catch (e) {
+    message = e.message
+  }
+
+  return ['parameter_types nope is not supported', message]
+})
+
+t('parameter_types falls back to the default when passed as undefined', async() => {
+  const sql = postgres({ ...options, parameter_types: undefined })
+
+  return ['server', sql.options.parameter_types]
+})
+
+t('parameter_types is read from PGPARAMETER_TYPES', async() => {
+  const env = process.env // eslint-disable-line
+  const previous = env.PGPARAMETER_TYPES
+  let value
+  try {
+    env.PGPARAMETER_TYPES = 'warn'
+    value = postgres(options).options.parameter_types
+  } finally {
+    previous === undefined ? delete env.PGPARAMETER_TYPES : (env.PGPARAMETER_TYPES = previous)
+  }
+
+  return ['warn', value]
+})
+
+t('parameter_types is read from the connection URL', async() => {
+  const sql = postgres('postgres://localhost/postgres_js_test?parameter_types=warn')
+
+  return [
+    JSON.stringify(['warn', false]),
+    JSON.stringify([sql.options.parameter_types, 'parameter_types' in sql.options.connection])
+  ]
+})
+
+for (const prepare of [true, false]) {
+  t('parameter_types warn reports the values the \'client\' mode would send differently with prepare: ' + prepare, async() => {
+    const reports = []
+    const sql = postgres({ ...options, prepare, parameter_types: 'warn', ontypemismatch: x => reports.push(x) })
+    await sql`create table test (t text, j jsonb, b bool, i int, tz timestamptz, o text)`
+    const insert = () => sql`insert into test values (${ 'x' }, ${ '{"a":1}' }, ${ 'true' }, ${ 5 }, ${ '2020-01-02T09:00:00.000Z' }, ${ { a: 1 } })`
+    await insert()
+    await insert()
+    const count = (await sql`select count(*)::int as n from test where t = ${ 'x' } and i = ${ 5 }`)[0].n
+    const rows = await sql`select jsonb_typeof(j) as j, b, o from test`
+    await sql`drop table test`
+    await sql.end()
+
+    const report = {
+      query: 'insert into test values ($1, $2, $3, $4, $5, $6)',
+      parameters: [
+        { position: 2, oid: 3802, typeof: 'string' },
+        { position: 3, oid: 16, typeof: 'string' },
+        { position: 6, oid: 25, typeof: 'object' }
+      ]
+    }
+    const row = { j: 'string', b: false, o: '[object Object]' }
+
+    return [
+      JSON.stringify([[report, report], 2, [row, row]]),
+      JSON.stringify([reports, count, [...rows]])
+    ]
+  })
+}
+
+t('parameter_types warn includes serialized texts only with debug and reports values the \'client\' mode cannot serialize', async() => {
+  const reports = []
+  const sql = postgres({ ...options, debug: true, parameter_types: 'warn', ontypemismatch: x => reports.push(x) })
+  await sql`create table test (j jsonb, t text, tz timestamptz)`
+  const count = (await sql`insert into test values (${ 'x' }, ${ { a: 1n } }, ${ 1700000000000 })`).count
+  await sql`drop table test`
+  await sql.end()
+
+  return [
+    JSON.stringify([1, [
+      [1, 3802, 'string', '"x"', 'x'],
+      [2, 25, 'object', '[object Object]', 'TypeError'],
+      [3, 1184, 'number', '2023-11-14T22:13:20.000Z', '1700000000000']
+    ]]),
+    JSON.stringify([count, reports[0].parameters.map(x =>
+      [x.position, x.oid, x.typeof, x.serverText, x.clientText instanceof Error ? x.clientText.name : x.clientText]
+    )])
+  ]
+})
+
+t('parameter_types warn without ontypemismatch writes the report to console.warn', async() => {
+  const warned = []
+  const warn = globalThis.console.warn
+  globalThis.console.warn = x => warned.push(x)
+  let value
+  try {
+    const sql = postgres({ ...options, parameter_types: 'warn' })
+    value = (await sql`select ${ '{"a":1}' }::jsonb as x`)[0].x
+    await sql.end()
+  } finally {
+    globalThis.console.warn = warn
+  }
+
+  return [
+    JSON.stringify(['{"a":1}', 1, 3802]),
+    JSON.stringify([value, warned.length, warned[0].parameters[0].oid])
+  ]
+})
+
+t('a throwing ontypemismatch callback is rethrown as an uncaught exception and its query runs', async() => {
+  const sentinel = new Error('mismatch sentinel')
+  const sql = postgres({ ...options, parameter_types: 'warn', ontypemismatch: () => { throw sentinel } })
+  const [value, errors] = await uncaught(async() => {
+    const x = (await sql`select ${ '{"a":1}' }::jsonb as x`)[0].x
+    await sql.end()
+    return x
+  })
+
+  return [
+    JSON.stringify(['{"a":1}', 1, true]),
+    JSON.stringify([value, errors.length, errors[0] === sentinel])
+  ]
+})

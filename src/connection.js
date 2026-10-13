@@ -4,7 +4,7 @@ import crypto from 'crypto'
 import Stream from 'stream'
 import { performance } from 'perf_hooks'
 
-import { stringify, handleValue, addArrayType } from './types.js'
+import { stringify, handleValue, addArrayType, clientSerialize } from './types.js'
 import { Errors, callback } from './errors.js'
 import Result from './result.js'
 import Queue from './queue.js'
@@ -576,7 +576,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
 
   function prepared(q) {
     return Buffer.concat([
-      Bind(q.parameters, q.statement.types, q.statement.name, q.cursorName),
+      Bind(q),
       q.cursorFn
         ? Execute('', q.cursorRows)
         : ExecuteUnnamed
@@ -604,6 +604,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     q.signature = q.prepare && types + string
     q.onlyDescribe && (delete statements[q.signature])
     q.parameters = q.parameters || parameters
+    q.inferred = options.parameter_types === 'server' ? null : types.slice()
     q.prepared = q.prepare && q.signature in statements
     q.describeFirst = q.onlyDescribe || (!q.prepared && types.some(x => !x))
     q.statement = q.prepared
@@ -1213,20 +1214,21 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
   }
 
   /* Messages */
-  function Bind(parameters, types, statement = '', portal = '') {
+  function Bind(q) {
+    const differences = []
     let prev
       , type
 
-    b().B().str(portal + b.N).str(statement + b.N).i16(0).i16(parameters.length)
+    b().B().str((q.cursorName || '') + b.N).str(q.statement.name + b.N).i16(0).i16(q.parameters.length)
 
-    parameters.forEach((x, i) => {
+    q.parameters.forEach((x, i) => {
       if (x === null)
         return b.i32(0xFFFFFFFF)
 
-      type = types[i]
-      x = type in options.serializers
-        ? options.serializers[type](x)
-        : '' + x
+      type = q.statement.types[i]
+      x = !q.inferred || q.inferred[i] || Array.isArray(x)
+        ? serialize(x, type)
+        : compare(x, type, i, differences)
 
       prev = b.i
       b.inc(4).str(x).i32(b.i - prev - 4, prev)
@@ -1234,7 +1236,27 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
 
     b.i16(0)
 
-    return b.end()
+    const message = b.end()
+    differences.length && callback(options.ontypemismatch || console.warn, { query: q.string, parameters: differences }) // eslint-disable-line
+    return message
+  }
+
+  function serialize(x, type) {
+    return type in options.serializers
+      ? options.serializers[type](x)
+      : '' + x
+  }
+
+  function compare(x, type, i, differences) {
+    const serverText = serialize(x, type)
+    let clientText
+    try {
+      clientText = clientSerialize(x)
+    } catch (error) {
+      clientText = error
+    }
+    serverText === clientText || differences.push({ position: i + 1, oid: type, typeof: typeof x, ...options.debug && { serverText, clientText } })
+    return serverText
   }
 
   function Parse(str, parameters, types, name = '') {
