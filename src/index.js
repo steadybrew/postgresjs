@@ -327,10 +327,15 @@ function Postgres(a, b) {
 
   async function reserve() {
     const l = await lease(false)
-    const sql = Sql(q => send(l, q))
+    const sql = Sql(handler)
     sql.release = () => settle(l, Lease.Released)
     sql.stats = stats
     return sql
+
+    // dd-trace starts query spans only inside function declarations named handler
+    function handler(q) {
+      send(l, q)
+    }
   }
 
   async function begin(options, fn) {
@@ -347,7 +352,7 @@ function Postgres(a, b) {
     }
 
     async function transaction() {
-      await Sql(q => send(l, q)).unsafe('begin ' + options.replace(/[^a-z ]/ig, ''), []).execute().catch(e => {
+      await Sql(handler).unsafe('begin ' + options.replace(/[^a-z ]/ig, ''), []).execute().catch(e => {
         e instanceof PostgresError && settle(l, Lease.Released)
         throw e
       })
@@ -358,7 +363,7 @@ function Postgres(a, b) {
       let result
       l.state = Lease.Settling
       try {
-        result = await statement(Sql(q => send(l, q, Lease.Settling)))
+        result = await statement(Sql(q => handler(q, Lease.Settling)))
       } catch (e) {
         settle(l, Lease.Discarded)
         throw e
@@ -368,7 +373,7 @@ function Postgres(a, b) {
     }
 
     async function scope(fn, name) {
-      const sql = Sql(handler)
+      const sql = Sql(track)
       sql.savepoint = savepoint
       sql.prepare = x => {
         if (typeof x !== 'string' || !x || x.includes('\0'))
@@ -422,10 +427,15 @@ function Postgres(a, b) {
         return scope(fn, 's' + savepoints++ + (name ? '_' + name : ''))
       }
 
-      function handler(q) {
+      function track(q) {
         q.catch(e => uncaughtError || (uncaughtError = e))
-        send(l, q)
+        handler(q)
       }
+    }
+
+    // dd-trace starts query spans only inside function declarations named handler
+    function handler(q, expected) {
+      send(l, q, expected)
     }
   }
 

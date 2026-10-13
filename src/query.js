@@ -23,16 +23,9 @@ export class Query extends Promise {
     this.state = null
     this.statement = null
 
-    this.resolve = x => {
-      this.active = false
-      this.settled = true
-      resolve(x)
-    }
-    this.reject = x => {
-      this.active = false
-      this.settled = true
-      reject(x)
-    }
+    // dd-trace's load-time rewrite only accepts single-expression arrows here
+    this.resolve = x => (this.active = false, this.settled = true, resolve(x))
+    this.reject = x => (this.active = false, this.settled = true, reject(x))
 
     this.active = false
     this.settled = false

@@ -214,7 +214,10 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
   const connection = {
     queue: queues.closed,
     idleTimer,
-    connect: request => dispatch('acquire', request),
+    // Sentry's hook wraps connect and reads the connection from this, so it must stay a method
+    connect(request) {
+      dispatch('acquire', request)
+    },
     terminate: () => dispatch('terminate'),
     execute,
     release: () => dispatch('release'),
