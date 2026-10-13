@@ -4743,3 +4743,19 @@ t('a connection that lost its session during copy from stdin retries a statement
     JSON.stringify([typeof cause === 'string', rows])
   ]
 })
+
+for (const prepare of [true, false]) {
+  t('a typed value whose serializer throws rejects its query and the next query runs with prepare: ' + prepare, async() => {
+    const sql = postgres({ ...options, max: 1, prepare })
+    const name = await sql`select ${ new Date('x') } as x`.then(() => 'resolved', e => e.name)
+    const next = (await sql`select 1 as x`)[0].x
+    await delay(50)
+    const stats = pick(sql.stats())
+    await sql.end()
+
+    return [
+      JSON.stringify(['RangeError', 1, idleStats]),
+      JSON.stringify([name, next, stats])
+    ]
+  })
+}

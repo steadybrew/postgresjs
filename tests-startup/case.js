@@ -4,6 +4,7 @@ import { startup, selection, lifecycle, phases } from './startup.js'
 import { integration } from './integration.js'
 import { ownership } from './ownership.js'
 import { leases } from './lease.js'
+import { parameters } from './parameters.js'
 import { compat } from './compat.js'
 import { cf } from './cf.js'
 import { install, verify, violations } from './invariants.js'
@@ -73,6 +74,11 @@ async function main() {
   }
   if (name.startsWith('lease:')) {
     await leases(name.slice(6), postgres, event => process.send({ event }))
+    finish()
+    return
+  }
+  if (name.startsWith('parameters:')) {
+    await parameters(name.slice(11), postgres, event => process.send({ event }))
     finish()
     return
   }

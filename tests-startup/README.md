@@ -23,8 +23,8 @@ of exclusive full-capacity acquisition after recovery. Both `test:esm` and
 `test:cjs` run this matrix before their existing integration suites.
 
 The peer parses startup and tagged PostgreSQL frames, including split/coalesced
-TCP chunks. It implements only the simple-query path and empty catalog results
-in the extended-query path. Real PostgreSQL tests remain necessary for type
+TCP chunks. It implements the simple-query path, and answers extended-query
+exchanges with empty results while recording the types each Parse declares. Real PostgreSQL tests remain necessary for type
 semantics, authentication, and recovery capacity. It does not emulate PostgreSQL
 in general.
 

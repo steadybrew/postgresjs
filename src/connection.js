@@ -605,7 +605,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     q.onlyDescribe && (delete statements[q.signature])
     q.parameters = q.parameters || parameters
     q.prepared = q.prepare && q.signature in statements
-    q.describeFirst = q.onlyDescribe || (parameters.length && !q.prepared)
+    q.describeFirst = q.onlyDescribe || (!q.prepared && types.some(x => !x))
     q.statement = q.prepared
       ? statements[q.signature]
       : { string, types, name: q.prepare ? statementId + statementCount++ : '' }
