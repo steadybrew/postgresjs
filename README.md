@@ -993,6 +993,48 @@ For a value whose type Postgres.js cannot tell, it first asks PostgreSQL for the
 - a string sent to a `bytea` placeholder is sent as hex of its UTF-8 bytes
 - a custom type registered in `types` with a `from` list runs its `serialize` function
 
+### `parameter_types: 'client'`
+
+The JavaScript value decides how it is serialized and PostgreSQL parses the text, so a query with values is one round trip:
+
+- a string is sent unchanged as text
+- a number is sent as its JavaScript text (`'' + n`)
+- a plain object (prototype `Object.prototype` or `null`) is sent as `JSON.stringify(x)`
+- any other object (Decimal, Luxon, moment, URL, class instances) is sent as `'' + x`
+- `null` is SQL `NULL`; `undefined` is handled as before
+- a value with a type Postgres.js can tell from the JavaScript value is serialized for that type, as with `'server'`
+- an array whose elements have no such type still makes Postgres.js ask PostgreSQL for the placeholder's type first, because only PostgreSQL knows whether the placeholder is an array, JSON or a custom type; that query takes the extra round trip
+
+What this changes compared to `'server'`:
+
+| Value | Type PostgreSQL infers for the placeholder | `'server'` | `'client'` |
+| --- | --- | --- | --- |
+| string | json, jsonb | sent as JSON: stores a JSON string | parsed as JSON; text that is not JSON is rejected |
+| string | boolean | always `false` | PostgreSQL boolean input (`'t'`, `'yes'`, `'on'`, `'1'` are true); invalid text is rejected |
+| string | date, timestamp, timestamptz | `new Date(s).toISOString()`: date-only strings are read as UTC, date-and-time strings without an offset in the Node.js process time zone (`TZ`) | parsed by PostgreSQL in the PostgreSQL session's `TimeZone` setting; `date` and `timestamp` ignore an explicit offset |
+| string | bytea | hex of the UTF-8 bytes | bytea text input; differs only for strings containing backslashes |
+| string, number | a custom type registered in `types` with a `from` list | the type's `serialize` | sent unchanged as text |
+| number | json, jsonb | `JSON.stringify` (`NaN` and `Infinity` become `null`) | the number's text (`NaN` and `Infinity` are rejected) |
+| number | boolean | `false` | `1` is true, `0` is false, anything else is rejected |
+| number | date, timestamp, timestamptz | `new Date(ms)` | rejected, except `Infinity`; a 6- or 8-digit number is read as a `YYMMDD` or `YYYYMMDD` date |
+| plain object | json, jsonb | `JSON.stringify` or your json `serialize` | `JSON.stringify` |
+| plain object | text | `[object Object]` | JSON text |
+| plain object | a custom type registered in `types` with a `from` list | the type's `serialize` | JSON text, normally rejected |
+| class instance | json, jsonb | `JSON.stringify`, so `toJSON` applies | `'' + x` |
+| class instance | date, timestamp, timestamptz | `new Date(x)` | `'' + x`, normally rejected |
+
+`time`, `timetz` and `interval` placeholders have no serializer in either mode: strings and numbers are sent unchanged as text.
+
+In practice:
+
+- pass `new Date(ms)` for epoch numbers, and set `connection: { timezone }` so date strings are read in the time zone you expect
+- pass `sql.json(s)` for a JSON string value, and `sql.types.name(v)` or `sql.typed(v, oid)` for a custom type; a custom type's `serialize` also runs for a whole array bound to that type, never for a plain value
+- `NaN`, `Infinity` and `-0` are sent as `NaN`, `Infinity` and `0`, and PostgreSQL's input rules for the placeholder's type decide
+
+Run `'warn'` first to see which of your queries are affected.
+
+**Planned for 5.0:** `'client'` becomes the default. Pass `parameter_types: 'server'` to keep the 4.x behaviour.
+
 ### `parameter_types: 'warn'`
 
 `'warn'` behaves exactly like `'server'`, and also reports every query in which a value would be sent differently by `'client'`. The report goes to `ontypemismatch`, or to `console.warn` when it is not set:
@@ -1112,7 +1154,7 @@ const sql = postgres('postgres://username:password@host:port/database', {
                                         // ensure only connecting to primary
   fetch_types          : true,          // Automatically fetches types on connect
                                         // on initial connection.
-  parameter_types      : 'server',      // 'warn', see Parameter types (PGPARAMETER_TYPES)
+  parameter_types      : 'server',      // 'client' or 'warn', see Parameter types (PGPARAMETER_TYPES)
   ontypemismatch       : fn,            // Called by parameter_types: 'warn', default console.warn
 })
 ```
@@ -1339,6 +1381,8 @@ const sql = postgres()
 
 Prepared statements will automatically be created for any queries where it can be inferred that the query is static. This can be disabled by using the `prepare: false` option. For instance — this is useful when [using PGBouncer in `transaction mode`](https://github.com/porsager/postgres/issues/93#issuecomment-656290493).
 
+With `prepare: false`, `parameter_types: 'client'` sends queries with values in one round trip, unless a value is an untyped array; see [Parameter types](#parameter-types).
+
 **update**: [since 1.21.0](https://www.pgbouncer.org/2023/10/pgbouncer-1-21-0)
 PGBouncer supports protocol-level named prepared statements when [configured
 properly](https://www.pgbouncer.org/config.html#max_prepared_statements)
@@ -1384,6 +1428,7 @@ const [custom] = await sql`
 
 ```
 
+With `parameter_types: 'client'` a type's `serialize` runs for `sql.typed.name(v)` and for a whole array bound to that type, not for a plain value; see [Parameter types](#parameter-types).
 
 ### Custom socket
 

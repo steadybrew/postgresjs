@@ -110,8 +110,8 @@ interface BaseOptions<T extends Record<string, postgres.PostgresType>> {
    * @default true
    */
   fetch_types: boolean;
-  /** How values whose type cannot be told from the JavaScript value are serialized: 'server' (default) asks PostgreSQL for the placeholder's type first, 'warn' does the same and reports values the planned 'client' mode would send differently */
-  parameter_types: 'server' | 'warn';
+  /** How values whose type cannot be told from the JavaScript value are serialized: 'server' (default) asks PostgreSQL for the placeholder's type first, 'client' sends their text for PostgreSQL to parse, 'warn' does the same as 'server' and reports values 'client' would send differently */
+  parameter_types: 'server' | 'client' | 'warn';
   /** Called in parameter_types: 'warn' mode with each query whose values would be sent differently, console.warn by default; if it throws, the error is rethrown as an uncaught exception */
   ontypemismatch: (report: postgres.TypeMismatchReport) => void;
   /**

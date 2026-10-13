@@ -4883,3 +4883,249 @@ t('a throwing ontypemismatch callback is rethrown as an uncaught exception and i
     JSON.stringify([value, errors.length, errors[0] === sentinel])
   ]
 })
+
+for (const prepare of [true, false]) {
+  const suffix = ' with prepare: ' + prepare
+  const client = extra => postgres({ ...options, parameter_types: 'client', prepare, ...extra })
+  const code = query => query.then(() => 'resolved', e => e.code)
+
+  t('parameter_types client sends strings for PostgreSQL to parse' + suffix, async() => {
+    const sql = client()
+    await sql`create table test (id serial, t text, i int, n numeric, j json, jb jsonb)`
+    await sql`insert into test (t, i, n, j, jb) values (${ 'x' }, ${ '5' }, ${ '1.5' }, ${ '{"a":1}' }, ${ '[1,2]' })`
+    await sql`insert into test (t, jb) values (${ 'y' }, ${ '"s"' })`
+    const rejected = [
+      await code(sql`insert into test (j) values (${ 'hello' })`),
+      await code(sql`insert into test (jb) values (${ 'hello' })`)
+    ]
+    const rows = await sql`select t, i, n, json_typeof(j) as j, jsonb_typeof(jb) as jb from test order by id`
+    await sql`drop table test`
+    await sql.end()
+
+    return [
+      JSON.stringify([
+        ['22P02', '22P02'],
+        [{ t: 'x', i: 5, n: '1.5', j: 'object', jb: 'array' }, { t: 'y', i: null, n: null, j: null, jb: 'string' }]
+      ]),
+      JSON.stringify([rejected, [...rows]])
+    ]
+  })
+
+  t('parameter_types client reads booleans with PostgreSQL boolean input' + suffix, async() => {
+    const sql = client()
+    await sql`create table test (id serial, b bool)`
+    for (const x of ['t', 'true', 'yes', 'on', '1', ' TRUE ', 1, 'f', 'false', 'no', 'off', '0', 0])
+      await sql`insert into test (b) values (${ x })`
+    const rejected = [
+      await code(sql`insert into test (b) values (${ 'maybe' })`),
+      await code(sql`insert into test (b) values (${ 2 })`)
+    ]
+    const count = (await sql`select count(*) filter (where b)::int as t, count(*) filter (where not b)::int as f from test`)[0]
+    await sql`drop table test`
+    await sql.end()
+
+    return [
+      JSON.stringify([['22P02', '22P02'], { t: 7, f: 6 }]),
+      JSON.stringify([rejected, count])
+    ]
+  })
+
+  t('parameter_types client parses date strings in the session time zone' + suffix, async() => {
+    const sql = client({ connection: { timezone: 'Asia/Tokyo' } })
+    await sql`create table test (id serial, tz timestamptz, ts timestamp, d date)`
+    await sql`insert into test (tz, ts, d) values (${ '2020-01-02 10:00' }, ${ '2020-01-02T23:30:00-05:00' }, ${ '2020-01-02T23:30:00-05:00' })`
+    await sql`insert into test (tz, ts, d) values (${ 'infinity' }, ${ '-infinity' }, ${ 'epoch' })`
+    await sql`insert into test (tz, ts, d) values (${ new Date(0) }, ${ null }, ${ null })`
+    const [a, b, c] = await sql`
+      select
+        tz = '2020-01-02T01:00:00Z'::timestamptz as tz,
+        ts = '2020-01-02 23:30'::timestamp as ts,
+        d = '2020-01-02'::date as d,
+        tz = 'infinity' as infinity,
+        ts = '-infinity' as negative,
+        d = '1970-01-01' as epoch_date,
+        tz = 'epoch' as epoch
+      from test
+      order by id
+    `
+    await sql`drop table test`
+    await sql.end()
+
+    return [
+      JSON.stringify([true, true, true, true, true, true, true]),
+      JSON.stringify([a.tz, a.ts, a.d, b.infinity, b.negative, b.epoch_date, c.epoch])
+    ]
+  })
+
+  t('parameter_types client rejects a number bound to a date or time column' + suffix, async() => {
+    const sql = client()
+    await sql`create table test (tz timestamptz, ts timestamp, d date)`
+    const rejected = []
+    for (const column of ['tz', 'ts', 'd'])
+      rejected.push(await code(sql`insert into test (${ sql(column) }) values (${ 1700000000000 })`))
+    await sql`drop table test`
+    await sql.end()
+
+    return [
+      JSON.stringify(['22008', '22008', '22008']),
+      JSON.stringify(rejected)
+    ]
+  })
+
+  t('parameter_types client sends numbers as their JavaScript text' + suffix, async() => {
+    const sql = client()
+    await sql`create table test (id serial, n numeric, f float8, i8 int8, tz timestamptz)`
+    await sql`create table test2 (i int, j jsonb, b bool)`
+    await sql`insert into test (n, f, i8, tz) values (${ NaN }, ${ -0 }, ${ 2 ** 53 }, ${ Infinity })`
+    await sql`insert into test (n) values (${ Infinity })`
+    await sql`insert into test (n) values (${ 1e21 })`
+    const rejected = [
+      await code(sql`insert into test (i8) values (${ 1e21 })`),
+      await code(sql`insert into test2 (i) values (${ NaN })`),
+      await code(sql`insert into test2 (j) values (${ NaN })`)
+    ]
+    await sql`insert into test2 (b) values (${ 1 })`
+    const rows = await sql`select n::text, f::text, i8::text, tz::text from test order by id`.values()
+    const bool = (await sql`select b from test2`)[0].b
+    await sql`drop table test`
+    await sql`drop table test2`
+    await sql.end()
+
+    return [
+      JSON.stringify([
+        ['22P02', '22P02', '22P02'],
+        true,
+        [['NaN', '0', '9007199254740992', 'infinity'], ['Infinity', null, null, null], ['1000000000000000000000', null, null, null]]
+      ]),
+      JSON.stringify([rejected, bool, rows])
+    ]
+  })
+
+  t('parameter_types client sends strings to bytea as bytea text' + suffix, async() => {
+    const sql = client()
+    await sql`create table test (id serial, bin bytea)`
+    await sql`insert into test (bin) values (${ 'hello' })`
+    await sql`insert into test (bin) values (${ '\\x6869' })`
+    const rejected = await code(sql`insert into test (bin) values (${ 'a\\b' })`)
+    const rows = await sql`select encode(bin, 'escape') as bin from test order by id`
+    await sql`drop table test`
+    await sql.end()
+
+    return [
+      JSON.stringify(['22P02', ['hello', 'hi']]),
+      JSON.stringify([rejected, rows.map(x => x.bin)])
+    ]
+  })
+
+  t('parameter_types client sends plain objects as JSON and other objects as their primitive value' + suffix, async() => {
+    class Money {
+      valueOf() { return 1 }
+      toString() { return 'c' }
+      toJSON() { return { cents: 100 } }
+    }
+
+    const bare = Object.create(null)
+    bare.a = 1
+    const sql = client()
+    const identity = client({ types: { json: { to: 114, from: [114, 3802], serialize: x => x, parse: x => x } } })
+    await sql`create table test (id serial, t text, j jsonb)`
+    for (const x of [{ a: 1 }, bare, new Money()])
+      await sql`insert into test (t, j) values (${ x }, ${ x })`
+    await identity`insert into test (j) values (${ { a: 1 } })`
+    const rows = await sql`select t, jsonb_typeof(j) as j from test order by id`
+    await sql`drop table test`
+    await identity.end()
+    await sql.end()
+
+    return [
+      JSON.stringify([['{"a":1}', '{"a":1}', '1', null], ['object', 'object', 'number', 'object']]),
+      JSON.stringify([rows.map(x => x.t), rows.map(x => x.j)])
+    ]
+  })
+
+  t('parameter_types client uses custom type serializers only for typed values and arrays' + suffix, async() => {
+    const point = {
+      to: 600,
+      from: [600],
+      serialize: x => '(' + (Array.isArray(x) ? x : [x.x, x.y]) + ')',
+      parse: x => x
+    }
+    const sql = client({ types: { point } })
+    await sql`create table test (x point)`
+    await sql`insert into test values (${ [1, 2] })`
+    await sql`insert into test values (${ sql.types.point({ x: 3, y: 4 }) })`
+    const rejected = await code(sql`insert into test values (${ { x: 5, y: 6 } })`)
+    const rows = await sql`select x::text as x from test order by x::text`
+    await sql`drop table test`
+    await sql.end()
+
+    return [
+      JSON.stringify(['22P02', ['(1,2)', '(3,4)']]),
+      JSON.stringify([rejected, rows.map(x => x.x)])
+    ]
+  })
+
+  t('parameter_types client asks PostgreSQL about arrays' + suffix, async() => {
+    const sql = client()
+    await sql`create table test (ia int[], ta text[], j jsonb)`
+    await sql`insert into test values (${ [1, 2] }, ${ ['a', 'b'] }, ${ [{ a: 1 }] })`
+    const row = (await sql`select ia::text as ia, ta::text as ta, jsonb_typeof(j) as j from test`)[0]
+    await sql`drop table test`
+    await sql.end()
+
+    return [
+      JSON.stringify({ ia: '{1,2}', ta: '{a,b}', j: 'array' }),
+      JSON.stringify(row)
+    ]
+  })
+
+  t('parameter_types client leaves typed values as they are' + suffix, async() => {
+    const sql = client()
+    await sql`create table test (j jsonb, b bool, tz timestamptz, i8 int8, bin bytea)`
+    await sql`insert into test values (${ sql.json('{"a":1}') }, ${ true }, ${ new Date(0) }, ${ 5n }, ${ Buffer.from('hi') })`
+    const row = (await sql`
+      select jsonb_typeof(j) as j, b, tz = 'epoch' as tz, i8::text as i8, encode(bin, 'escape') as bin from test
+    `)[0]
+    await sql`drop table test`
+    await sql.end()
+
+    return [
+      JSON.stringify({ j: 'string', b: true, tz: true, i8: '5', bin: 'hi' }),
+      JSON.stringify(row)
+    ]
+  })
+
+  t('parameter_types client sends null as SQL NULL and keeps undefined handling' + suffix, async() => {
+    const sql = client()
+    const transformed = client({ transform: { undefined: null } })
+    await sql`create table test (j jsonb)`
+    await sql`insert into test values (${ null })`
+    await transformed`insert into test values (${ undefined })`
+    const rejected = await code(sql`insert into test values (${ undefined })`)
+    const count = (await sql`select count(*)::int as n from test where j is null`)[0].n
+    await sql`drop table test`
+    await transformed.end()
+    await sql.end()
+
+    return [
+      JSON.stringify([2, 'UNDEFINED_VALUE']),
+      JSON.stringify([count, rejected])
+    ]
+  })
+
+  t('parameter_types client serializes each value by its own type on every run of a prepared statement' + suffix, async() => {
+    const sql = client()
+    const q = x => sql`select ${ x }::jsonb as j`
+    const described = (await q('x').describe()).types
+    const values = []
+    for (const x of ['{"a":1}', { b: 2 }, [3], '"s"'])
+      values.push((await q(x))[0].j)
+    const last = await q('{"c":3}')
+    await sql.end()
+
+    return [
+      JSON.stringify([[3802], [{ a: 1 }, { b: 2 }, [3], 's'], [3802]]),
+      JSON.stringify([described, values, last.statement.types])
+    ]
+  })
+}

@@ -606,7 +606,9 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     q.parameters = q.parameters || parameters
     q.inferred = options.parameter_types === 'server' ? null : types.slice()
     q.prepared = q.prepare && q.signature in statements
-    q.describeFirst = q.onlyDescribe || (!q.prepared && types.some(x => !x))
+    q.describeFirst = q.onlyDescribe || (!q.prepared && types.some((x, i) =>
+      !x && (options.parameter_types !== 'client' || Array.isArray(q.parameters[i]))
+    ))
     q.statement = q.prepared
       ? statements[q.signature]
       : { string, types, name: q.prepare ? statementId + statementCount++ : '' }
@@ -1228,7 +1230,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
       type = q.statement.types[i]
       x = !q.inferred || q.inferred[i] || Array.isArray(x)
         ? serialize(x, type)
-        : compare(x, type, i, differences)
+        : options.parameter_types === 'client' ? clientSerialize(x) : compare(x, type, i, differences)
 
       prev = b.i
       b.inc(4).str(x).i32(b.i - prev - 4, prev)

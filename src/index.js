@@ -733,7 +733,7 @@ function tsa(o, url, env) {
 
 function parameterTypes(o, url, env) {
   const x = o.parameter_types || url.searchParams.get('parameter_types') || env.PGPARAMETER_TYPES || 'server'
-  if (['server', 'warn'].includes(x))
+  if (['server', 'client', 'warn'].includes(x))
     return x
 
   throw new Error('parameter_types ' + x + ' is not supported')
