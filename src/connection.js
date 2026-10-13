@@ -214,7 +214,9 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
   const connection = {
     queue: queues.closed,
     idleTimer,
-    connect: request => dispatch('acquire', request),
+    connect(request) {
+      dispatch('acquire', request)
+    },
     terminate: () => dispatch('terminate'),
     execute,
     release: () => dispatch('release'),
