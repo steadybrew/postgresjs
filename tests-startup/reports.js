@@ -16,6 +16,7 @@ const scenarios = {
   'type-query-fatal': typeQueryFatal,
   'reserved-inflight-terminate': reservedInflightTerminate,
   'late-drain-commits-other-transaction': lateDrainCommitsOtherTransaction,
+  'stale-transaction-reads-through-rls': staleTransactionReadsThroughRls,
   ...Object.fromEntries(['idle-timeout', 'terminate'].flatMap(ender => ['return', 'statement'].map(next =>
     ['begin-after-session-ended:' + ender + ':' + next, postgres => beginAfterSessionEnded(postgres, ender, next)])))
 }
@@ -474,4 +475,53 @@ async function lateDrainCommitsOtherTransaction(postgres) {
       await sql.end({ timeout: 0 })
     }
   })
+}
+
+async function staleTransactionReadsThroughRls(postgres) {
+  const database = { ...pg, database: 'postgres_js_test' }
+  const admin = postgres({ ...database, max: 1 })
+  const sql = postgres({ ...database, user: 'postgres_js_test_scram', pass: 'postgres_js_test_scram', max: 1 })
+  let release
+  let handedOut
+  const gate = new Promise(resolve => release = resolve)
+  const handed = new Promise(resolve => handedOut = resolve)
+  await admin`drop table if exists report_rls`
+  await admin`create table report_rls (user_id text, secret text)`
+  await admin`insert into report_rls values ('original', 'first'), ('replacement', 'second')`
+  await admin`alter table report_rls enable row level security`
+  await admin`create policy report_rls_user on report_rls using (user_id = current_setting('app.user_id', true))`
+  await admin`grant select on report_rls to postgres_js_test_scram`
+  try {
+    const first = outcome(sql.begin(async t => {
+      await t`select set_config('app.user_id', 'original', true)`
+      const [{ pid, enforced }] = await t`select pg_backend_pid() as pid, row_security_active('report_rls') as enforced`
+      const rows = await t`select user_id from report_rls`
+      handedOut({ stale: t, pid, enforced, users: rows.map(x => x.user_id) })
+      await gate
+    }))
+    const { stale, pid, enforced, users } = await handed
+    await admin`select pg_terminate_backend(${ pid }, 5000)`
+    const firstCode = code(await bounded(first))
+    let secondUsers
+    let staleRead
+    const second = await bounded(outcome(sql.begin(async t => {
+      await t`select set_config('app.user_id', 'replacement', true)`
+      secondUsers = (await t`select user_id from report_rls`).map(x => x.user_id)
+      staleRead = await stale`select user_id, secret from report_rls`.then(
+        rows => 'read ' + rows.map(x => x.user_id + '/' + x.secret).join(),
+        error => error.code
+      )
+    })))
+    assert.strictEqual(enforced, true)
+    assert.deepStrictEqual(users, ['original'])
+    assert.strictEqual(firstCode, 'CONNECTION_CLOSED')
+    assert.strictEqual(second, 'resolved')
+    assert.deepStrictEqual(secondUsers, ['replacement'])
+    assert.strictEqual(staleRead, 'CONNECTION_CLOSED')
+  } finally {
+    release()
+    await sql.end({ timeout: 0 })
+    await admin`drop table if exists report_rls`
+    await admin.end({ timeout: 0 })
+  }
 }
