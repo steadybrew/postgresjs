@@ -36,11 +36,10 @@ jobs:
           git status --short
       - name: Proven rows, one test at a time
         run: node .github/upstream-proven.mjs | tee proven.jsonl
-      - uses: actions/upload-artifact@v4
+      - name: Reporter scripts for the rows whose test fails indirectly
         if: always()
-        with:
-          name: proven-${{ matrix.src }}-${{ matrix.node }}
-          path: proven.jsonl
+        run: |
+          for p in 729 1082 1234 1087; do timeout 60 node .github/probe.mjs $p 2>&1 | head -30 || true; done
 
   workerd:
     name: workerd on ${{ matrix.src }}
@@ -71,3 +70,7 @@ jobs:
       - run: bash .github/actions/setup-postgres/cluster.sh "$POSTGRES_VERSION" workerd 55432
       - run: npm run test:workerd -- . 55432 | tee workerd.jsonl
         continue-on-error: true
+      - name: Worker logs
+        if: always()
+        run: |
+          for f in /tmp/postgresjs-workerd-*/*.log; do echo "#### $f"; grep -E "setTimeout|Uncaught|WORKER_UNHANDLED|Error" "$f" | head -5 | cut -c1-300; done
