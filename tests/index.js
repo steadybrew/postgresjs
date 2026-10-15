@@ -5254,3 +5254,21 @@ t('end with a timeout runs a query queued behind running ones and leaves no back
     JSON.stringify([executing, x, order, left])
   ]
 })
+
+t('arrays are sent and read back without fetching types, prepared or not', async() => {
+  const seen = []
+  for (const prepare of [true, false]) {
+    const sql = postgres({ ...options, fetch_types: false, prepare })
+    const unnested = (await sql`select x from unnest(${ ['foo', 'bar'] }::text[]) as x`).map(row => row.x).join()
+    await sql`create temp table report_arrays (ta text[], ia int4[])`
+    await sql`insert into report_arrays values (${ ['a', 'b'] }, ${ [1, 2] })`
+    const [row] = await sql`select ta, ia from report_arrays`
+    await sql.end()
+    seen.push([unnested, row.ta, row.ia])
+  }
+
+  return [
+    JSON.stringify(Array(2).fill(['foo,bar', ['a', 'b'], [1, 2]])),
+    JSON.stringify(seen)
+  ]
+})
