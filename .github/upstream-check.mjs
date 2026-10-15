@@ -26,8 +26,8 @@ const reasons = {
   'begin-write-always-true': /setting 'onclose'/,
   'begin-queued-one': /\+   'hang'/,
   'begin-queued-one-reset': /\+   'hang'/,
-  'begin-inflight-end': /\+ 'hang'\n- 'resolved'/,
-  'begin-inflight-end-reset': /\+ 'hang'\n- 'resolved'/,
+  'begin-inflight-end': /'hang' !== 'resolved'/,
+  'begin-inflight-end-reset': /'hang' !== 'resolved'/,
   'phase:end-queued-cold': /3 !== 'end'/
 }
 
