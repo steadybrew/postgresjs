@@ -15,6 +15,7 @@ const scenarios = {
   'begin-write-always-true': beginWriteAlwaysTrue,
   'type-query-fatal': typeQueryFatal,
   'reserved-inflight-terminate': reservedInflightTerminate,
+  'late-drain-commits-other-transaction': lateDrainCommitsOtherTransaction,
   ...Object.fromEntries(['idle-timeout', 'terminate'].flatMap(ender => ['return', 'statement'].map(next =>
     ['begin-after-session-ended:' + ender + ':' + next, postgres => beginAfterSessionEnded(postgres, ender, next)])))
 }
@@ -423,4 +424,54 @@ async function reservedInflightTerminate(postgres) {
     await sql.end({ timeout: 0 })
     await killer.end({ timeout: 0 })
   }
+}
+
+async function lateDrainCommitsOtherTransaction(postgres) {
+  await withItems(postgres, async admin => {
+    let drainedSignal
+    let gate
+    const drained = new Promise(resolve => drainedSignal = resolve).then(() => 'drained')
+    const gated = new Promise(resolve => gate = resolve)
+    const notices = []
+    const late = async() => {
+      const connection = net.connect(5432, 'localhost')
+      await new Promise((resolve, reject) => { connection.once('connect', resolve); connection.once('error', reject) })
+      const write = connection.write.bind(connection)
+      const emit = connection.emit.bind(connection)
+      let blocked = false
+      connection.write = (...args) => {
+        write(...args)
+        blocked = blocked || args[0].length >= 1024
+        return args[0].length < 1024
+      }
+      connection.emit = (event, ...args) => {
+        const result = emit(event, ...args)
+        event === 'data' && blocked && (blocked = false, queueMicrotask(() => (emit('drain'), drainedSignal())))
+        return result
+      }
+      return connection
+    }
+    const sql = postgres({ ...pg, max: 2, socket: late, onnotice: n => notices.push(n.code) })
+    try {
+      const writer = outcome(sql.begin(async t => {
+        await t.unsafe('insert into report_items (a_id) values (1) -- ' + 'x'.repeat(1100))
+        await gated
+        await t`insert into report_items (a_id) values (3)`
+        throw new Error('rollback')
+      }))
+      const drain = await bounded(drained, 5000)
+      const purge = await bounded(outcome(sql.begin(t => t`delete from report_items where a_id = 2`)), 5000)
+      gate()
+      const written = await bounded(writer, 5000)
+      const stored = (await admin`select count(*)::int as n from report_items`)[0].n
+      assert.strictEqual(drain, 'drained')
+      assert.strictEqual(written, 'rollback')
+      assert.strictEqual(purge, 'resolved')
+      assert.deepStrictEqual(notices.filter(x => x === '25001'), [])
+      assert.strictEqual(stored, 0)
+    } finally {
+      gate()
+      await sql.end({ timeout: 0 })
+    }
+  })
 }
