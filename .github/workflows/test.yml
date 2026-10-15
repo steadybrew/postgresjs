@@ -146,7 +146,7 @@ jobs:
             elif ! grep -q "$2" single.log; then echo "FAILS FOR ANOTHER REASON: $1 (expected $2)"; status=1; fi
           }
           check 'arrays are sent and read back' 'malformed array literal'
-          check 'end with a timeout runs a query queued while the pool is still connecting' 'failed'
+          check 'end with a timeout runs a query queued while the pool is still connecting' '"end","query"'
           exit $status
 
   publish:
