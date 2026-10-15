@@ -1,14 +1,16 @@
 # Roadmap
 
-What this fork is working on, in order. Each item names the [porsager/postgres](https://github.com/porsager/postgres/issues) issues it answers and how many reactions they have, and links to its issue here, where the design and progress are discussed. Comments and reactions on those issues help decide the order.
+What this fork is working on, in order. Each item names the [porsager/postgres](https://github.com/porsager/postgres/issues) issues it answers and how many reactions they have, and links to its issue here, where the design and progress are discussed. The same items are on the [Roadmap project](https://github.com/orgs/steadybrew/projects/1). Comments and reactions on those issues help decide the order.
 
 ## Shipped
 
 Releases are in the [changelog](CHANGELOG.md); the upstream bugs they fix are listed in the [README](README.md#fixed-postgresjs-issues).
 
+- **One round trip for queries with values:** `parameter_types: 'client'`, opt-in, with `'warn'` to check a workload first (4.5.0-rc1, on npm `next`). Answers [#1225](https://github.com/porsager/postgres/issues/1225), and with it JSON strings and booleans store what was sent ([#1139](https://github.com/porsager/postgres/issues/1139), [#858](https://github.com/porsager/postgres/issues/858)). Becomes the default in 5.0 ([steadybrew#41](https://github.com/steadybrew/postgresjs/issues/41)).
+- **`await using`** for the pool and reserved connections (4.5.0-rc1). Answers [#886](https://github.com/porsager/postgres/issues/886) (9 reactions) and [#1094](https://github.com/porsager/postgres/issues/1094).
 - **Pool statistics:** `sql.stats()` (4.3.0). Answers [#443](https://github.com/porsager/postgres/issues/443) and [#908](https://github.com/porsager/postgres/issues/908).
 - **Vercel Fluid:** the `onidle` callback and the `@steadybrew/postgresjs/vercel` adapter (4.2.0). Answers [#1100](https://github.com/porsager/postgres/issues/1100).
-- **Correctness:** queries no longer receive another query's rows ([#1082](https://github.com/porsager/postgres/issues/1082), 4.3.0) and `sql.begin()` no longer reports a rolled-back commit as committed ([#1217](https://github.com/porsager/postgres/issues/1217), 4.4.0).
+- **Correctness:** queries no longer receive another query's rows ([#1082](https://github.com/porsager/postgres/issues/1082), 4.3.0), `sql.begin()` no longer reports a rolled-back commit as committed ([#1217](https://github.com/porsager/postgres/issues/1217), 4.4.0), and a cached-plan error inside a transaction no longer leaves it aborted ([#1234](https://github.com/porsager/postgres/issues/1234), 4.4.0).
 
 ## Next: serverless reliability and visibility
 
