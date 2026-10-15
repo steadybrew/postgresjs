@@ -22,6 +22,15 @@ cold acquisitions, backend termination with queued reservations, and two rounds
 of exclusive full-capacity acquisition after recovery. Both `test:esm` and
 `test:cjs` run this matrix before their existing integration suites.
 
+`node tests-startup/run.js --reports` runs the reproductions of upstream reports
+against the same cluster, each scenario in its own child process (with `--cjs` for
+CommonJS). It must run after `tests/index.js`, because the row-level security
+scenario logs in as a role that `tests/bootstrap.js` creates. A scenario fails if
+it throws, leaves an uncaught exception or unhandled rejection, or hangs past its
+deadline. To check a scenario against the upstream source, replace `src/` with the
+upstream files and run the same command; each one is expected to fail there for the
+reason the report gives.
+
 The peer parses startup and tagged PostgreSQL frames, including split/coalesced
 TCP chunks. It implements the simple-query path, and answers extended-query
 exchanges with empty results while recording the types each Parse declares, the statement

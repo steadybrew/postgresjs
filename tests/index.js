@@ -3378,6 +3378,15 @@ async function until(done, ms = 5000) {
     await delay(10)
 }
 
+async function backendsLeft(application_name) {
+  let left = -1
+  for (const end = Date.now() + 5000; left !== 0 && Date.now() < end;) {
+    left = (await sql`select count(*)::int as n from pg_stat_activity where application_name = ${ application_name }`)[0].n
+    left && await delay(20)
+  }
+  return left
+}
+
 async function uncaught(fn) {
   const errors = []
   const capture = e => errors.push(e)
@@ -5228,4 +5237,60 @@ t('using declarations end the pool and release the reservation', async() => {
   `)
 
   return ['CONNECTION_ENDED', await run(postgres, { ...options, max: 2 })]
+})
+
+t('end with a timeout runs a query queued behind running ones and leaves no backend open', async() => {
+  const application_name = 'end_queued_' + Math.random().toString(36).slice(2)
+  const pool = postgres({ ...options, max: 2, max_pipeline: 0, connection: { application_name } })
+  const held = await Promise.all([pool.reserve(), pool.reserve()])
+  held.forEach(x => x.release())
+  const running = [1, 2].map(() => pool`select pg_sleep(0.05)`.execute())
+  const queued = pool`select 3 as x`.execute()
+  await 1
+  const executing = pool.stats().executingCount
+  const order = []
+  const third = queued.then(rows => (order.push('query'), rows[0].x))
+  const ending = pool.end({ timeout: 1 }).then(() => order.push('end'))
+  const [x] = await Promise.all([third, ending, ...running])
+  const left = await backendsLeft(application_name)
+
+  return [
+    JSON.stringify([2, 3, ['query', 'end'], 0]),
+    JSON.stringify([executing, x, order, left])
+  ]
+})
+
+t('end with a timeout runs a query queued while the pool is still connecting and leaves no backend open', async() => {
+  const application_name = 'end_cold_' + Math.random().toString(36).slice(2)
+  const pool = postgres({ ...options, max: 2, connection: { application_name } })
+  const running = [1, 2].map(() => pool`select pg_sleep(0.05)`.execute())
+  const queued = pool`select 3 as x`.execute()
+  const order = []
+  const third = queued.then(rows => (order.push('query'), rows[0].x))
+  const ending = pool.end({ timeout: 1 }).then(() => order.push('end'))
+  const [x] = await Promise.all([third, ending, ...running])
+  const left = await backendsLeft(application_name)
+
+  return [
+    JSON.stringify([3, ['query', 'end'], 0]),
+    JSON.stringify([x, order, left])
+  ]
+})
+
+t('arrays are sent and read back without fetching types, prepared or not', async() => {
+  const seen = []
+  for (const prepare of [true, false]) {
+    const sql = postgres({ ...options, fetch_types: false, prepare })
+    const unnested = (await sql`select x from unnest(${ ['foo', 'bar'] }::text[]) as x`).map(row => row.x).join()
+    await sql`create temp table report_arrays (ta text[], ia int4[])`
+    await sql`insert into report_arrays values (${ ['a', 'b'] }, ${ [1, 2] })`
+    const [row] = await sql`select ta, ia from report_arrays`
+    await sql.end()
+    seen.push([unnested, row.ta, row.ia])
+  }
+
+  return [
+    JSON.stringify(Array(2).fill(['foo,bar', ['a', 'b'], [1, 2]])),
+    JSON.stringify(seen)
+  ]
 })
