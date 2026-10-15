@@ -1,5 +1,6 @@
 import assert from 'assert'
 import net from 'net'
+import { message } from './peer.js'
 
 const scenarios = {
   'reserved-after-terminate': reservedAfterTerminate,
@@ -11,7 +12,8 @@ const scenarios = {
   'connect-timeout-busy-pool': connectTimeoutBusyPool,
   'concurrent-begins-busy-pool': concurrentBeginsBusyPool,
   'begin-at-pipeline-limit': beginAtPipelineLimit,
-  'begin-write-always-true': beginWriteAlwaysTrue
+  'begin-write-always-true': beginWriteAlwaysTrue,
+  'type-query-fatal': typeQueryFatal
 }
 
 export const reportNames = Object.keys(scenarios)
@@ -56,14 +58,14 @@ async function active(admin, pid) {
   assert.fail('pg_sleep never became active on backend ' + pid)
 }
 
-async function proxy() {
+async function proxy(intercept) {
   const pairs = []
   const server = net.createServer(client => {
     const upstream = net.connect(5432, 'localhost')
     pairs.push([client, upstream])
     client.on('error', noop)
     upstream.on('error', noop)
-    client.on('data', chunk => upstream.write(chunk))
+    client.on('data', chunk => (intercept && intercept(chunk, client, upstream)) || upstream.write(chunk))
     upstream.on('data', chunk => client.write(chunk))
     client.on('close', () => upstream.destroy())
     upstream.on('close', () => client.destroy())
@@ -324,5 +326,34 @@ async function beginWriteAlwaysTrue(postgres) {
   } finally {
     await sql.end({ timeout: 0 })
     await observer.end({ timeout: 0 })
+  }
+}
+
+async function typeQueryFatal(postgres) {
+  const fault = capture()
+  const fatal = message('E', Buffer.from('SFATAL\0C57P01\0Mterminating connection due to administrator command\0\0'))
+  let cut = false
+  const relay = await proxy((chunk, client, upstream) => {
+    if (cut || !chunk.includes('typarray'))
+      return false
+    cut = true
+    client.write(fatal)
+    client.end()
+    upstream.destroy()
+    return true
+  })
+  const sql = postgres({ ...pg, host: '127.0.0.1', port: relay.port, max: 1, fetch_types: true })
+  try {
+    const ok = await bounded(sql`select 1 as ok`.then(x => x[0].ok, error => error.code), 5000)
+    await turn()
+    const ended = await bounded(sql.end({ timeout: 1 }).then(() => 'resolved'), 5000)
+    assert.deepStrictEqual(fault.errors, [])
+    assert(cut, 'The type query never reached the proxy')
+    assert.strictEqual(ok, 1)
+    assert.strictEqual(ended, 'resolved')
+  } finally {
+    fault.stop()
+    await sql.end({ timeout: 0 })
+    await relay.close()
   }
 }
