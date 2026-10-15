@@ -24,7 +24,7 @@ async function single(postgres, only) {
     const ports = [await unusedPort(), await unusedPort()]
     const refused = postgres({ ...base, host: ['127.0.0.1', '127.0.0.1'], port: ports, database: 'postgres', connect_timeout: 1, backoff: 0.05 })
     try {
-      const { error, elapsed } = await failure(refused`select 1`)
+      const { error, elapsed } = await bounded(failure(refused`select 1`), 'query with every host refusing', 8000)
       assert.strictEqual(error.code, 'ECONNREFUSED')
       assert(elapsed >= 1500 && elapsed < 4000, 'Refusal must retry until the deadline: ' + elapsed)
     } finally {
