@@ -2053,6 +2053,12 @@ t('Debug has long async stack trace', async() => {
   }
 })
 
+t('Query errors keep a writable stack', async() => {
+  const error = await sql`error`.catch(x => x)
+  error.stack = 'replaced'
+  return ['replaced', error.stack]
+})
+
 t('Error contains query string', async() => [
   'selec 1',
   (await sql`selec 1`.catch(err => err.query))

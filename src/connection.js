@@ -695,7 +695,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
       err = new Error(err)
 
     'query' in err || 'parameters' in err || Object.defineProperties(err, {
-      stack: { value: err.stack + query.origin.replace(/.*\n/, '\n'), enumerable: options.debug },
+      stack: { value: err.stack + query.origin.replace(/.*\n/, '\n'), enumerable: options.debug, writable: true, configurable: true },
       query: { value: query.string, enumerable: options.debug },
       parameters: { value: query.parameters, enumerable: options.debug },
       args: { value: query.args, enumerable: options.debug },
