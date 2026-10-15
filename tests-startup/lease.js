@@ -16,7 +16,7 @@ export const leaseNames = ['reserve-close', 'reserve-release-close', 'reserve-st
                            'settling-end-commit', 'settling-end-rollback', 'settling-end-prepare',
                            'settling-fail-rollback', 'settling-fail-prepare',
                            'outcome-commit-released', 'outcome-release-released', 'reserve-release-after-error', 'begin-late-drain',
-                           'begin-queued-reset']
+                           'begin-queued-reset', 'begin-inflight-end', 'begin-inflight-end-reset']
 
 const closed = 'rejected:CONNECTION_CLOSED'
 const ended = 'rejected:CONNECTION_ENDED'
@@ -31,7 +31,8 @@ export async function leases(name, postgres, onEvent) {
     : settling[2] === 'commit' ? 'commit'
     : settling[2] === 'rollback' ? 'rollback'
     : settling[2] === 'prepare' ? 'prepare transaction'
-    : name === 'pooled-raw-begin' ? 'begin -- stall' : ''
+    : name === 'pooled-raw-begin' ? 'begin -- stall'
+    : name.startsWith('begin-inflight-end') ? 'select hang' : ''
   const server = await peer({ holdQuery: queued ? 'hang' : name.startsWith('pooled-') ? 'hang' : '', holdStatement,
                               failQuery: name === 'begin-start-failed' ? 'begin bogus' : '', onEvent })
   const base = { host: '127.0.0.1', port: server.port, user: 'fixture', database: 'fixture', ssl: false, fetch_types: true,
@@ -87,6 +88,7 @@ export async function leases(name, postgres, onEvent) {
                 'begin-user-rollback',
                 'pooled-raw-begin', 'pooled-retry'].includes(name)
   const sql = postgres({ ...base, max: wide ? 2 : 1,
+                         ...(name.startsWith('begin-inflight-end') ? { max: 5, fetch_types: false } : {}),
                          ...(name === 'owned-lifetime' ? { max_lifetime: 0.2 } : {}),
                          ...(name === 'begin-pipeline-zero' || name.endsWith('-cancel-queued') ? { max_pipeline: 0 } : {}),
                          ...(name === 'begin-backpressure' ? { socket: backpressure } : {}),
@@ -202,6 +204,12 @@ export async function leases(name, postgres, onEvent) {
       }))
       assert.strictEqual(await outcome, closed)
       assert.strictEqual(sent(server, 'select hang 2').length, 0)
+      assert.strictEqual(await settle(sql.end()), 'resolved')
+    } else if (name.startsWith('begin-inflight-end')) {
+      const outcome = settle(sql.begin(async t => { await t`select hang ${ 1 }` }))
+      await until(() => server.heldStatement())
+      name.endsWith('reset') ? server.reset() : server.disconnect()
+      assert.strictEqual(await outcome, closed)
       assert.strictEqual(await settle(sql.end()), 'resolved')
     } else if (name === 'begin-end') {
       const outcome = settle(sql.begin(async t => {
