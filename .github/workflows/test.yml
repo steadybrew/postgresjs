@@ -39,7 +39,7 @@ jobs:
       - name: Reporter scripts for the rows whose test fails indirectly
         if: always()
         run: |
-          for p in 729 1082 1234 1087; do timeout 60 node .github/probe.mjs $p 2>&1 | head -30 || true; done
+          for p in 729 1082 1234 1087 1097 1130; do timeout 60 node .github/probe.mjs $p 2>&1 | head -30 || true; done
 
   workerd:
     name: workerd on ${{ matrix.src }}

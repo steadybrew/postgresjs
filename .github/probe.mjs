@@ -1,4 +1,5 @@
 import postgres from '../src/index.js'
+import { peer } from '../tests-startup/peer.js'
 
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms))
 const noop = () => undefined
@@ -7,7 +8,21 @@ const within = (promise, ms = 2000) => Promise.race([promise, delay(ms).then(() 
 const name = process.argv[2]
 const log = (...x) => console.log(name, ...x)
 
+const inflight = async close => {
+  const server = await peer({ holdQuery: 'hang' })
+  const sql = postgres({ host: '127.0.0.1', port: server.port, user: 'fixture', database: 'fixture', ssl: false, prepare: false, max: 1, fetch_types: false, connect_timeout: 2 })
+  await sql.unsafe('select 42 as marker', [], { simple: true })
+  const hung = within(sql.unsafe('select hang', [], { simple: true }).then(() => 'resolved', e => 'rejected:' + (e.code || e.message)), 3000)
+  while (!server.events.some(x => x.sql === 'select hang'))
+    await delay(5)
+  close(server)
+  log('query', await hung)
+  log('end', await within(sql.end().then(() => 'resolved'), 3000))
+}
+
 const probes = {
+  1097: () => inflight(server => server.disconnect()),
+  1130: () => inflight(server => server.reset()),
   async 729() {
     const sql = postgres(options)
     await sql`select 2`
