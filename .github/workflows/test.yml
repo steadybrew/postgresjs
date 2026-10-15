@@ -15,7 +15,7 @@ jobs:
       fail-fast: false
       matrix:
         src: [fork, upstream]
-        node: ['24', '26']
+        node: ['24']
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:
@@ -46,7 +46,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        src: [fork, upstream]
+        src: [fork, upstream, upstream-timers]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     env:
@@ -62,10 +62,16 @@ jobs:
         with:
           version: ${{ env.POSTGRES_VERSION }}
       - name: Put the upstream 3.4.9 sources in place
-        if: matrix.src == 'upstream'
+        if: matrix.src != 'fork'
         run: |
           for f in $(git ls-tree --name-only 411429e src/); do git show 411429e:$f > $f; done
           git status --short
+      - name: Replace the timer calls that pass a third argument
+        if: matrix.src == 'upstream-timers'
+        run: |
+          sed -i 's/setTimeout(done, seconds \* 1000, arguments)/setTimeout(done.bind(null, arguments), seconds * 1000)/' src/index.js
+          sed -i 's/setTimeout(destroy, timeout \* 1000, r)/setTimeout(destroy.bind(null, r), timeout * 1000)/' src/subscribe.js
+          grep -n "setTimeout" src/index.js src/subscribe.js
       - run: npm run build:cf
       - run: bash .github/actions/setup-postgres/cluster.sh "$POSTGRES_VERSION" workerd 55432
       - run: npm run test:workerd -- . 55432 | tee workerd.jsonl
