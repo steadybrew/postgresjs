@@ -3,6 +3,7 @@ import assert from 'assert'
 import { fork } from 'child_process'
 import { fileURLToPath } from 'url'
 import { leaseNames } from './lease.js'
+import { reportNames } from './reports.js'
 import { parameterNames } from './parameters.js'
 import { compatNames } from './compat.js'
 import { cfNames } from './cf.js'
@@ -100,6 +101,14 @@ async function main() {
     for (const name of leaseNames) {
       const result = await run('lease:' + name)
       console.log(JSON.stringify({ name, passed: result.passed, elapsed: result.elapsed, output: result.output.slice(0, 300) }))
+      !result.passed && (process.exitCode = 1)
+    }
+    return
+  }
+  if (process.argv.includes('--reports')) {
+    for (const name of reportNames) {
+      const result = await run('report:' + name, 15000)
+      console.log(JSON.stringify({ name, passed: result.passed, elapsed: result.elapsed, output: result.output.slice(0, 1500) }))
       !result.passed && (process.exitCode = 1)
     }
     return
