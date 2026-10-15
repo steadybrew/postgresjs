@@ -13,7 +13,9 @@ const scenarios = {
   'concurrent-begins-busy-pool': concurrentBeginsBusyPool,
   'begin-at-pipeline-limit': beginAtPipelineLimit,
   'begin-write-always-true': beginWriteAlwaysTrue,
-  'type-query-fatal': typeQueryFatal
+  'type-query-fatal': typeQueryFatal,
+  ...Object.fromEntries(['idle-timeout', 'terminate'].flatMap(ender => ['return', 'statement'].map(next =>
+    ['begin-after-session-ended:' + ender + ':' + next, postgres => beginAfterSessionEnded(postgres, ender, next)])))
 }
 
 export const reportNames = Object.keys(scenarios)
@@ -355,5 +357,43 @@ async function typeQueryFatal(postgres) {
     fault.stop()
     await sql.end({ timeout: 0 })
     await relay.close()
+  }
+}
+
+async function beginAfterSessionEnded(postgres, ender, next) {
+  const fault = capture()
+  let closed
+  let finished
+  const gone = new Promise(resolve => closed = resolve)
+  const done = new Promise(resolve => finished = resolve)
+  const killer = postgres({ ...pg, max: 1 })
+  const sql = postgres({ ...pg, max: 1, onclose: () => closed() })
+  let late = 'none'
+  try {
+    const result = outcome(sql.begin(async t => {
+      try {
+        const [{ pid }] = await t`select pg_backend_pid() as pid`
+        ender === 'idle-timeout'
+          ? await t`set idle_in_transaction_session_timeout = 50`
+          : await killer`select pg_terminate_backend(${ pid }, 5000)`
+        await gone
+        next === 'statement' && (late = code(await bounded(outcome(t`select 2`), 2000)))
+      } finally {
+        finished()
+      }
+    }))
+    const rejected = code(await bounded(result, 5000))
+    await bounded(done, 3000)
+    await turn()
+    await turn()
+    const after = await bounded(sql`select 1 as x`.then(x => x[0].x, error => error.code))
+    assert.deepStrictEqual(fault.errors, [])
+    assert.strictEqual(rejected, 'CONNECTION_CLOSED')
+    assert.strictEqual(late, next === 'statement' ? 'CONNECTION_CLOSED' : 'none')
+    assert.strictEqual(after, 1)
+  } finally {
+    fault.stop()
+    await sql.end({ timeout: 0 })
+    await killer.end({ timeout: 0 })
   }
 }
