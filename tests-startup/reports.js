@@ -18,6 +18,7 @@ const scenarios = {
   'late-drain-commits-other-transaction': lateDrainCommitsOtherTransaction,
   'stale-transaction-reads-through-rls': staleTransactionReadsThroughRls,
   'reset-mid-begin': resetMidBegin,
+  'type-query-cancelled': typeQueryCancelled,
   'terminated-inflight-then-query:prepared': postgres => terminatedInflightThenQuery(postgres, true),
   'terminated-inflight-then-query:unprepared': postgres => terminatedInflightThenQuery(postgres, false),
   ...Object.fromEntries(['idle-timeout', 'terminate'].flatMap(ender => ['return', 'statement'].map(next =>
@@ -585,5 +586,29 @@ async function resetMidBegin(postgres) {
     await killer`select pg_terminate_backend(pid) from pg_stat_activity where application_name = ${ application_name }`
     await killer.end({ timeout: 0 })
     await relay.close()
+  }
+}
+
+async function typeQueryCancelled(postgres) {
+  const fault = capture()
+  let sent = false
+  const sql = postgres({
+    ...pg,
+    fetch_types: true,
+    prepare: false,
+    max: 1,
+    connection: { statement_timeout: 1 },
+    debug: (id, string) => { string.includes('typarray') && (sent = true) }
+  })
+  try {
+    const rejected = await bounded(outcome(sql`select pg_sleep(2)`), 5000)
+    await turn()
+    await turn()
+    assert.deepStrictEqual(fault.errors, [])
+    assert(sent, 'The type query was never sent')
+    assert.strictEqual(rejected, '57014')
+  } finally {
+    fault.stop()
+    await sql.end({ timeout: 0 })
   }
 }
