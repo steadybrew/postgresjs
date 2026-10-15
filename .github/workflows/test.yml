@@ -126,19 +126,28 @@ jobs:
         run: node tests-startup/run.js --leases | tee leases.jsonl || true
       - name: Lease cases that pass on upstream
         if: always()
-        run: node .github/upstream-check.mjs leases.jsonl begin-queued-reset begin-inflight-end begin-inflight-end-reset
+        run: node .github/upstream-check.mjs leases.jsonl begin-queued-one begin-queued-one-reset begin-inflight-end begin-inflight-end-reset
       - name: Queued query at end
         if: always()
         run: node .github/upstream-case.mjs phase:end-queued-cold | tee phase.jsonl
       - name: Queued query at end passes on upstream
         if: always()
         run: node .github/upstream-check.mjs phase.jsonl phase:end-queued-cold
-      - name: Arrays without fetching types
+      - name: Single tests in tests/index.js
         if: always()
         run: |
-          sed -i "s/^t('arrays are sent and read back/ot('arrays are sent and read back/" tests/index.js
-          node tests/index.js 2>&1 | tee arrays.log || true
-          if grep -q '✅' arrays.log; then echo 'PASSED ON UPSTREAM'; exit 1; fi
+          status=0
+          cp tests/index.js "$RUNNER_TEMP/index.js"
+          check() {
+            cp "$RUNNER_TEMP/index.js" tests/index.js
+            sed -i "s/^t('$1/ot('$1/" tests/index.js
+            node tests/index.js 2>&1 | tee single.log || true
+            if grep -q '✅' single.log; then echo "PASSED ON UPSTREAM: $1"; status=1
+            elif ! grep -q "$2" single.log; then echo "FAILS FOR ANOTHER REASON: $1 (expected $2)"; status=1; fi
+          }
+          check 'arrays are sent and read back' 'malformed array literal'
+          check 'end with a timeout runs a query queued while the pool is still connecting' 'failed'
+          exit $status
 
   publish:
     name: Stage on npm
