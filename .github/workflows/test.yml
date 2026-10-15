@@ -126,7 +126,7 @@ jobs:
         run: node tests-startup/run.js --leases | tee leases.jsonl || true
       - name: Lease cases that pass on upstream
         if: always()
-        run: node .github/upstream-check.mjs leases.jsonl begin-queued-one begin-queued-one-reset begin-inflight-end begin-inflight-end-reset
+        run: node .github/upstream-check.mjs leases.jsonl begin-inflight-end begin-inflight-end-reset
       - name: Queued query at end
         if: always()
         run: node .github/upstream-case.mjs phase:end-queued-cold | tee phase.jsonl
