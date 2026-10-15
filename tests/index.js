@@ -5229,3 +5229,28 @@ t('using declarations end the pool and release the reservation', async() => {
 
   return ['CONNECTION_ENDED', await run(postgres, { ...options, max: 2 })]
 })
+
+t('end with a timeout runs a query queued behind running ones and leaves no backend open', async() => {
+  const application_name = 'end_queued_' + Math.random().toString(36).slice(2)
+  const pool = postgres({ ...options, max: 2, max_pipeline: 0, connection: { application_name } })
+  const held = await Promise.all([pool.reserve(), pool.reserve()])
+  held.forEach(x => x.release())
+  const running = [1, 2].map(() => pool`select pg_sleep(0.05)`.execute())
+  const queued = pool`select 3 as x`.execute()
+  await 1
+  const executing = pool.stats().executingCount
+  const order = []
+  const third = queued.then(rows => (order.push('query'), rows[0].x))
+  const ending = pool.end({ timeout: 1 }).then(() => order.push('end'))
+  const [x] = await Promise.all([third, ending, ...running])
+  let left = -1
+  for (const end = Date.now() + 5000; left !== 0 && Date.now() < end;) {
+    left = (await sql`select count(*)::int as n from pg_stat_activity where application_name = ${ application_name }`)[0].n
+    left && await delay(20)
+  }
+
+  return [
+    JSON.stringify([2, 3, ['query', 'end'], 0]),
+    JSON.stringify([executing, x, order, left])
+  ]
+})
