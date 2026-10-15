@@ -9,6 +9,7 @@ import { parameters } from './parameters.js'
 import { compat } from './compat.js'
 import { cf } from './cf.js'
 import { install, verify, violations } from './invariants.js'
+import { bounded, quiet } from './bounded.js'
 
 install()
 
@@ -96,22 +97,26 @@ async function main() {
   const server = await peer({ catalogError: name === 'catalog-error', onEvent: event => process.send({ event }) })
   const sql = postgres({ host: '127.0.0.1', port: server.port, user: 'fixture', database: 'fixture',
                          ssl: false, prepare: false, max: 1, fetch_types: !name.includes('no-fetch'), connect_timeout: 1 })
+  let failed = false
   try {
     if (name === 'catalog-error') {
       await assert.rejects(sql.reserve(), error => error.code === '42501' && error.message === 'catalog denied')
       assert.strictEqual(server.events.filter(x => x.type === 'Q' && !x.sql.includes('pg_catalog.pg_type')).length, 0)
     } else {
       assert(['cold-query', 'cold-query-no-fetch', 'cold-reserve', 'cold-reserve-no-fetch'].includes(name), 'Unknown scenario ' + name)
-      const reserved = name.startsWith('cold-query') ? sql : await sql.reserve()
+      const reserved = name.startsWith('cold-query') ? sql : await bounded(sql.reserve(), 'reserve on a cold pool')
       assert.strictEqual((await reserved.unsafe('select 42 as marker', [], { simple: true }))[0].marker, 42)
       reserved !== sql && reserved.release()
       assert.strictEqual((await sql.unsafe('select 42 as marker', [], { simple: true }))[0].marker, 42)
       assert.strictEqual(server.events.filter(x => x.type === 'P').length,
         name.includes('no-fetch') ? 0 : 1)
     }
+  } catch (error) {
+    failed = true
+    throw error
   } finally {
-    await sql.end({ timeout: 0 })
-    await server.close()
+    await quiet(sql.end({ timeout: 0 }), failed)
+    await quiet(server.close(), failed)
     process.send({ events: server.events })
   }
   finish()

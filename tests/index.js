@@ -3372,6 +3372,10 @@ const idleStats = { executingCount: 0, waitingCount: 0 }
 const pick = ({ executingCount, waitingCount }) => ({ executingCount, waitingCount })
 
 const noop = () => undefined
+const within = (promise, label, ms = 2000) => {
+  let timer
+  return Promise.race([promise, new Promise(resolve => { timer = setTimeout(resolve, ms, label) })]).finally(() => clearTimeout(timer))
+}
 
 async function until(done, ms = 5000) {
   for (const end = Date.now() + ms; !done() && Date.now() < end;)
@@ -3553,29 +3557,39 @@ t('a query that fails to build behind copy from stdin leaves copy and later quer
 
 t('an undefined value in a transaction rejects with UNDEFINED_VALUE and the pool keeps working', { timeout: 10 }, async() => {
   const sql = postgres({ ...options, max: 1 })
-  const error = await Promise.race([
-    sql.begin(sql => [sql`select 1`, sql`select ${ undefined }`]).catch(e => e.code),
-    delay(2000).then(() => 'hung')
-  ])
-  const next = await Promise.race([sql`select 5 as x`.then(x => x[0].x, e => e.code), delay(2000).then(() => 'hung')])
-  await sql.end()
+  const error = await within(sql.begin(sql => [sql`select 1`, sql`select ${ undefined }`]).catch(e => e.code), 'begin hung')
+  const next = await within(sql`select 5 as x`.then(x => x[0].x, e => e.code), 'next query hung')
+  const ended = await within(sql.end().then(() => 'ended'), 'end hung')
 
   return [
-    JSON.stringify(['UNDEFINED_VALUE', 5]),
-    JSON.stringify([error, next])
+    JSON.stringify(['UNDEFINED_VALUE', 5, 'ended']),
+    JSON.stringify([error, next, ended])
   ]
 })
 
 t('an undefined value behind a running query rejects alone', { timeout: 10 }, async() => {
   const sql = postgres({ ...options, max: 1 })
   await sql`select 1`
-  const results = await Promise.race([
-    Promise.all([
-      sql`select pg_sleep(0.1), 1 as x`.then(x => x[0].x, e => e.code),
-      sql`select ${ undefined } as x`.then(x => x[0].x, e => e.code),
-      sql`select 3 as x`.then(x => x[0].x, e => e.code)
-    ]),
-    delay(2000).then(() => 'hung')
+  const results = await Promise.all([
+    within(sql`select pg_sleep(0.1), 1 as x`.then(x => x[0].x, e => e.code), 'first query hung'),
+    within(sql`select ${ undefined } as x`.then(x => x[0].x, e => e.code), 'second query hung'),
+    within(sql`select 3 as x`.then(x => x[0].x, e => e.code), 'third query hung')
+  ])
+  const ended = await within(sql.end().then(() => 'ended'), 'end hung')
+
+  return [
+    JSON.stringify([1, 'UNDEFINED_VALUE', 3, 'ended']),
+    JSON.stringify([...results, ended])
+  ]
+})
+
+t('an undefined value behind a running query leaves the pool idle', { timeout: 10 }, async() => {
+  const sql = postgres({ ...options, max: 1 })
+  await sql`select 1`
+  const results = await Promise.all([
+    within(sql`select pg_sleep(0.1), 1 as x`.then(x => x[0].x, e => e.code), 'first query hung'),
+    within(sql`select ${ undefined } as x`.then(x => x[0].x, e => e.code), 'second query hung'),
+    within(sql`select 3 as x`.then(x => x[0].x, e => e.code), 'third query hung')
   ])
   await delay(50)
   const stats = pick(sql.stats())
@@ -4045,15 +4059,16 @@ t('onerror gets transform and connection errors after the replication stream rec
   ]
 })
 
-t('subscribing and unsubscribing leaves no error listeners behind', { timeout: 8 }, async() => {
+t('subscribing and unsubscribing leaves no error listeners behind', { timeout: 20 }, async() => {
   const sql = postgres({
     database: 'postgres_js_test',
     publications: 'alltables',
     fetch_types: false
   })
+  const admin = postgres({ database: 'postgres_js_test', fetch_types: false })
 
-  await sql.unsafe('create publication alltables for all tables')
-  await sql`create table test (id serial primary key, name text)`
+  await admin.unsafe('create publication alltables for all tables')
+  await admin`create table test (id serial primary key, name text)`
 
   const warnings = []
   const onwarning = w => warnings.push(w.name)
@@ -4062,27 +4077,39 @@ t('subscribing and unsubscribing leaves no error listeners behind', { timeout: 8
   const live = []
   const error = globalThis.console.error
   globalThis.console.error = noop
+  let cycles = 0
+  let liveCalled
+  let ended
   try {
     for (let i = 0; i < 20; i++) {
-      const { unsubscribe } = await sql.subscribe('insert:test', noop, noop, e => stale.push(e))
-      unsubscribe()
+      const subscription = await within(sql.subscribe('insert:test', noop, noop, e => stale.push(e)), 'subscribe hung', 5000)
+      if (subscription === 'subscribe hung')
+        break
+      subscription.unsubscribe()
+      cycles++
     }
-    const { state } = await sql.subscribe('insert:test', noop, noop, e => live.push(e))
-    await delay(50)
-    await sql`select pg_terminate_backend(${ state.pid })`
-    await until(() => live.length > 0)
-    await delay(50)
+    const subscription = await within(sql.subscribe('insert:test', noop, noop, e => live.push(e)), 'live subscribe hung', 5000)
+    if (subscription.state) {
+      await delay(50)
+      await admin`select pg_terminate_backend(${ subscription.state.pid })`
+      await until(() => live.length > 0)
+      liveCalled = live.length > 0 ? 'called' : 'live onerror not called'
+    } else {
+      liveCalled = subscription
+    }
+    await delay(200)
+    ended = await within(sql.end().then(() => 'ended'), 'end hung', 3000)
   } finally {
     globalThis.console.error = error
     process.off('warning', onwarning)
   }
+  await admin.unsafe('drop publication alltables')
+  await admin`drop table test`
+  await admin.end()
 
   return [
-    JSON.stringify([0, 0, true]),
-    JSON.stringify([stale.length, warnings.filter(x => x === 'MaxListenersExceededWarning').length, live.length > 0]),
-    await sql`drop table test`,
-    await sql`drop publication alltables`,
-    await sql.end()
+    JSON.stringify([20, 0, 1, 0, 'called', 'ended']),
+    JSON.stringify([cycles, stale.length, live.length, warnings.filter(x => x === 'MaxListenersExceededWarning').length, liveCalled, ended])
   ]
 })
 
@@ -4619,21 +4646,21 @@ t('concurrent statements in a transaction after a cached plan changes roll back 
   await sql`select * from test where id = ${ 1 }`
   await sql`select id from test where id = ${ 1 } and a > ${ 0 }`
   await sql`alter table test add column b int`
-  const error = await Promise.race([
-    sql.begin(sql => [
-      sql`select * from test where id = ${ 1 }`,
-      sql`select id from test where id = ${ 1 } and a > ${ 0 }`
-    ]).catch(e => e.code),
-    delay(2000).then(() => 'hung')
-  ])
-  const next = await Promise.race([sql`select 5 as x`.then(x => x[0].x, e => e.code), delay(2000).then(() => 'hung')])
-  const after = await sql`select pg_backend_pid() as pid`.then(x => x[0].pid, e => e.code)
-  await sql.end()
+  const error = await within(sql.begin(sql => [
+    sql`select * from test where id = ${ 1 }`,
+    sql`select id from test where id = ${ 1 } and a > ${ 0 }`
+  ]).catch(e => e.code), 'begin hung')
+  const next = await within(sql`select 5 as x`.then(x => x[0].x, e => e.code), 'next query hung')
+  const after = await within(sql`select pg_backend_pid() as pid`.then(x => x[0].pid, e => e.code), 'pid query hung')
+  const ended = await within(sql.end().then(() => 'ended'), 'end hung')
+  const admin = postgres({ ...options, onnotice: noop })
+  await admin`select pg_terminate_backend(${ before })`
+  await admin`drop table test`
+  await admin.end()
 
   return [
-    JSON.stringify(['0A000', 5, true]),
-    JSON.stringify([error, next, before === after]),
-    await postgres(options)`drop table test`
+    JSON.stringify(['0A000', 5, true, 'ended']),
+    JSON.stringify([error, next, before === after, ended])
   ]
 })
 

@@ -1,6 +1,7 @@
 import assert from 'assert'
 import net from 'net'
 import { prepareName } from './compat.js'
+import { bounded, quiet } from './bounded.js'
 
 export async function integration(postgres) {
   await firstTypes(postgres)
@@ -24,20 +25,21 @@ async function combination(postgres, { max, fetch_types, prepare }) {
   const query = (client, marker) => client`select ${ marker }::int as marker, pg_backend_pid() as pid`
   async function capacity() {
     for (let round = 0; round < 2; round++) {
-      const held = await Promise.all(Array.from({ length: max }, () => sql.reserve()))
-      const results = await Promise.all(held.map((client, i) => query(client, i)))
+      const held = await bounded(Promise.all(Array.from({ length: max }, () => sql.reserve())), 'reserves of every connection')
+      const results = await bounded(Promise.all(held.map((client, i) => query(client, i))), 'queries on every reserved connection')
       assert.strictEqual(new Set(results.map(x => x[0].pid)).size, max)
       results.forEach((x, i) => assert.strictEqual(x[0].marker, i))
       held.forEach(client => client.release())
     }
   }
+  let failed = false
   try {
     const assigned = sql.reserve()
     const pending = query(sql, 101).execute()
-    const held = await assigned
+    const held = await bounded(assigned, 'reserve on a cold pool')
     assert.strictEqual((await query(held, 102))[0].marker, 102)
     held.release()
-    assert.strictEqual((await pending)[0].marker, 101)
+    assert.strictEqual((await bounded(pending, 'query queued behind the reserve'))[0].marker, 101)
     await capacity()
     if (max === 1) {
       const occupied = await sql.reserve()
@@ -47,10 +49,10 @@ async function combination(postgres, { max, fetch_types, prepare }) {
       const admin = postgres({ host: 'localhost', port: 5432, user: 'postgres', database: 'postgres', max: 1 })
       try {
         await admin`select pg_terminate_backend(${ pid })`
-        const recovered = await first
+        const recovered = await bounded(first, 'first queued reserve after the held backend was terminated')
         assert.strictEqual((await query(recovered, 104))[0].marker, 104)
         recovered.release()
-        const next = await second
+        const next = await bounded(second, 'second queued reserve after the first was released')
         assert.strictEqual((await query(next, 105))[0].marker, 105)
         next.release()
         await capacity()
@@ -58,8 +60,11 @@ async function combination(postgres, { max, fetch_types, prepare }) {
         await admin.end({ timeout: 0 })
       }
     }
+  } catch (error) {
+    failed = true
+    throw error
   } finally {
-    await sql.end({ timeout: 0 })
+    await quiet(sql.end({ timeout: 0 }), failed)
   }
 }
 
@@ -107,7 +112,8 @@ async function preferStandby(postgres) {
     const sql = postgres({ host: ['localhost', 'localhost'], port, user: 'postgres', database: 'postgres', max: 1, fetch_types: false,
                            connect_timeout: 2, target_session_attrs: 'prefer-standby' })
     try {
-      assert.strictEqual((await sql`select pg_is_in_recovery() as recovery`)[0].recovery, false)
+      const [{ recovery }] = await bounded(sql`select pg_is_in_recovery() as recovery`, 'query with prefer-standby and one host down')
+      assert.strictEqual(recovery, false)
     } finally {
       await sql.end({ timeout: 0 })
     }
@@ -226,7 +232,7 @@ async function targetSessionAttrs(postgres) {
   const ports = [await unusedPort(), await unusedPort()]
   const refused = postgres({ ...base, host: ['127.0.0.1', '127.0.0.1'], port: ports, database: 'postgres', connect_timeout: 1, backoff: 0.05 })
   try {
-    const { error, elapsed } = await failure(refused`select 1`)
+    const { error, elapsed } = await bounded(failure(refused`select 1`), 'query with every host refusing', 8000)
     assert.strictEqual(error.code, 'ECONNREFUSED')
     assert(elapsed >= 1500 && elapsed < 4000, 'Refusal must retry until the deadline: ' + elapsed)
   } finally {
@@ -311,6 +317,7 @@ async function staleTransaction(postgres, admin) {
 async function endAfterTerminate(postgres) {
   const admin = postgres({ ...pg, max: 1 })
   const sql = postgres({ ...pg, max: 1 })
+  let failed = false
   try {
     const [{ pid }] = await sql`select pg_backend_pid() as pid`
     const inflight = outcome(sql`select pg_sleep(30)`)
@@ -321,13 +328,17 @@ async function endAfterTerminate(postgres) {
       await sleep(20)
     await admin`select pg_terminate_backend(${ pid })`
     const start = Date.now()
-    assert.strictEqual(await Promise.race([sql.end().then(() => 'resolved'), sleep(3000).then(() => 'hung')]), 'resolved')
+    const ended = await Promise.race([sql.end().then(() => 'resolved'), sleep(3000).then(() => 'hung')])
+    assert.strictEqual(ended, 'resolved', 'sql.end() after the backend was terminated: ' + ended)
     assert(Date.now() - start < 2000, 'end() must not wait on a terminated backend')
     assert.notStrictEqual(await Promise.race([inflight, sleep(1000).then(() => 'hung')]), 'hung')
     assert.notStrictEqual(await inflight, 'resolved')
+  } catch (error) {
+    failed = true
+    throw error
   } finally {
-    await sql.end({ timeout: 0 })
-    await admin.end({ timeout: 0 })
+    await quiet(sql.end({ timeout: 0 }), failed)
+    await quiet(admin.end({ timeout: 0 }), failed)
   }
 }
 

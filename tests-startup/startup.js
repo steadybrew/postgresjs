@@ -2,6 +2,7 @@ import assert from 'assert'
 import net from 'net'
 import { Duplex } from 'stream'
 import { peer, message } from './peer.js'
+import { quiet } from './bounded.js'
 
 const turn = () => new Promise(resolve => setImmediate(resolve))
 const deferred = () => {
@@ -408,6 +409,7 @@ export async function phases(name, postgres, onEvent) {
   const good = goodOptions ? await peer({ ...goodOptions, onEvent }) : null
   const clients = []
   const make = options => clients.push(postgres({ ...base, port: server.port, ...options })) && clients[clients.length - 1]
+  let failed = false
   try {
     if (name === 'stale-ending-lifetime' || name === 'stale-ending-close') {
       const sql = make({ connect_timeout: 2, max_lifetime: name === 'stale-ending-lifetime' ? 0.3 : null })
@@ -491,8 +493,10 @@ export async function phases(name, postgres, onEvent) {
       const hung = settle(sql.unsafe('select hang', [], { simple: true }))
       await until(() => server.events.some(x => x.sql === 'select hang'))
       name === 'fin-inflight' ? server.disconnect() : server.reset()
-      assert.strictEqual((await hung).slice(0, 8), 'rejected')
-      assert.strictEqual(await settle(sql.end()), 'resolved')
+      const queryOutcome = await hung
+      assert.strictEqual(queryOutcome.slice(0, 8), 'rejected', 'in-flight query settled as ' + queryOutcome)
+      const endOutcome = await settle(sql.end())
+      assert.strictEqual(endOutcome, 'resolved', 'sql.end() settled as ' + endOutcome)
     } else if (name === 'gap-query') {
       const factory = tracked(server)
       const sql = make({ connect_timeout: 2, backoff: 0.01, socket: factory.socket })
@@ -563,8 +567,8 @@ export async function phases(name, postgres, onEvent) {
       const seen = attempts
       await sql.end({ timeout: 0 })
       await new Promise(resolve => closing.close(resolve))
+      assert(seen < 200, 'Attempts must stay bounded: ' + seen + ' connection attempts in ' + elapsed + ' ms')
       assert(!results.includes('hang') && elapsed < 2500, 'Every query must settle by connect_timeout: ' + elapsed)
-      assert(seen < 200, 'Attempts must stay bounded: ' + seen)
     } else if (name === 'failover-timeout') {
       const sql = make({ host: ['127.0.0.1', '127.0.0.1'], port: [hold.port, good.port], connect_timeout: 1 })
       assert.strictEqual(await settle(marker(sql), 4000), 'resolved')
@@ -651,7 +655,8 @@ export async function phases(name, postgres, onEvent) {
       const sql = make({ connect_timeout: 2, backoff: 0.01 })
       await marker(sql)
       assert.strictEqual((await settle(sql.unsafe('select 1/0', [], { simple: true }))).slice(0, 8), 'rejected')
-      assert.strictEqual(await settle(marker(sql)), 'resolved')
+      const next = await settle(marker(sql))
+      assert.strictEqual(next, 'resolved', 'the query after the reconnect settled as ' + next)
       assert.strictEqual(startups(server), 2)
       assert.strictEqual(await settle(sql.end()), 'resolved')
     } else if (name === 'fatal-catalog') {
@@ -1179,7 +1184,7 @@ export async function phases(name, postgres, onEvent) {
       const attempts = factory ? calls : startups(server)
       const code = { socket: 'ECONNREFUSED', factory: 'factory denied', server: '28P01',
                      close: 'CONNECTION_CLOSED', timeout: 'CONNECT_TIMEOUT' }[cause]
-      assert.strictEqual(outcome, 'rejected:' + code)
+      assert.strictEqual(outcome, 'rejected:' + code, 'first query settled as ' + outcome + ' after ' + elapsed + ' ms')
       if (multi && cause === 'timeout') {
         assert.strictEqual(attempts, 2)
         assert(elapsed >= 550)
@@ -1244,9 +1249,12 @@ export async function phases(name, postgres, onEvent) {
     } else {
       throw new Error('Unknown phase scenario ' + name)
     }
+  } catch (error) {
+    failed = true
+    throw error
   } finally {
-    await Promise.all(clients.map(x => x.end({ timeout: 0 }).catch(() => { /* Cleanup only. */ })))
-    await server.close()
-    good && await good.close()
+    await quiet(Promise.all(clients.map(x => x.end({ timeout: 0 }).catch(() => undefined))), failed)
+    await quiet(server.close(), failed)
+    good && await quiet(good.close(), failed)
   }
 }

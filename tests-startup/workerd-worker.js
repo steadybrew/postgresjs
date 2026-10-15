@@ -118,7 +118,7 @@ export default {
       , result
     try {
       if (name === 'cold-reserve-false') {
-        const reserved = await sql.reserve()
+        const reserved = await within(sql.reserve(), 2000, 'reserve on a cold pool')
         result = await reserved.unsafe('select 42 as marker', [], { simple: true })
         equal(result[0].marker, 42)
         reserved.release()

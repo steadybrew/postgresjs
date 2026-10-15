@@ -1,6 +1,7 @@
 import assert from 'assert'
 import net from 'net'
 import { peer } from './peer.js'
+import { bounded, quiet } from './bounded.js'
 
 const turn = () => new Promise(resolve => setImmediate(resolve))
 const deferred = () => {
@@ -42,6 +43,7 @@ export async function ownership(name, postgres, onEvent) {
       held.forEach(x => x.release())
     }
   }
+  let failed = false
   try {
     if (mixed) {
       const assigned = sql.reserve()
@@ -65,14 +67,14 @@ export async function ownership(name, postgres, onEvent) {
       const first = sql.reserve()
       const second = sql.reserve()
       server.disconnect()
-      const acquired = await first
+      const acquired = await bounded(first, 'queued reserve after the held backend closed')
       let secondGranted = false
       second.then(() => secondGranted = true)
       await query(acquired)
       await turn()
       assert.strictEqual(secondGranted, false)
       acquired.release()
-      const next = await second
+      const next = await bounded(second, 'second queued reserve after the first was released')
       await query(next)
       next.release()
       await capacity()
@@ -136,8 +138,11 @@ export async function ownership(name, postgres, onEvent) {
       : name === 'assigned-order' || name === 'startup-drain' ? 4
       : name === 'startup-end' ? 0 : 2
     assert.strictEqual(server.events.filter(x => x.type === 'Q').length, expectedQueries, 'Duplicate or missing user dispatch')
+  } catch (error) {
+    failed = true
+    throw error
   } finally {
-    await sql.end({ timeout: 0 })
-    await server.close()
+    await quiet(sql.end({ timeout: 0 }), failed)
+    await quiet(server.close(), failed)
   }
 }
