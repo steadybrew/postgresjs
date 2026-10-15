@@ -5194,9 +5194,9 @@ t('transaction and savepoint handles are not disposable', async() => {
 })
 
 t('using declarations end the pool and release the reservation', async() => {
-  const AsyncFunction = Object.getPrototypeOf(async function() {}).constructor
+  const AsyncFunction = Object.getPrototypeOf(async() => null).constructor
   try {
-    new AsyncFunction('await using x = null')
+    AsyncFunction('await using x = null')
   } catch (e) {
     if (!(e instanceof SyntaxError))
       throw e
