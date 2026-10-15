@@ -2,7 +2,41 @@ import assert from 'assert'
 import net from 'net'
 import { prepareName } from './compat.js'
 
+async function single(postgres, only) {
+  const [name, ...args] = only.split(':')
+  if (name === 'combination') {
+    const [max, fetch_types, prepare] = args
+    return combination(postgres, { max: Number(max), fetch_types: fetch_types === 'true', prepare: prepare === 'true' })
+  }
+  if (name === 'owned') {
+    const admin = postgres({ ...pg, max: 1 })
+    await admin`drop table if exists lease_probe`
+    await admin`create table lease_probe (x int)`
+    try {
+      return await ownedTransaction(postgres, admin, { max_pipeline: Number(args[0]) })
+    } finally {
+      await admin`drop table lease_probe`
+      await admin.end({ timeout: 0 })
+    }
+  }
+  if (name === 'refused') {
+    const ports = [await unusedPort(), await unusedPort()]
+    const refused = postgres({ ...base, host: ['127.0.0.1', '127.0.0.1'], port: ports, database: 'postgres', connect_timeout: 1, backoff: 0.05 })
+    try {
+      const { error, elapsed } = await failure(refused`select 1`)
+      assert.strictEqual(error.code, 'ECONNREFUSED')
+      assert(elapsed >= 1500 && elapsed < 4000, 'Refusal must retry until the deadline: ' + elapsed)
+    } finally {
+      await refused.end({ timeout: 0 })
+    }
+    return
+  }
+  return { firstTypes, preferStandby, endAfterTerminate }[name](postgres)
+}
+
 export async function integration(postgres) {
+  if (process.env.INTEGRATION_ONLY)
+    return single(postgres, process.env.INTEGRATION_ONLY)
   await firstTypes(postgres)
   await cursorReconnect(postgres)
   await preferStandby(postgres)
