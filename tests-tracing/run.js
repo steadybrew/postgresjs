@@ -40,12 +40,8 @@ try {
       results[key(run, variant)] = execute(run, dir)
   }
 
-  const forkPackage = path.join(variants.fork, 'node_modules', 'postgres', 'package.json')
-  const original = readFileSync(forkPackage, 'utf8')
-  writeFileSync(forkPackage, JSON.stringify({ ...JSON.parse(original), version: '3.99.0' }))
   for (const run of runs.filter(x => x.mode === 'sentry-auto'))
-    results[key(run, 'fork as 3.x')] = execute(run, variants.fork)
-  writeFileSync(forkPackage, original)
+    results[key(run, 'fork with sentry-range')] = execute({ ...run, flags: ['--import', './sentry-range.mjs', ...run.flags] }, variants.fork)
 
   const differences = report(results)
   process.exitCode = differences ? 1 : 0
@@ -59,7 +55,7 @@ function install(name, spec) {
   mkdirSync(dir)
   writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ private: true, dependencies: { postgres: spec, ...tracers } }))
   execFileSync('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund', '--no-package-lock', '--silent'], { cwd: dir, stdio: 'inherit' })
-  for (const file of ['harness.mjs', 'entry.mjs', 'entry.cjs'])
+  for (const file of ['harness.mjs', 'entry.mjs', 'entry.cjs', 'sentry-range.mjs'])
     copyFileSync(path.join(here, file), path.join(dir, file))
   return dir
 }

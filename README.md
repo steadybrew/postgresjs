@@ -40,7 +40,23 @@ npm install postgres@npm:@steadybrew/postgresjs@^4
 
 This installs the fork under the name `postgres`, so `import postgres from 'postgres'` stays as it is, and so do libraries that import it, such as `drizzle-orm/postgres-js`, `drizzle-kit` and `kysely-postgres-js`. Then read [Upgrading to 4.0.0](#upgrading-to-400) for the behaviour changes.
 
-Tracing: from 4.5.0, dd-trace records the same database spans as with Postgres.js when the fork is installed under the `postgres` name. Sentry's automatic Postgres.js integration only covers version 3, so use its manual `instrumentPostgresJsSql(sql)` wrapper.
+Tracing: from 4.5.0, dd-trace records the same database spans as with Postgres.js when the fork is installed under the `postgres` name. Sentry's automatic integration instruments `postgres` versions below 4 only, so widen its range before Sentry loads:
+
+```js
+// sentry-postgres.mjs
+import { SENTRY_RUNTIME_INSTRUMENTATIONS } from '@sentry/server-utils/orchestrion/config'
+
+for (const instrumentation of SENTRY_RUNTIME_INSTRUMENTATIONS) {
+  if (instrumentation.module.name === 'postgres')
+    instrumentation.module.versionRange = '>=3.0.0 <5'
+}
+```
+
+```sh
+node --import ./sentry-postgres.mjs --import @sentry/node/import app.js
+```
+
+This covers Sentry's runtime hook, not its bundler plugins. With pnpm, add `@sentry/server-utils` at the same version as `@sentry/node` so the file can import it.
 
 ## Upgrading to 4.0.0
 
