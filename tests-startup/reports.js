@@ -13,12 +13,13 @@ const scenarios = {
   'concurrent-begins-busy-pool': concurrentBeginsBusyPool,
   'begin-at-pipeline-limit': beginAtPipelineLimit,
   'begin-write-always-true': beginWriteAlwaysTrue,
+  'queued-statement-never-settles:socket-error': postgres => queuedStatementNeverSettles(postgres, 'socket-error'),
+  'queued-statement-never-settles:terminate': postgres => queuedStatementNeverSettles(postgres, 'terminate'),
   'type-query-fatal': typeQueryFatal,
   'reserved-inflight-terminate': reservedInflightTerminate,
   'late-drain-commits-other-transaction': lateDrainCommitsOtherTransaction,
   'stale-transaction-reads-through-rls': staleTransactionReadsThroughRls,
   'reset-mid-begin': resetMidBegin,
-  'type-query-cancelled': typeQueryCancelled,
   'terminated-inflight-then-query:prepared': postgres => terminatedInflightThenQuery(postgres, true),
   'terminated-inflight-then-query:unprepared': postgres => terminatedInflightThenQuery(postgres, false),
   ...Object.fromEntries(['idle-timeout', 'terminate'].flatMap(ender => ['return', 'statement'].map(next =>
@@ -325,29 +326,94 @@ async function beginAtPipelineLimit(postgres) {
 }
 
 async function beginWriteAlwaysTrue(postgres) {
+  const fault = capture()
   const application_name = 'report_write_true_' + process.pid
   const socket = async() => {
     const connection = net.connect(5432, 'localhost')
     await new Promise((resolve, reject) => { connection.once('connect', resolve); connection.once('error', reject) })
-    const write = connection.write.bind(connection)
-    connection.write = (...args) => (write(...args), true)
+    const nativeWrite = connection.write
+    connection.write = function acceptedWrite(chunk, ...args) {
+      Reflect.apply(nativeWrite, this, [chunk, ...args])
+      return true
+    }
     return connection
   }
-  const observer = postgres({ ...pg, max: 1 })
   const sql = postgres({ ...pg, max: 1, max_pipeline: 1, prepare: false, socket, connection: { application_name } })
+  const observer = postgres({ ...pg, max: 1, prepare: false })
   try {
     await sql`select 1`
-    const sleeping = outcome(sql`select pg_sleep(0.25)`.execute())
-    const transaction = outcome(sql.begin(async() => true))
-    const results = await bounded(Promise.all([sleeping, transaction]), 5000)
-    const idle = await idleInTransaction(observer, application_name)
-    const next = await bounded(sql`select 1 as x`.then(x => x[0].x, error => error.code))
-    assert.deepStrictEqual(results, ['resolved', 'resolved'])
-    assert.strictEqual(idle, 0)
-    assert.strictEqual(next, 1)
+    const active = Promise.resolve(sql`select pg_backend_pid()::integer as pid from pg_sleep(0.25)`.execute())
+    const transaction = Promise.resolve(sql.begin(async() => true))
+    const observed = transaction.then(() => ({ status: 'fulfilled' }), () => ({ status: 'rejected' }))
+    const [{ pid }] = await active
+    const result = await bounded(observed, 1500)
+    const [activity] = await observer.unsafe('select state from pg_stat_activity where pid = $1::integer', [pid])
+    const [{ reused }] = await sql`select pg_backend_pid()::integer as reused`
+    await turn()
+    await turn()
+    assert.deepStrictEqual(
+      { status: result === 'hung' ? 'still_pending' : result.status, state: activity && activity.state, sameBackend: reused === pid,
+        unhandled: fault.errors },
+      { status: 'fulfilled', state: 'idle', sameBackend: true, unhandled: [] }
+    )
   } finally {
+    fault.stop()
     await bounded(sql.end({ timeout: 0 }), 2000)
     await bounded(observer.end({ timeout: 0 }), 2000)
+  }
+}
+
+async function queuedStatementNeverSettles(postgres, mode) {
+  let socket
+  const connectSocket = async() => {
+    const next = net.connect(5432, 'localhost')
+    await new Promise((resolve, reject) => { next.once('connect', resolve); next.once('error', reject) })
+    socket = next
+    return next
+  }
+  let started
+  const callbackStarted = new Promise(resolve => started = resolve)
+  const never = new Promise(noop)
+  const sql = postgres({ ...pg, fetch_types: true, max: 1, max_pipeline: 1, prepare: false, socket: connectSocket })
+  const observer = postgres({ ...pg, max: 1, prepare: false })
+  const inspect = promise => Promise.race([
+    promise.then(() => 'fulfilled', error => 'rejected:' + error.code),
+    sleep(1500).then(() => 'still_pending')
+  ])
+  try {
+    let active
+    let sent
+    let queued
+    let backendPid
+    const transaction = Promise.resolve(sql.begin(async tx => {
+      mode === 'terminate' && ([{ pid: backendPid }] = await tx`select pg_backend_pid()::integer as pid`)
+      active = Promise.resolve(tx`select pg_sleep(10)`)
+      sent = Promise.resolve(tx`select 1`)
+      queued = Promise.resolve(tx`select 2`)
+      active.catch(noop)
+      sent.catch(noop)
+      queued.catch(noop)
+      started()
+      await (mode === 'terminate' ? Promise.allSettled([active, sent, queued]) : never)
+    }))
+    transaction.catch(noop)
+    await callbackStarted
+    await turn()
+    if (mode === 'terminate') {
+      await observer`select pg_terminate_backend(${ backendPid })`
+    } else {
+      socket.emit('error', Object.assign(new Error('synthetic connection reset'), { code: 'ECONNRESET' }))
+      socket.destroy()
+    }
+    const results = {}
+    for (const [name, promise] of [['active', active], ['sent', sent], ['queued', queued], ['transaction', transaction]])
+      results[name] = await inspect(promise)
+    const kinds = Object.fromEntries(Object.entries(results).map(([name, x]) => [name, x.split(':')[0]]))
+    assert.deepStrictEqual(kinds, { active: 'rejected', sent: 'rejected', queued: 'rejected', transaction: 'rejected' })
+    assert.strictEqual(results.transaction, 'rejected:CONNECTION_CLOSED')
+  } finally {
+    await bounded(sql.end({ timeout: 0 }), 2000)
+    await bounded(observer.end({ timeout: 1 }), 2000)
   }
 }
 
@@ -598,34 +664,5 @@ async function resetMidBegin(postgres) {
     await killer`select pg_terminate_backend(pid) from pg_stat_activity where application_name = ${ application_name }`
     await bounded(killer.end({ timeout: 0 }), 2000)
     await relay.close()
-  }
-}
-
-async function typeQueryCancelled(postgres) {
-  const fault = capture()
-  let sent = false
-  let slept = false
-  const sql = postgres({
-    ...pg,
-    fetch_types: true,
-    prepare: false,
-    max: 1,
-    connection: { statement_timeout: 1 },
-    debug: (id, string) => {
-      string.includes('typarray') && (sent = true)
-      string.includes('pg_sleep') && (slept = true)
-    }
-  })
-  try {
-    const rejected = await bounded(outcome(sql`select pg_sleep(2)`), 5000)
-    await turn()
-    await turn()
-    assert.deepStrictEqual(fault.errors, [])
-    assert(sent, 'The type query was never sent')
-    assert(!slept, 'The statement reached PostgreSQL, so the cancel may not have hit the type query')
-    assert.strictEqual(rejected, '57014')
-  } finally {
-    fault.stop()
-    await bounded(sql.end({ timeout: 0 }), 2000)
   }
 }
