@@ -118,7 +118,7 @@ async function reservedAfterTerminate(postgres) {
     const reserved = await sql.reserve()
     const [{ pid }] = await reserved`select pg_backend_pid() as pid`
     await killer`select pg_terminate_backend(${ pid }, 5000)`
-    await gone
+    await bounded(gone)
     const first = code(await bounded(outcome(reserved`select 1`)))
     const second = code(await bounded(outcome(reserved`select 1`), 2000))
     reserved.release()
@@ -130,8 +130,8 @@ async function reservedAfterTerminate(postgres) {
     assert.strictEqual(after, 1)
   } finally {
     fault.stop()
-    await sql.end({ timeout: 0 })
-    await killer.end({ timeout: 0 })
+    await bounded(sql.end({ timeout: 0 }), 2000)
+    await bounded(killer.end({ timeout: 0 }), 2000)
   }
 }
 
@@ -159,8 +159,8 @@ async function beginTerminatedMidstatement(postgres, prepare) {
     assert.strictEqual(after, 1)
   } finally {
     fault.stop()
-    await sql.end({ timeout: 0 })
-    await killer.end({ timeout: 0 })
+    await bounded(sql.end({ timeout: 0 }), 2000)
+    await bounded(killer.end({ timeout: 0 }), 2000)
   }
 }
 
@@ -190,9 +190,9 @@ async function beginNetworkCut(postgres) {
     assert.strictEqual(after, 1)
   } finally {
     fault.stop()
-    await sql.end({ timeout: 0 })
+    await bounded(sql.end({ timeout: 0 }), 2000)
     await killer`select pg_terminate_backend(pid) from pg_stat_activity where application_name = ${ application_name }`
-    await killer.end({ timeout: 0 })
+    await bounded(killer.end({ timeout: 0 }), 2000)
     await cut.close()
   }
 }
@@ -211,7 +211,7 @@ async function connectTimeout(postgres, target_session_attrs, silentFirst) {
     const pid = await bounded(sql`select pg_backend_pid() as pid`.then(x => x[0].pid, error => error.code), 5000)
     assert(Number.isInteger(pid) && pid > 0, 'Expected a backend pid, got ' + pid)
   } finally {
-    await sql.end({ timeout: 0 })
+    await bounded(sql.end({ timeout: 0 }), 2000)
     await dead.close()
   }
 }
@@ -232,7 +232,7 @@ async function connectTimeoutBusyPool(postgres) {
     )), 8000)
     assert.deepStrictEqual(results, Array(20).fill('resolved'))
   } finally {
-    await sql.end({ timeout: 0 })
+    await bounded(sql.end({ timeout: 0 }), 2000)
     await dead.close()
   }
 }
@@ -255,8 +255,12 @@ async function withItems(postgres, fn) {
   try {
     await fn(admin)
   } finally {
+    await admin`
+      select pg_terminate_backend(pid) from pg_stat_activity
+      where datname = current_database() and pid <> pg_backend_pid() and state like 'idle in transaction%'
+    `
     await admin`drop table report_items`
-    await admin.end({ timeout: 0 })
+    await bounded(admin.end({ timeout: 0 }), 2000)
   }
 }
 
@@ -283,7 +287,7 @@ async function concurrentBeginsBusyPool(postgres) {
       }
       assert.deepStrictEqual(notices.filter(x => x === '25001'), [])
     } finally {
-      await sql.end({ timeout: 0 })
+      await bounded(sql.end({ timeout: 0 }), 2000)
     }
   })
 }
@@ -308,7 +312,7 @@ async function beginAtPipelineLimit(postgres) {
       assert.strictEqual(await idleInTransaction(admin, application_name), 0)
       assert.deepStrictEqual(notices.filter(x => x === '25001'), [])
     } finally {
-      await sql.end({ timeout: 0 })
+      await bounded(sql.end({ timeout: 0 }), 2000)
     }
   })
 }
@@ -334,8 +338,8 @@ async function beginWriteAlwaysTrue(postgres) {
     assert.strictEqual(idle, 0)
     assert.strictEqual(next, 1)
   } finally {
-    await sql.end({ timeout: 0 })
-    await observer.end({ timeout: 0 })
+    await bounded(sql.end({ timeout: 0 }), 2000)
+    await bounded(observer.end({ timeout: 0 }), 2000)
   }
 }
 
@@ -363,7 +367,7 @@ async function typeQueryFatal(postgres) {
     assert.strictEqual(ended, 'resolved')
   } finally {
     fault.stop()
-    await sql.end({ timeout: 0 })
+    await bounded(sql.end({ timeout: 0 }), 2000)
     await relay.close()
   }
 }
@@ -401,8 +405,8 @@ async function beginAfterSessionEnded(postgres, ender, next) {
     assert.strictEqual(after, 1)
   } finally {
     fault.stop()
-    await sql.end({ timeout: 0 })
-    await killer.end({ timeout: 0 })
+    await bounded(sql.end({ timeout: 0 }), 2000)
+    await bounded(killer.end({ timeout: 0 }), 2000)
   }
 }
 
@@ -427,8 +431,8 @@ async function reservedInflightTerminate(postgres) {
     assert.strictEqual(ended, 'resolved')
   } finally {
     fault.stop()
-    await sql.end({ timeout: 0 })
-    await killer.end({ timeout: 0 })
+    await bounded(sql.end({ timeout: 0 }), 2000)
+    await bounded(killer.end({ timeout: 0 }), 2000)
   }
 }
 
@@ -477,7 +481,7 @@ async function lateDrainCommitsOtherTransaction(postgres) {
       assert.strictEqual(stored, 0)
     } finally {
       gate()
-      await sql.end({ timeout: 0 })
+      await bounded(sql.end({ timeout: 0 }), 2000)
     }
   })
 }
@@ -525,9 +529,9 @@ async function staleTransactionReadsThroughRls(postgres) {
     assert.strictEqual(staleRead, 'CONNECTION_CLOSED')
   } finally {
     release()
-    await sql.end({ timeout: 0 })
+    await bounded(sql.end({ timeout: 0 }), 2000)
     await admin`drop table if exists report_rls`
-    await admin.end({ timeout: 0 })
+    await bounded(admin.end({ timeout: 0 }), 2000)
   }
 }
 
@@ -548,8 +552,8 @@ async function terminatedInflightThenQuery(postgres, prepare) {
     assert.strictEqual(next, 1)
   } finally {
     fault.stop()
-    await sql.end({ timeout: 0 })
-    await killer.end({ timeout: 0 })
+    await bounded(sql.end({ timeout: 0 }), 2000)
+    await bounded(killer.end({ timeout: 0 }), 2000)
   }
 }
 
@@ -582,9 +586,9 @@ async function resetMidBegin(postgres) {
     assert.deepStrictEqual(rounds, [10, 10])
     assert.strictEqual(ended, 'resolved')
   } finally {
-    await sql.end({ timeout: 0 })
+    await bounded(sql.end({ timeout: 0 }), 2000)
     await killer`select pg_terminate_backend(pid) from pg_stat_activity where application_name = ${ application_name }`
-    await killer.end({ timeout: 0 })
+    await bounded(killer.end({ timeout: 0 }), 2000)
     await relay.close()
   }
 }
@@ -609,6 +613,6 @@ async function typeQueryCancelled(postgres) {
     assert.strictEqual(rejected, '57014')
   } finally {
     fault.stop()
-    await sql.end({ timeout: 0 })
+    await bounded(sql.end({ timeout: 0 }), 2000)
   }
 }
