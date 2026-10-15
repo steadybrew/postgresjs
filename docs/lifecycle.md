@@ -253,4 +253,3 @@ To check a test against upstream, copy the tree, replace `src/` with `git show 4
 1. `cancelRequest` always dials the first host and port, which is wrong after a multi-host failover has moved the session to another host.
 2. `onopen` takes a share of queued queries as `ceil(queries / (connecting + 1))` while the handed-off connection is still counted in `connecting`, so it counts itself twice. The formula comes from upstream.
 3. A function-valued `idle_timeout` or `max_lifetime` is evaluated once per connection, not once per session.
-4. Identical queries without values sent together on a connection that has not run them each prepare their own statement, and the extras stay open until the connection closes. Recording a statement when its Parse is written, instead of when its ParameterDescription arrives, would let them share it without holding anything back.
