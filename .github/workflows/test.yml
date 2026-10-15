@@ -93,6 +93,53 @@ jobs:
       - run: npm install --no-save eslint@8.57.1
       - run: npm run lint
 
+  upstream:
+    name: Report reproductions on upstream 3.4.9, Node ${{ matrix.node }}
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['24', '26']
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/setup-postgres
+        with:
+          version: '17'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - run: node tests/bootstrap.js
+      - name: Put the upstream 3.4.9 sources in place
+        run: |
+          for f in $(git ls-tree --name-only 411429e src/); do git show 411429e:$f > $f; done
+          git status --short
+      - name: Reports
+        run: node tests-startup/run.js --reports | tee reports.jsonl || true
+      - name: Reports that pass on upstream
+        run: node .github/upstream-check.mjs reports.jsonl
+      - name: Lease cases
+        if: always()
+        run: node tests-startup/run.js --leases | tee leases.jsonl || true
+      - name: Lease cases that pass on upstream
+        if: always()
+        run: node .github/upstream-check.mjs leases.jsonl begin-queued-reset begin-inflight-end begin-inflight-end-reset
+      - name: Queued query at end
+        if: always()
+        run: node .github/upstream-case.mjs phase:end-queued-cold | tee phase.jsonl
+      - name: Queued query at end passes on upstream
+        if: always()
+        run: node .github/upstream-check.mjs phase.jsonl phase:end-queued-cold
+      - name: Arrays without fetching types
+        if: always()
+        run: |
+          sed -i "s/^t('arrays are sent and read back/ot('arrays are sent and read back/" tests/index.js
+          node tests/index.js 2>&1 | tee arrays.log || true
+          if grep -q '✅' arrays.log; then echo 'PASSED ON UPSTREAM'; exit 1; fi
+
   publish:
     name: Stage on npm
     if: startsWith(github.ref, 'refs/tags/v')
