@@ -17,6 +17,7 @@ const scenarios = {
   'reserved-inflight-terminate': reservedInflightTerminate,
   'late-drain-commits-other-transaction': lateDrainCommitsOtherTransaction,
   'stale-transaction-reads-through-rls': staleTransactionReadsThroughRls,
+  'reset-mid-begin': resetMidBegin,
   'terminated-inflight-then-query:prepared': postgres => terminatedInflightThenQuery(postgres, true),
   'terminated-inflight-then-query:unprepared': postgres => terminatedInflightThenQuery(postgres, false),
   ...Object.fromEntries(['idle-timeout', 'terminate'].flatMap(ender => ['return', 'statement'].map(next =>
@@ -82,6 +83,7 @@ async function proxy(intercept) {
   return {
     port: server.address().port,
     destroy,
+    resetAndDestroy: () => pairs.forEach(([client, upstream]) => (client.resetAndDestroy(), upstream.destroy())),
     close: async() => {
       destroy()
       await new Promise(resolve => server.close(resolve))
@@ -547,5 +549,41 @@ async function terminatedInflightThenQuery(postgres, prepare) {
     fault.stop()
     await sql.end({ timeout: 0 })
     await killer.end({ timeout: 0 })
+  }
+}
+
+async function resetMidBegin(postgres) {
+  const killer = postgres({ ...pg, max: 1 })
+  const relay = await proxy()
+  const application_name = 'report_reset_' + process.pid
+  const sql = postgres({ ...pg, host: '127.0.0.1', port: relay.port, max: 10, connection: { application_name } })
+  try {
+    let pidSeen
+    const pidKnown = new Promise(resolve => pidSeen = resolve)
+    const result = outcome(sql.begin(async t => {
+      const [{ pid }] = await t`select pg_backend_pid() as pid`
+      const running = t`select pg_sleep(30)`.execute()
+      pidSeen(pid)
+      await running
+    }))
+    await active(killer, await pidKnown)
+    relay.resetAndDestroy()
+    const rejected = code(await bounded(result))
+    const rounds = []
+    for (let round = 0; round < 2; round++) {
+      const pids = await bounded(Promise.all(Array.from({ length: 10 }, () =>
+        sql`select pg_backend_pid() as pid, pg_sleep(0.2)`.then(x => x[0].pid, error => error.code)
+      )), 8000)
+      rounds.push(Array.isArray(pids) ? new Set(pids).size : pids)
+    }
+    const ended = await bounded(sql.end().then(() => 'resolved'), 5000)
+    assert.strictEqual(rejected, 'CONNECTION_CLOSED')
+    assert.deepStrictEqual(rounds, [10, 10])
+    assert.strictEqual(ended, 'resolved')
+  } finally {
+    await sql.end({ timeout: 0 })
+    await killer`select pg_terminate_backend(pid) from pg_stat_activity where application_name = ${ application_name }`
+    await killer.end({ timeout: 0 })
+    await relay.close()
   }
 }
