@@ -1,5 +1,26 @@
 # Changelog
 
+## v4.5.0-rc1 - 2026-10-15
+
+Queries with values can now take one round trip instead of two. Also adds Node.js 22 support and `await using`. Nothing breaks for code that doesn't opt in.
+
+### Behavior changes
+
+- **The types need `@types/node` 22 or newer, or `skipLibCheck`.** With older `@types/node`, the new `Symbol.asyncDispose` members fail to compile (TS2550).
+
+### Features
+
+- **Queries with values can take one round trip instead of two, with `parameter_types: 'client'`.** Each value is serialized from its JavaScript type and PostgreSQL parses it, instead of Postgres.js first asking PostgreSQL for the placeholder's type. It matters most with `prepare: false` behind PgBouncer, Supavisor or Hyperdrive, where every query with values paid the extra round trip. Some values are stored differently, for example a string sent to a `jsonb` column is parsed as JSON and `'t'` sent to a `boolean` column is true; see [Parameter types](README.md#parameter-types). Planned as the default in 5.0. Refs #41. Addresses porsager/postgres#1225, porsager/postgres#1139 and porsager/postgres#858.
+- **`parameter_types: 'warn'` reports the queries `'client'` would send differently,** without changing what is sent. Run it in staging or production before switching. Refs #42, #43.
+- **Queries whose values are all booleans, bigints, `Date`s, `Buffer`s or `sql.typed()` values with a type take one round trip in every mode.** Postgres.js no longer asks PostgreSQL for their types first. Refs #41.
+- **Node.js 22 is supported.** The minimum was 24. Node 22 is maintained until April 2027.
+- **`await using sql = postgres()` ends the pool, and `using reserved = await sql.reserve()` releases the connection, when they go out of scope.** Transaction handles, cursors, `listen` and `subscribe` are not disposable; `sql.begin()` and `for await` already scope the first two. Closes #52. Closes porsager/postgres#886 and porsager/postgres#1094.
+
+### Fixes
+
+- **dd-trace records Postgres.js spans again when the fork is installed as `postgres`.** Since 4.1.0 it recorded none, and `sql.reserve()` queries and the BEGIN, COMMIT and ROLLBACK around transactions had none either. Sentry's automatic integration, enabled for 4.x as the [README](README.md#switching-from-postgresjs) shows, again records the server address on a connection's first query.
+- **Code that assigns `err.stack` on a query error no longer throws on Node 22 and newer.** The stack was read-only, so error reporters and retry frameworks that rewrite it failed with `TypeError: Cannot assign to read only property 'stack'`, or kept the old stack outside strict mode. Closes #57. Fixes porsager/postgres#1227.
+
 ## v4.4.1 - 2026-10-12
 
 Fixes a hang that 4.4.0 introduced for code that queries while its own COPY is still open, and a delay of up to about 10 seconds in `sql.subscribe()` on PostgreSQL 16 and later. No API changes.
