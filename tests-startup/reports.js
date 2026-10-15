@@ -17,6 +17,8 @@ const scenarios = {
   'reserved-inflight-terminate': reservedInflightTerminate,
   'late-drain-commits-other-transaction': lateDrainCommitsOtherTransaction,
   'stale-transaction-reads-through-rls': staleTransactionReadsThroughRls,
+  'terminated-inflight-then-query:prepared': postgres => terminatedInflightThenQuery(postgres, true),
+  'terminated-inflight-then-query:unprepared': postgres => terminatedInflightThenQuery(postgres, false),
   ...Object.fromEntries(['idle-timeout', 'terminate'].flatMap(ender => ['return', 'statement'].map(next =>
     ['begin-after-session-ended:' + ender + ':' + next, postgres => beginAfterSessionEnded(postgres, ender, next)])))
 }
@@ -523,5 +525,27 @@ async function staleTransactionReadsThroughRls(postgres) {
     await sql.end({ timeout: 0 })
     await admin`drop table if exists report_rls`
     await admin.end({ timeout: 0 })
+  }
+}
+
+async function terminatedInflightThenQuery(postgres, prepare) {
+  const fault = capture()
+  const killer = postgres({ ...pg, max: 1 })
+  const sql = postgres({ ...pg, max: 1, prepare })
+  try {
+    const [{ pid }] = await sql`select pg_backend_pid() as pid`
+    const held = outcome(sql`select pg_sleep(30)`.execute())
+    await active(killer, pid)
+    await killer`select pg_terminate_backend(${ pid }, 5000)`
+    const inflight = code(await bounded(held))
+    const next = await bounded(sql`select 1 as x`.then(x => x[0].x, error => error.code))
+    await turn()
+    assert.deepStrictEqual(fault.errors, [])
+    assert.strictEqual(inflight, 'CONNECTION_CLOSED')
+    assert.strictEqual(next, 1)
+  } finally {
+    fault.stop()
+    await sql.end({ timeout: 0 })
+    await killer.end({ timeout: 0 })
   }
 }
