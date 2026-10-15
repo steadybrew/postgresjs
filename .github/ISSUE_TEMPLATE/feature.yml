@@ -1,0 +1,20 @@
+name: Feature request
+description: Something the driver should do that it doesn't
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What you're trying to do
+      description: The problem, not the solution. What does your code do today to work around it?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would help
+  - type: input
+    id: upstream
+    attributes:
+      label: Upstream issue
+      description: The porsager/postgres issue asking for the same thing, if there is one

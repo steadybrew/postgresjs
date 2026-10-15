@@ -1,0 +1,46 @@
+name: Bug report
+description: Something doesn't work as documented
+labels: [bug]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Output of `npm ls @steadybrew/postgresjs postgres`
+    validations:
+      required: true
+  - type: input
+    id: runtime
+    attributes:
+      label: Runtime
+      placeholder: Node.js 24.10, Deno 1.46, Bun 1.3 or Cloudflare Workers
+    validations:
+      required: true
+  - type: input
+    id: postgres
+    attributes:
+      label: PostgreSQL
+      description: Version, and any pooler or platform in between
+      placeholder: PostgreSQL 17 through Supavisor in transaction mode, on Vercel
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: The smallest code that shows the problem, with the options passed to `postgres()`
+      render: js
+    validations:
+      required: true
+  - type: textarea
+    id: behaviour
+    attributes:
+      label: What happens and what you expected
+      description: Include the full error, its `code` and its `cause` if there is one
+    validations:
+      required: true
+  - type: input
+    id: upstream
+    attributes:
+      label: Upstream issue
+      description: The porsager/postgres issue for the same bug, if there is one
