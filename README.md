@@ -71,19 +71,19 @@ See the [changelog](./CHANGELOG.md#breaking-changes-and-migration) for the full 
 
 ## Fixed Postgres.js issues
 
-Upstream issues on [porsager/postgres](https://github.com/porsager/postgres/issues) that this fork fixes, and the version that fixed them. Each fix has a test that reproduces the report. The [changelog](./CHANGELOG.md) has the details.
+Upstream issues on [porsager/postgres](https://github.com/porsager/postgres/issues) that this fork fixes, and the version that fixed them. Each fix has a test that reproduces the report, except [#1100](https://github.com/porsager/postgres/issues/1100), which rests on a production measurement, and [#1154](https://github.com/porsager/postgres/issues/1154), whose test reproduces the reported stack without a known trigger. The [changelog](./CHANGELOG.md) has the details.
 
 <details>
-<summary>40 bugs and 4 feature requests</summary>
+<summary>39 bugs and 4 feature requests</summary>
 
 **Wrong results and data safety**
 
 | Issue | What happens now | Since |
 | --- | --- | --- |
 | [#1082](https://github.com/porsager/postgres/issues/1082), [#729](https://github.com/porsager/postgres/issues/729) | A query whose values fail to serialize rejects on its own; the query running alongside no longer gets its error, and the next query no longer gets another query's rows | 4.3.0 |
-| [#1216](https://github.com/porsager/postgres/issues/1216) | A transaction handle whose connection closed can't run on a reconnected session, so it can't read another user's rows through RLS | 4.0.0 |
+| [#1216](https://github.com/porsager/postgres/issues/1216) | A transaction handle whose connection closed rejects with `CONNECTION_CLOSED` instead of running inside the next user's transaction, so it can't read their rows through row-level security. | 4.0.0 |
 | [#1248](https://github.com/porsager/postgres/issues/1248) | Statements in a `sql.begin()` callback after its connection closes reject instead of running outside the transaction | 4.0.0 |
-| [#1204](https://github.com/porsager/postgres/issues/1204) | A transaction's connection is never handed to another transaction | 4.0.0 |
+| [#1204](https://github.com/porsager/postgres/issues/1204) | A transaction's connection is not handed to another `sql.begin()` when its socket drains late, so one transaction's `COMMIT` can't commit another's unfinished writes. | 4.0.0 |
 | [#1217](https://github.com/porsager/postgres/issues/1217) | `sql.begin()` rejects with `TRANSACTION_ROLLED_BACK` when the server rolled back the COMMIT | 4.4.0 |
 | [#1249](https://github.com/porsager/postgres/issues/1249), [#1226](https://github.com/porsager/postgres/issues/1226), [#1223](https://github.com/porsager/postgres/issues/1223) | The first query after a reconnect no longer rejects with an error from the closed session | 4.0.0 |
 | [#789](https://github.com/porsager/postgres/issues/789) | `sql.array()` infers the right array type on first use | 4.0.0 |
@@ -96,7 +96,7 @@ Upstream issues on [porsager/postgres](https://github.com/porsager/postgres/issu
 | [#1195](https://github.com/porsager/postgres/issues/1195), [#1199](https://github.com/porsager/postgres/issues/1199) | A reservation survives its connection being terminated by the server, and the pool recovers after it is released | 4.0.0 |
 | [#1186](https://github.com/porsager/postgres/issues/1186) | Queries queued on a reserved or transaction handle settle when its connection closes | 4.0.0 |
 | [#1097](https://github.com/porsager/postgres/issues/1097), [#1130](https://github.com/porsager/postgres/issues/1130), [#1242](https://github.com/porsager/postgres/issues/1242), [#861](https://github.com/porsager/postgres/issues/861) | `sql.end()` resolves after a disconnect, after a failed query and after a connection closes inside `sql.begin()`, and waits for queries queued in the pool | 4.0.0 |
-| [#1246](https://github.com/porsager/postgres/issues/1246) | A query sent between a socket error and its close settles | 4.1.0 |
+| [#1246](https://github.com/porsager/postgres/issues/1246) | A query sent between a socket error and its close settles, and a transaction reset mid-statement no longer loses a pool connection | 4.1.0 |
 | [#1193](https://github.com/porsager/postgres/issues/1193) | A connection closed during startup settles its first query instead of reconnecting in a tight loop | 4.0.0 |
 | [#1234](https://github.com/porsager/postgres/issues/1234) | Concurrent queries in `sql.begin()` after a column type change roll the transaction back and return the connection to the pool | 4.4.0 |
 
@@ -104,7 +104,7 @@ Upstream issues on [porsager/postgres](https://github.com/porsager/postgres/issu
 
 | Issue | What happens now | Since |
 | --- | --- | --- |
-| [#1066](https://github.com/porsager/postgres/issues/1066), [#1154](https://github.com/porsager/postgres/issues/1154), [#1208](https://github.com/porsager/postgres/issues/1208), [#1133](https://github.com/porsager/postgres/issues/1133) | A reserved or transaction handle whose backend died rejects its statements instead of throwing an uncaught exception | 4.0.0 |
+| [#1154](https://github.com/porsager/postgres/issues/1154), [#1208](https://github.com/porsager/postgres/issues/1208), [#1133](https://github.com/porsager/postgres/issues/1133) | A reserved or transaction connection that the server or network closes rejects its later statements, and `sql.begin()`'s own `ROLLBACK` or `COMMIT`, with `CONNECTION_CLOSED` instead of crashing the process with `Cannot read properties of null (reading 'write')`. | 4.0.0 |
 | [#1192](https://github.com/porsager/postgres/issues/1192), [#1205](https://github.com/porsager/postgres/issues/1205), [#1086](https://github.com/porsager/postgres/issues/1086) | A failed or cancelled type query at startup rejects the query instead of crashing the process | 4.0.0 |
 | [#1088](https://github.com/porsager/postgres/issues/1088) | Timers no longer fail on Cloudflare Workers | 4.0.0 |
 
@@ -119,7 +119,7 @@ Upstream issues on [porsager/postgres](https://github.com/porsager/postgres/issu
 
 | Issue | What happens now | Since |
 | --- | --- | --- |
-| [#823](https://github.com/porsager/postgres/issues/823), [#1189](https://github.com/porsager/postgres/issues/1189), [#1210](https://github.com/porsager/postgres/issues/1210) | `sql.begin()` no longer fails with `UNSAFE_TRANSACTION` under write backpressure or with `max_pipeline: 0` | 4.0.0 |
+| [#823](https://github.com/porsager/postgres/issues/823), [#1189](https://github.com/porsager/postgres/issues/1189), [#1210](https://github.com/porsager/postgres/issues/1210) | `sql.begin()` no longer fails with `UNSAFE_TRANSACTION` or sends a second `BEGIN` on a busy connection when transactions and queries run concurrently, at the pipeline limit, under write backpressure or with `max_pipeline: 0` | 4.0.0 |
 | [#1063](https://github.com/porsager/postgres/issues/1063) | `onnotice: false` silences notices | 4.4.0 |
 | [#1087](https://github.com/porsager/postgres/issues/1087) | `sql.subscribe()` no longer adds a listener on each subscribe or loses changes after a transform throws | 4.4.0 |
 
@@ -129,7 +129,9 @@ Upstream issues on [porsager/postgres](https://github.com/porsager/postgres/issu
 | --- | --- | --- |
 | [#443](https://github.com/porsager/postgres/issues/443), [#908](https://github.com/porsager/postgres/issues/908) | `sql.stats()` reports connections in use and idle, and queries waiting | 4.3.0 |
 | [#1100](https://github.com/porsager/postgres/issues/1100) | An `onidle` callback and the `@steadybrew/postgresjs/vercel` adapter | 4.2.0 |
-| [#1164](https://github.com/porsager/postgres/issues/1164) | Built-in array types are decoded with `fetch_types: false` | 4.0.0 |
+| [#1164](https://github.com/porsager/postgres/issues/1164) | Built-in array types are decoded, and plain JavaScript arrays are sent, with `fetch_types: false` | 4.0.0 |
+
+Bun isn't tested here, so Bun-only reports such as [#1066](https://github.com/porsager/postgres/issues/1066) aren't listed; the same crash on Node is [#1208](https://github.com/porsager/postgres/issues/1208).
 
 </details>
 
