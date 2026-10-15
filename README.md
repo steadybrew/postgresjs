@@ -71,7 +71,7 @@ See the [changelog](./CHANGELOG.md#breaking-changes-and-migration) for the full 
 
 ## Fixed Postgres.js issues
 
-Upstream issues on [porsager/postgres](https://github.com/porsager/postgres/issues) that this fork fixes, and the version that fixed them. Each fix has a test that reproduces the report. The [changelog](./CHANGELOG.md) has the details.
+Upstream issues on [porsager/postgres](https://github.com/porsager/postgres/issues) that this fork fixes, and the version that fixed them. Each fix has a test that reproduces the report, except [#1100](https://github.com/porsager/postgres/issues/1100), which rests on a production measurement, and [#1154](https://github.com/porsager/postgres/issues/1154), whose test reproduces the reported stack without a known trigger. The [changelog](./CHANGELOG.md) has the details.
 
 <details>
 <summary>39 bugs and 4 feature requests</summary>
