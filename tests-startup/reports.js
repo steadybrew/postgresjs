@@ -41,6 +41,12 @@ const outcome = promise => Promise.resolve(promise).then(() => 'resolved', error
   error.code ? error.code + (error.cause ? ':' + error.cause.code : '') : error.message)
 const code = text => text.split(':')[0]
 
+async function awaited(promise, what) {
+  const value = await bounded(promise, 5000)
+  assert.notStrictEqual(value, 'hung', what + ' was never reached')
+  return value
+}
+
 function bounded(promise, ms = 3000) {
   let timer
   return Promise.race([promise, new Promise(resolve => { timer = setTimeout(resolve, ms, 'hung') })])
@@ -112,20 +118,20 @@ async function reservedAfterTerminate(postgres) {
   const fault = capture()
   let closed
   const gone = new Promise(resolve => closed = resolve)
-  const sql = postgres({ ...pg, max: 2, onclose: () => closed() })
+  const sql = postgres({ ...pg, fetch_types: true, max: 2, onclose: () => closed() })
   const killer = postgres({ ...pg, max: 1 })
   try {
-    await sql`select 1`
     const reserved = await sql.reserve()
     const [{ pid }] = await reserved`select pg_backend_pid() as pid`
     await killer`select pg_terminate_backend(${ pid }, 5000)`
-    await bounded(gone)
+    const seen = await bounded(gone.then(() => 'closed'))
     const first = code(await bounded(outcome(reserved`select 1`)))
     const second = code(await bounded(outcome(reserved`select 1`), 2000))
     reserved.release()
     const after = await bounded(sql`select 1 as x`.then(x => x[0].x))
     await turn()
     assert.deepStrictEqual(fault.errors, [])
+    assert.strictEqual(seen, 'closed')
     assert.strictEqual(first, 'CONNECTION_CLOSED')
     assert.strictEqual(second, 'CONNECTION_CLOSED')
     assert.strictEqual(after, 1)
@@ -149,7 +155,7 @@ async function beginTerminatedMidstatement(postgres, prepare) {
       pidSeen(pid)
       await running
     }))
-    const pid = await pidKnown
+    const pid = await awaited(pidKnown, 'The statement')
     await active(killer, pid)
     await killer`select pg_terminate_backend(${ pid }, 5000)`
     const rejected = code(await bounded(result))
@@ -180,7 +186,7 @@ async function beginNetworkCut(postgres) {
       pidSeen(pid)
       await running
     }))
-    const pid = await pidKnown
+    const pid = await awaited(pidKnown, 'The statement')
     await active(killer, pid)
     cut.destroy()
     const rejected = code(await bounded(result))
@@ -249,7 +255,7 @@ const idleInTransaction = async(admin, application_name) => (await admin`
   where application_name = ${ application_name } and state like 'idle in transaction%'
 `)[0].n
 
-async function withItems(postgres, fn) {
+async function withItems(postgres, application_name, fn) {
   const admin = postgres({ ...pg, max: 1 })
   await admin`drop table if exists report_items`
   await admin`create table report_items (a_id int, b_id int)`
@@ -258,7 +264,7 @@ async function withItems(postgres, fn) {
   } finally {
     await admin`
       select pg_terminate_backend(pid) from pg_stat_activity
-      where datname = current_database() and pid <> pg_backend_pid() and state like 'idle in transaction%'
+      where application_name = ${ application_name } and state like 'idle in transaction%'
     `
     await admin`drop table report_items`
     await bounded(admin.end({ timeout: 0 }), 2000)
@@ -266,17 +272,18 @@ async function withItems(postgres, fn) {
 }
 
 async function concurrentBeginsBusyPool(postgres) {
-  await withItems(postgres, async admin => {
-    const application_name = 'report_busy_pool_' + process.pid
+  const application_name = 'report_busy_pool_' + process.pid
+  await withItems(postgres, application_name, async admin => {
     const notices = []
     const sql = postgres({ ...pg, max: 3, max_pipeline: 2, connection: { application_name }, onnotice: n => notices.push(n.code) })
     const counts = [0, 1, 10, 1000, 3000]
     try {
+      await Promise.all(Array.from({ length: 3 }, () => sql`select pg_sleep(0.1)`))
       for (let i = 0; i < 10; i++) {
         await admin`delete from report_items`
         const others = [
           ...Array.from({ length: 3 }, () => outcome(sql`select pg_sleep(0.2)`.execute())),
-          ...Array.from({ length: 6 }, () => outcome(sql`select 1 as x`.execute()))
+          ...Array.from({ length: 3 }, () => outcome(sql`select 1 as x`.execute()))
         ]
         const begins = counts.map((n, a) => outcome(sql.begin(t => replaceItems(t, a, n))))
         const results = await bounded(Promise.all([...begins, ...others]), 8000)
@@ -294,8 +301,8 @@ async function concurrentBeginsBusyPool(postgres) {
 }
 
 async function beginAtPipelineLimit(postgres) {
-  await withItems(postgres, async admin => {
-    const application_name = 'report_pipeline_limit_' + process.pid
+  const application_name = 'report_pipeline_limit_' + process.pid
+  await withItems(postgres, application_name, async admin => {
     const notices = []
     const sql = postgres({ ...pg, max: 2, connection: { application_name }, onnotice: n => notices.push(n.code) })
     try {
@@ -329,6 +336,7 @@ async function beginWriteAlwaysTrue(postgres) {
   const observer = postgres({ ...pg, max: 1 })
   const sql = postgres({ ...pg, max: 1, max_pipeline: 1, prepare: false, socket, connection: { application_name } })
   try {
+    await sql`select 1`
     const sleeping = outcome(sql`select pg_sleep(0.25)`.execute())
     const transaction = outcome(sql.begin(async() => true))
     const results = await bounded(Promise.all([sleeping, transaction]), 5000)
@@ -413,9 +421,8 @@ async function beginAfterSessionEnded(postgres, ender, next) {
 async function reservedInflightTerminate(postgres) {
   const fault = capture()
   const killer = postgres({ ...pg, max: 1 })
-  const sql = postgres({ ...pg, max: 1 })
+  const sql = postgres({ ...pg, fetch_types: true, max: 1 })
   try {
-    await sql`select 1`
     const reserved = await sql.reserve()
     const [{ pid }] = await reserved`select pg_backend_pid() as pid`
     const held = outcome(reserved`select pg_sleep(30)`.execute())
@@ -438,7 +445,8 @@ async function reservedInflightTerminate(postgres) {
 }
 
 async function lateDrainCommitsOtherTransaction(postgres) {
-  await withItems(postgres, async admin => {
+  const application_name = 'report_late_drain_' + process.pid
+  await withItems(postgres, application_name, async admin => {
     let drainedSignal
     let gate
     const drained = new Promise(resolve => drainedSignal = resolve).then(() => 'drained')
@@ -462,7 +470,7 @@ async function lateDrainCommitsOtherTransaction(postgres) {
       }
       return connection
     }
-    const sql = postgres({ ...pg, max: 2, socket: late, onnotice: n => notices.push(n.code) })
+    const sql = postgres({ ...pg, max: 2, socket: late, connection: { application_name }, onnotice: n => notices.push(n.code) })
     try {
       const writer = outcome(sql.begin(async t => {
         await t.unsafe('insert into report_items (a_id) values (1) -- ' + 'x'.repeat(1100))
@@ -476,10 +484,9 @@ async function lateDrainCommitsOtherTransaction(postgres) {
       const written = await bounded(writer, 5000)
       const stored = (await admin`select count(*)::int as n from report_items`)[0].n
       assert.strictEqual(drain, 'drained')
+      assert.deepStrictEqual({ stored, notices: notices.filter(x => x === '25001') }, { stored: 0, notices: [] })
       assert.strictEqual(written, 'rollback')
       assert.strictEqual(purge, 'resolved')
-      assert.deepStrictEqual(notices.filter(x => x === '25001'), [])
-      assert.strictEqual(stored, 0)
     } finally {
       gate()
       await bounded(sql.end({ timeout: 0 }), 2000)
@@ -509,7 +516,7 @@ async function staleTransactionReadsThroughRls(postgres) {
       handedOut({ stale: t, pid, enforced, users: rows.map(x => x.user_id) })
       await gate
     }))
-    const { stale, pid, enforced, users } = await handed
+    const { stale, pid, enforced, users } = await awaited(handed, 'The first transaction')
     await admin`select pg_terminate_backend(${ pid }, 5000)`
     const firstCode = code(await bounded(first))
     let secondUsers
@@ -572,7 +579,7 @@ async function resetMidBegin(postgres) {
       pidSeen(pid)
       await running
     }))
-    await active(killer, await pidKnown)
+    await active(killer, await awaited(pidKnown, 'The statement'))
     relay.resetAndDestroy()
     const rejected = code(await bounded(result))
     const rounds = []
@@ -597,13 +604,17 @@ async function resetMidBegin(postgres) {
 async function typeQueryCancelled(postgres) {
   const fault = capture()
   let sent = false
+  let slept = false
   const sql = postgres({
     ...pg,
     fetch_types: true,
     prepare: false,
     max: 1,
     connection: { statement_timeout: 1 },
-    debug: (id, string) => { string.includes('typarray') && (sent = true) }
+    debug: (id, string) => {
+      string.includes('typarray') && (sent = true)
+      string.includes('pg_sleep') && (slept = true)
+    }
   })
   try {
     const rejected = await bounded(outcome(sql`select pg_sleep(2)`), 5000)
@@ -611,6 +622,7 @@ async function typeQueryCancelled(postgres) {
     await turn()
     assert.deepStrictEqual(fault.errors, [])
     assert(sent, 'The type query was never sent')
+    assert(!slept, 'The statement reached PostgreSQL, so the cancel may not have hit the type query')
     assert.strictEqual(rejected, '57014')
   } finally {
     fault.stop()

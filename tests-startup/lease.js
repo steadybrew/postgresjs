@@ -16,7 +16,8 @@ export const leaseNames = ['reserve-close', 'reserve-release-close', 'reserve-st
                            'settling-end-commit', 'settling-end-rollback', 'settling-end-prepare',
                            'settling-fail-rollback', 'settling-fail-prepare',
                            'outcome-commit-released', 'outcome-release-released', 'reserve-release-after-error', 'begin-late-drain',
-                           'begin-queued-reset', 'begin-inflight-end', 'begin-inflight-end-reset']
+                           'begin-queued-reset', 'begin-inflight-end', 'begin-inflight-end-reset',
+                           'begin-queued-one', 'begin-queued-one-reset']
 
 const closed = 'rejected:CONNECTION_CLOSED'
 const ended = 'rejected:CONNECTION_ENDED'
@@ -24,7 +25,8 @@ const select = (client, text) => client.unsafe(text, [], { simple: true })
 const sent = (server, text) => server.events.filter(x => x.type === 'Q' && x.sql === text)
 
 export async function leases(name, postgres, onEvent) {
-  const queued = ['reserve-queued', 'release-queued', 'begin-queued', 'begin-queued-reset', 'begin-forced-end'].includes(name)
+  const queued = ['reserve-queued', 'release-queued', 'begin-queued', 'begin-queued-reset', 'begin-queued-one',
+                  'begin-queued-one-reset', 'begin-forced-end'].includes(name)
   const settling = name.startsWith('settling-') ? name.split('-') : []
   const holdsCommit = name === 'begin-settling' || name === 'begin-commit-fails'
   const holdStatement = holdsCommit ? 'commit'
@@ -95,7 +97,7 @@ export async function leases(name, postgres, onEvent) {
                          ...(name.endsWith('-handoff-gap') ? { socket: gap } : {}),
                          ...(name === 'begin-late-drain' ? { socket: late } : {}),
                          ...(name === 'reserve-release-after-error' ? { socket: tracked } : {}),
-                         ...(queued ? { max_pipeline: 0 } : {}) })
+                         ...(queued ? { max_pipeline: name.startsWith('begin-queued-one') ? 1 : 0 } : {}) })
   const uncaught = []
   const observe = error => uncaught.push(error.message)
   process.on('uncaughtException', observe)
@@ -142,7 +144,7 @@ export async function leases(name, postgres, onEvent) {
       await until(() => sent(server, 'select hang 1').length === 1)
       server.disconnect()
       assert.deepStrictEqual(await Promise.all(results), [closed, closed, closed])
-      assert.strictEqual(sent(server, 'select hang 2').length, 0)
+      name.includes('-one') || assert.strictEqual(sent(server, 'select hang 2').length, 0)
       assert.strictEqual(await settle(sql.end()), 'resolved')
     } else if (name === 'release-twice') {
       const first = await sql.reserve()
@@ -195,15 +197,15 @@ export async function leases(name, postgres, onEvent) {
       assert(after.every(x => x.sql === 'select 43 as marker'), JSON.stringify(after))
       assert.strictEqual(await settle(marker(sql)), 'resolved')
       assert.strictEqual(await settle(sql.end()), 'resolved')
-    } else if (name === 'begin-queued' || name === 'begin-queued-reset') {
+    } else if (name.startsWith('begin-queued')) {
       const outcome = settle(sql.begin(async t => {
         const results = ['select hang 1', 'select hang 2', 'select hang 3'].map(text => settle(select(t, text)))
         await until(() => sent(server, 'select hang 1').length === 1)
-        name === 'begin-queued-reset' ? server.reset() : server.disconnect()
+        name.endsWith('reset') ? server.reset() : server.disconnect()
         assert.deepStrictEqual(await Promise.all(results), [closed, closed, closed])
       }))
       assert.strictEqual(await outcome, closed)
-      assert.strictEqual(sent(server, 'select hang 2').length, 0)
+      name.includes('-one') || assert.strictEqual(sent(server, 'select hang 2').length, 0)
       assert.strictEqual(await settle(sql.end()), 'resolved')
     } else if (name.startsWith('begin-inflight-end')) {
       const outcome = settle(sql.begin(async t => { await t`select hang ${ 1 }` }))
@@ -307,7 +309,7 @@ export async function leases(name, postgres, onEvent) {
       await until(() => sent(server, 'select hang 1').length === 1)
       held.release()
       assert.deepStrictEqual(await Promise.all(results.slice(1)), [ended, ended])
-      assert.strictEqual(sent(server, 'select hang 2').length, 0)
+      name.includes('-one') || assert.strictEqual(sent(server, 'select hang 2').length, 0)
       assert.strictEqual(await settle(sql.end({ timeout: 0 })), 'resolved')
     } else if (name === 'begin-leaked-commit' || name === 'begin-leaked-rollback' || name === 'begin-leaked-savepoint') {
       let leaked
@@ -545,7 +547,7 @@ export async function leases(name, postgres, onEvent) {
     assert.deepStrictEqual(uncaught, [])
   } finally {
     process.off('uncaughtException', observe)
-    await sql.end({ timeout: 0 })
+    await settle(sql.end({ timeout: 0 }), 2000)
     await server.close()
   }
 }

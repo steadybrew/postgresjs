@@ -100,7 +100,7 @@ async function main() {
   if (process.argv.includes('--leases')) {
     for (const name of leaseNames) {
       const result = await run('lease:' + name)
-      console.log(JSON.stringify({ name, passed: result.passed, elapsed: result.elapsed, output: result.output.slice(0, 300) }))
+      console.log(JSON.stringify({ name, passed: result.passed, elapsed: result.elapsed, output: result.output.slice(0, 1500) }))
       !result.passed && (process.exitCode = 1)
     }
     return
