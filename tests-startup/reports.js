@@ -8,7 +8,10 @@ const scenarios = {
   'begin-network-cut': beginNetworkCut,
   'connect-timeout-prefer-standby': postgres => connectTimeout(postgres, 'prefer-standby', false),
   'connect-timeout-primary': postgres => connectTimeout(postgres, 'primary', true),
-  'connect-timeout-busy-pool': connectTimeoutBusyPool
+  'connect-timeout-busy-pool': connectTimeoutBusyPool,
+  'concurrent-begins-busy-pool': concurrentBeginsBusyPool,
+  'begin-at-pipeline-limit': beginAtPipelineLimit,
+  'begin-write-always-true': beginWriteAlwaysTrue
 }
 
 export const reportNames = Object.keys(scenarios)
@@ -219,5 +222,107 @@ async function connectTimeoutBusyPool(postgres) {
   } finally {
     await sql.end({ timeout: 0 })
     await dead.close()
+  }
+}
+
+async function replaceItems(t, a, n) {
+  await t`delete from report_items where a_id = ${ a }`
+  const items = Array.from({ length: n }, (_, b) => ({ a_id: a, b_id: b }))
+  items.length && await t`insert into report_items ${ t(items, 'a_id', 'b_id') }`
+}
+
+const idleInTransaction = async(admin, application_name) => (await admin`
+  select count(*)::int as n from pg_stat_activity
+  where application_name = ${ application_name } and state like 'idle in transaction%'
+`)[0].n
+
+async function withItems(postgres, fn) {
+  const admin = postgres({ ...pg, max: 1 })
+  await admin`drop table if exists report_items`
+  await admin`create table report_items (a_id int, b_id int)`
+  try {
+    await fn(admin)
+  } finally {
+    await admin`drop table report_items`
+    await admin.end({ timeout: 0 })
+  }
+}
+
+async function concurrentBeginsBusyPool(postgres) {
+  await withItems(postgres, async admin => {
+    const application_name = 'report_busy_pool_' + process.pid
+    const notices = []
+    const sql = postgres({ ...pg, max: 3, max_pipeline: 2, connection: { application_name }, onnotice: n => notices.push(n.code) })
+    const counts = [0, 1, 10, 1000, 3000]
+    try {
+      for (let i = 0; i < 10; i++) {
+        await admin`delete from report_items`
+        const others = [
+          ...Array.from({ length: 3 }, () => outcome(sql`select pg_sleep(0.2)`.execute())),
+          ...Array.from({ length: 6 }, () => outcome(sql`select 1 as x`.execute()))
+        ]
+        const begins = counts.map((n, a) => outcome(sql.begin(t => replaceItems(t, a, n))))
+        const results = await bounded(Promise.all([...begins, ...others]), 8000)
+        const stored = (await admin`select a_id, count(*)::int as n from report_items group by a_id order by a_id`)
+          .map(x => [x.a_id, x.n])
+        assert.strictEqual(JSON.stringify([i, results]), JSON.stringify([i, Array(begins.length + others.length).fill('resolved')]))
+        assert.strictEqual(JSON.stringify([i, stored]), JSON.stringify([i, counts.flatMap((n, a) => n ? [[a, n]] : [])]))
+        assert.strictEqual(await idleInTransaction(admin, application_name), 0)
+      }
+      assert.deepStrictEqual(notices.filter(x => x === '25001'), [])
+    } finally {
+      await sql.end({ timeout: 0 })
+    }
+  })
+}
+
+async function beginAtPipelineLimit(postgres) {
+  await withItems(postgres, async admin => {
+    const application_name = 'report_pipeline_limit_' + process.pid
+    const notices = []
+    const sql = postgres({ ...pg, max: 2, connection: { application_name }, onnotice: n => notices.push(n.code) })
+    try {
+      const held = await Promise.all([sql.reserve(), sql.reserve()])
+      held.forEach(x => x.release())
+      const others = [
+        ...Array.from({ length: 2 }, () => outcome(sql`select pg_sleep(0.2)`.execute())),
+        ...Array.from({ length: 198 }, () => outcome(sql`select 1 as x`.execute()))
+      ]
+      const begin = outcome(sql.begin(t => replaceItems(t, 1, 10)))
+      const results = await bounded(Promise.all([begin, ...others]), 8000)
+      const stored = await admin`select count(*)::int as n from report_items where a_id = 1`
+      assert.deepStrictEqual(results, Array(201).fill('resolved'))
+      assert.strictEqual(stored[0].n, 10)
+      assert.strictEqual(await idleInTransaction(admin, application_name), 0)
+      assert.deepStrictEqual(notices.filter(x => x === '25001'), [])
+    } finally {
+      await sql.end({ timeout: 0 })
+    }
+  })
+}
+
+async function beginWriteAlwaysTrue(postgres) {
+  const application_name = 'report_write_true_' + process.pid
+  const socket = async() => {
+    const connection = net.connect(5432, 'localhost')
+    await new Promise((resolve, reject) => { connection.once('connect', resolve); connection.once('error', reject) })
+    const write = connection.write.bind(connection)
+    connection.write = (...args) => (write(...args), true)
+    return connection
+  }
+  const observer = postgres({ ...pg, max: 1 })
+  const sql = postgres({ ...pg, max: 1, max_pipeline: 1, prepare: false, socket, connection: { application_name } })
+  try {
+    const sleeping = outcome(sql`select pg_sleep(0.25)`.execute())
+    const transaction = outcome(sql.begin(async() => true))
+    const results = await bounded(Promise.all([sleeping, transaction]), 5000)
+    const idle = await idleInTransaction(observer, application_name)
+    const next = await bounded(sql`select 1 as x`.then(x => x[0].x, error => error.code))
+    assert.deepStrictEqual(results, ['resolved', 'resolved'])
+    assert.strictEqual(idle, 0)
+    assert.strictEqual(next, 1)
+  } finally {
+    await sql.end({ timeout: 0 })
+    await observer.end({ timeout: 0 })
   }
 }
