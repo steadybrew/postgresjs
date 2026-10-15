@@ -87,11 +87,16 @@ export async function parameters(name, postgres, onEvent) {
       await run([1])
       assert.strictEqual(frames(1), 'PDBESBESBES')
       assert.deepStrictEqual(bound(), [['x'], ['y'], ['[1]']])
+    } else if (name === 'first-run-plain') {
+      const run = () => sql`select 1 as hang`.execute()
+      const first = run()
+      const second = run()
+      await until(() => frames(1) === 'PDBESPDBES')
+      assert(server.heldStatement())
+      server.releaseStatement()
+      await Promise.all([first, second])
     } else if (name.startsWith('first-run-')) {
-      const kind = name.slice(10)
-      const run = () => (kind === 'typed' ? sql`select ${ true } as hang`
-        : kind === 'client' ? sql`select ${ 'x' } as hang`
-        : sql`select 1 as hang`).execute()
+      const run = () => (name === 'first-run-typed' ? sql`select ${ true } as hang` : sql`select ${ 'x' } as hang`).execute()
       const first = run()
       const second = run()
       await until(() => server.heldStatement())
