@@ -115,6 +115,7 @@ async function reservedAfterTerminate(postgres) {
   const sql = postgres({ ...pg, max: 2, onclose: () => closed() })
   const killer = postgres({ ...pg, max: 1 })
   try {
+    await sql`select 1`
     const reserved = await sql.reserve()
     const [{ pid }] = await reserved`select pg_backend_pid() as pid`
     await killer`select pg_terminate_backend(${ pid }, 5000)`
@@ -298,8 +299,7 @@ async function beginAtPipelineLimit(postgres) {
     const notices = []
     const sql = postgres({ ...pg, max: 2, connection: { application_name }, onnotice: n => notices.push(n.code) })
     try {
-      const held = await Promise.all([sql.reserve(), sql.reserve()])
-      held.forEach(x => x.release())
+      await Promise.all([sql`select pg_sleep(0.1)`, sql`select pg_sleep(0.1)`])
       const others = [
         ...Array.from({ length: 2 }, () => outcome(sql`select pg_sleep(0.2)`.execute())),
         ...Array.from({ length: 198 }, () => outcome(sql`select 1 as x`.execute()))
@@ -415,6 +415,7 @@ async function reservedInflightTerminate(postgres) {
   const killer = postgres({ ...pg, max: 1 })
   const sql = postgres({ ...pg, max: 1 })
   try {
+    await sql`select 1`
     const reserved = await sql.reserve()
     const [{ pid }] = await reserved`select pg_backend_pid() as pid`
     const held = outcome(reserved`select pg_sleep(30)`.execute())
