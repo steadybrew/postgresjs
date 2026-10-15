@@ -14,6 +14,7 @@ const scenarios = {
   'begin-at-pipeline-limit': beginAtPipelineLimit,
   'begin-write-always-true': beginWriteAlwaysTrue,
   'type-query-fatal': typeQueryFatal,
+  'reserved-inflight-terminate': reservedInflightTerminate,
   ...Object.fromEntries(['idle-timeout', 'terminate'].flatMap(ender => ['return', 'statement'].map(next =>
     ['begin-after-session-ended:' + ender + ':' + next, postgres => beginAfterSessionEnded(postgres, ender, next)])))
 }
@@ -391,6 +392,32 @@ async function beginAfterSessionEnded(postgres, ender, next) {
     assert.strictEqual(rejected, 'CONNECTION_CLOSED')
     assert.strictEqual(late, next === 'statement' ? 'CONNECTION_CLOSED' : 'none')
     assert.strictEqual(after, 1)
+  } finally {
+    fault.stop()
+    await sql.end({ timeout: 0 })
+    await killer.end({ timeout: 0 })
+  }
+}
+
+async function reservedInflightTerminate(postgres) {
+  const fault = capture()
+  const killer = postgres({ ...pg, max: 1 })
+  const sql = postgres({ ...pg, max: 1 })
+  try {
+    const reserved = await sql.reserve()
+    const [{ pid }] = await reserved`select pg_backend_pid() as pid`
+    const held = outcome(reserved`select pg_sleep(30)`.execute())
+    await active(killer, pid)
+    await killer`select pg_terminate_backend(${ pid }, 5000)`
+    const inflight = code(await bounded(held))
+    reserved.release()
+    const next = await bounded(sql`select 1 as x`.then(x => x[0].x, error => error.code))
+    const ended = await bounded(sql.end().then(() => 'resolved'), 5000)
+    await turn()
+    assert.deepStrictEqual(fault.errors, [])
+    assert.strictEqual(inflight, 'CONNECTION_CLOSED')
+    assert.strictEqual(next, 1)
+    assert.strictEqual(ended, 'resolved')
   } finally {
     fault.stop()
     await sql.end({ timeout: 0 })
