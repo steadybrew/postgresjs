@@ -81,10 +81,22 @@ jobs:
           WORKERD_TLS_PORT: 55433
           WORKERD_TLS_CA: ${{ runner.temp }}/server.crt
 
+  lint:
+    name: Lint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: npm install --no-save eslint@8.57.1
+      - run: npm run lint
+
   publish:
     name: Stage on npm
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [node, deno, cloudflare]
+    needs: [node, deno, cloudflare, lint]
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     environment: npm
