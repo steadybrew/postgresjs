@@ -5,7 +5,10 @@ const scenarios = {
   'reserved-after-terminate': reservedAfterTerminate,
   'begin-terminated-midstatement:prepared': postgres => beginTerminatedMidstatement(postgres, true),
   'begin-terminated-midstatement:unprepared': postgres => beginTerminatedMidstatement(postgres, false),
-  'begin-network-cut': beginNetworkCut
+  'begin-network-cut': beginNetworkCut,
+  'connect-timeout-prefer-standby': postgres => connectTimeout(postgres, 'prefer-standby', false),
+  'connect-timeout-primary': postgres => connectTimeout(postgres, 'primary', true),
+  'connect-timeout-busy-pool': connectTimeoutBusyPool
 }
 
 export const reportNames = Object.keys(scenarios)
@@ -69,6 +72,22 @@ async function proxy() {
     destroy,
     close: async() => {
       destroy()
+      await new Promise(resolve => server.close(resolve))
+    }
+  }
+}
+
+async function silent() {
+  const sockets = []
+  const server = net.createServer(socket => {
+    sockets.push(socket)
+    socket.on('error', noop)
+  })
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
+  return {
+    port: server.address().port,
+    close: async() => {
+      sockets.forEach(socket => socket.destroy())
       await new Promise(resolve => server.close(resolve))
     }
   }
@@ -160,5 +179,45 @@ async function beginNetworkCut(postgres) {
     await killer`select pg_terminate_backend(pid) from pg_stat_activity where application_name = ${ application_name }`
     await killer.end({ timeout: 0 })
     await cut.close()
+  }
+}
+
+async function connectTimeout(postgres, target_session_attrs, silentFirst) {
+  const dead = await silent()
+  const sql = postgres({
+    ...pg,
+    host: silentFirst ? ['127.0.0.1', 'localhost'] : ['localhost', '127.0.0.1'],
+    port: silentFirst ? [dead.port, 5432] : [5432, dead.port],
+    max: 1,
+    connect_timeout: 1,
+    target_session_attrs
+  })
+  try {
+    const pid = await bounded(sql`select pg_backend_pid() as pid`.then(x => x[0].pid, error => error.code), 5000)
+    assert(Number.isInteger(pid) && pid > 0, 'Expected a backend pid, got ' + pid)
+  } finally {
+    await sql.end({ timeout: 0 })
+    await dead.close()
+  }
+}
+
+async function connectTimeoutBusyPool(postgres) {
+  const dead = await silent()
+  const sql = postgres({
+    ...pg,
+    host: ['127.0.0.1', 'localhost', 'localhost'],
+    port: [dead.port, 5432, 5433],
+    max: 20,
+    connect_timeout: 1,
+    target_session_attrs: 'primary'
+  })
+  try {
+    const results = await bounded(Promise.all(Array.from({ length: 20 }, () =>
+      sql`select pg_backend_pid() as pid`.then(() => 'resolved', error => error.code)
+    )), 8000)
+    assert.deepStrictEqual(results, Array(20).fill('resolved'))
+  } finally {
+    await sql.end({ timeout: 0 })
+    await dead.close()
   }
 }
