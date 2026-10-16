@@ -2582,6 +2582,25 @@ t('Copy read', async() => {
   ]
 })
 
+t('Copy read ended while the stream is full leaves the connection usable', { timeout: 10 }, async() => {
+  const sql = postgres({ ...options, max: 1 })
+  const readable = await sql`copy (select repeat('x', 20000)) to stdout`.readable()
+  await delay(200)
+  let length = 0
+  for await (const chunk of readable)
+    length += chunk.length
+  const next = await Promise.race([
+    sql`select 1 as x`.then(x => x[0].x, e => e.code),
+    delay(2000).then(() => 'hung')
+  ])
+  await sql.end()
+
+  return [
+    JSON.stringify([20001, 1]),
+    JSON.stringify([length, next])
+  ]
+})
+
 t('Copy write', { timeout: 2 }, async() => {
   await sql`create table test (x int)`
   const writable = await sql`copy test from stdin`.writable()
