@@ -1,0 +1,12 @@
+{
+  "compilerOptions": {
+    "lib": ["ES2020"],
+    "types": ["node"],
+    "esModuleInterop": true,
+    "strict": true,
+    "noImplicitAny": true,
+    "exactOptionalPropertyTypes": true,
+    "noEmit": true
+  },
+  "files": ["index.ts"]
+}

@@ -46,7 +46,7 @@ interface BaseOptions<T extends Record<string, postgres.PostgresType>> {
   */
   ssl: 'require' | 'allow' | 'prefer' | 'verify-full' | boolean | object;
   /** Set to 'direct' to start TLS immediately with ALPN instead of sending an SSLRequest first */
-  sslnegotiation: 'direct' | null;
+  sslnegotiation: 'direct' | 'postgres' | null;
   /**
    * Max number of connections
    * @default 10
@@ -129,7 +129,7 @@ interface BaseOptions<T extends Record<string, postgres.PostgresType>> {
   max_lifetime: number | null;
   keep_alive: number | null;
   /** Function, sync or async, returning the socket-like duplex stream to connect through; it receives the parsed options */
-  socket?: (options: postgres.ParsedOptions<T>) => Duplex | Promise<Duplex>;
+  socket?: (options: postgres.ParsedOptions) => Duplex | Promise<Duplex>;
 }
 
 
