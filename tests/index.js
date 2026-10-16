@@ -768,6 +768,16 @@ t('column toCamel', async() => {
   return ['helloWorld', Object.keys((await sql`select * from test`)[0])[0], await sql`drop table test`]
 })
 
+t('toCamel and toPascal keep a trailing underscore', async() => [
+  'foo_,fooBar_,foo_,_foo,foo_bar,Foo_,FooBar_,Foo_,_foo,Foo_bar',
+  [
+    postgres.toCamel('foo_'), postgres.toCamel('foo_bar_'), postgres.toCamel('foo__'),
+    postgres.toCamel('_foo'), postgres.toCamel('foo__bar'),
+    postgres.toPascal('foo_'), postgres.toPascal('foo_bar_'), postgres.toPascal('foo__'),
+    postgres.toPascal('_foo'), postgres.toPascal('foo__bar')
+  ].join()
+])
+
 t('column toKebab', async() => {
   const sql = postgres({
     ...options,
