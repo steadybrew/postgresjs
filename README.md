@@ -1246,8 +1246,8 @@ const sql = postgres('postgres://username:password@host:port/database', {
     application_name   : 'postgres.js', // Default application_name
     ...                                 // Other connection parameters, see https://www.postgresql.org/docs/current/runtime-config-client.html
   },
-  target_session_attrs : null,          // Use 'read-write' with multiple hosts to
-                                        // ensure only connecting to primary
+  target_session_attrs : null,          // Which kind of server to connect to, see
+                                        // Multi-host connections below
   fetch_types          : true,          // Automatically fetches types on connect
                                         // on initial connection.
   parameter_types      : 'server',      // 'client' or 'warn', see Parameter types (PGPARAMETER_TYPES)
@@ -1294,7 +1294,18 @@ Multiple connection strings can be passed to `postgres()` in the form of `postgr
 
 Connections will be attempted in order of the specified hosts/ports. On a successful connection, all retries will be reset. This ensures that hosts can come up and down seamlessly.
 
-If you specify `target_session_attrs: 'primary'` or `PGTARGETSESSIONATTRS=primary` Postgres.js will only connect to the primary host, allowing for zero downtime failovers.
+`target_session_attrs` (or `PGTARGETSESSIONATTRS`) picks which kind of server to connect to. The values and their meaning are libpq's:
+
+| Value | Connects to |
+|---|---|
+| `null` (default) | any server |
+| `'read-write'` | a server that accepts writes: not a hot standby, and `default_transaction_read_only` off |
+| `'primary'` | a server that is not a hot standby, even if `default_transaction_read_only` is on |
+| `'read-only'` | a hot standby, or a server with `default_transaction_read_only` on |
+| `'standby'` | a hot standby |
+| `'prefer-standby'` | a hot standby if any host is one, otherwise any server |
+
+During a failover or an upgrade, `'read-write'` and `'primary'` wait for the promoted server (up to `connect_timeout`) instead of connecting to a standby whose writes would fail. Read traffic that should keep using standbys during the switch belongs on `'prefer-standby'` or no `target_session_attrs` at all.
 
 ### The Connection Pool
 
