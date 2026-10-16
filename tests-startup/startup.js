@@ -64,7 +64,7 @@ export async function startup(name, postgres, onEvent) {
     creations++
     if (name === 'pending-write')
       return creations === 1 ? new CutSocket() : connectedSocket()
-    if (name === 'failure-drain' || name === 'password-close' || name === 'half-open-end')
+    if (name === 'failure-drain' || name === 'password-close' || name === 'half-open-end' || name === 'pending-write-statement')
       return connectedSocket()
     if (name === 'factory-multi')
       return creations <= 2 ? Promise.reject(new Error('factory denied')) : connectedSocket()
@@ -76,7 +76,7 @@ export async function startup(name, postgres, onEvent) {
                          backoff: count => { backoffs.push(count); return name === 'long-backoff' ? 2 : 0.04 },
                          connect_timeout: name === 'retry-zero' ? 0 : 0.3,
                          ...(name.startsWith('password-') ? { pass: () => { passwordStarted.resolve(); return password.promise } } : {}),
-                         ...(name.startsWith('factory-') || name === 'failure-drain' || name === 'pending-write'
+                         ...(name.startsWith('factory-') || name.startsWith('pending-write') || name === 'failure-drain'
                              || name === 'password-close' || name === 'half-open-end' ? { socket } : {}),
                          ...(name === 'factory-multi' ? { host: ['127.0.0.1', '127.0.0.1'], port: [server.port, server.port] } : {}),
                          ...(name.startsWith('session-') ? { target_session_attrs: 'read-write' } : {}),
@@ -129,6 +129,19 @@ export async function startup(name, postgres, onEvent) {
       await capacity()
       assert.strictEqual(creations, 2)
       assert.strictEqual(server.events.filter(x => x.type === 'startup').length, 1)
+    } else if (name === 'pending-write-statement') {
+      assert.strictEqual(await settle(query(sql)), 'resolved')
+      const first = clientSocket
+      const pending = settle(query(sql).execute())
+      for (let i = 0; i < 10; i++)
+        await 1
+      first.emit('close', false)
+      first.destroy()
+      const closedOutcome = await pending
+      const next = await settle(query(sql))
+      assert.deepStrictEqual({ closedOutcome, next, startups: server.events.filter(x => x.type === 'startup').length },
+                             { closedOutcome: 'rejected:CONNECTION_CLOSED', next: 'resolved', startups: 2 })
+      assert.strictEqual(await settle(query(sql)), 'resolved')
     } else if (name === 'failure-drain') {
       const failed = sql.reserve()
       const next = sql.reserve()
