@@ -502,11 +502,11 @@ export async function leases(name, postgres, onEvent) {
       const next = await sql.reserve()
       await marker(next)
       next.release()
-      assert.deepStrictEqual({ startups: startups(server), ended: await settle(sql.end()) }, { startups: 2, ended: 'resolved' })
+      assert.deepStrictEqual({ startups: startups(server), ended: await settle(sql.end(), 1000) }, { startups: 2, ended: 'resolved' })
     } else if (name === 'reserve-end-release') {
       const held = await sql.reserve()
       await marker(held)
-      const ending = settle(sql.end())
+      const ending = settle(sql.end(), 1000)
       await sleep(100)
       held.release()
       const endOutcome = await ending

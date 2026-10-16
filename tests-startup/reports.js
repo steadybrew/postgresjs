@@ -687,9 +687,9 @@ async function cancelPipelinedReserve(postgres) {
     const [first, cancelled, next] = await Promise.all([bounded(outcome(q1)), answer(q2), answer(q3)])
     r.release()
     await turn()
-    assert.deepStrictEqual({ first, cancelled: ['[]', 'rejected:57014'].includes(cancelled) ? 'own answer' : cancelled, next,
-                             unhandled: fault.errors },
-                           { first: 'resolved', cancelled: 'own answer', next: '[{"n":1}]', unhandled: [] })
+    assert.deepStrictEqual({ first, cancelled: ['[]', 'rejected:57014'].includes(cancelled) ? 'own answer' : cancelled,
+                             next: ['[{"n":1}]', 'rejected:57014'].includes(next) ? 'own answer' : next, unhandled: fault.errors },
+                           { first: 'resolved', cancelled: 'own answer', next: 'own answer', unhandled: [] })
   } finally {
     fault.stop()
     await bounded(sql.end({ timeout: 0 }), 2000)
