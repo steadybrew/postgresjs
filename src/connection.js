@@ -686,6 +686,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
 
   function errored(err) {
     stream && (stream.destroy(err), stream = null)
+    resumeCopy()
     query && queryError(query, err)
   }
 
@@ -1188,6 +1189,10 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
   function CopyDone() {
     stream && stream.push(null)
     stream = null
+    resumeCopy()
+  }
+
+  function resumeCopy() {
     if (copyPaused) {
       copyPaused = false
       socket.resume()

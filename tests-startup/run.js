@@ -7,6 +7,7 @@ import { reportNames } from './reports.js'
 import { parameterNames } from './parameters.js'
 import { compatNames } from './compat.js'
 import { cfNames } from './cf.js'
+import { copyNames } from './copy.js'
 
 const ownershipNames = ['capacity', 'no-fetch-capacity', 'mixed-1-fetch', 'mixed-3-fetch', 'mixed-1-no-fetch', 'mixed-3-no-fetch',
                         'queued-reconnect', 'queued-drain', 'assigned-order', 'startup-drain', 'creation-failure',
@@ -114,7 +115,7 @@ async function main() {
     return
   }
   if (process.argv.includes('--compat')) {
-    for (const name of [...compatNames.map(x => 'compat:' + x), ...cfNames.map(x => 'cf:' + x)]) {
+    for (const name of [...compatNames.map(x => 'compat:' + x), ...cfNames.map(x => 'cf:' + x), ...copyNames.map(x => 'copy:' + x)]) {
       const result = await run(name)
       console.log(JSON.stringify({ name, passed: result.passed, elapsed: result.elapsed, output: result.output.slice(0, 300) }))
       !result.passed && (process.exitCode = 1)
@@ -132,7 +133,7 @@ async function main() {
   if (process.argv.includes('--regressions')) {
     for (const name of [...startupNames.map(x => 'startup:' + x), ...phaseNames.map(x => 'phase:' + x), ...leaseNames.map(x => 'lease:' + x),
                         ...parameterNames.map(x => 'parameters:' + x),
-                        ...compatNames.map(x => 'compat:' + x), ...cfNames.map(x => 'cf:' + x)]) {
+                        ...compatNames.map(x => 'compat:' + x), ...cfNames.map(x => 'cf:' + x), ...copyNames.map(x => 'copy:' + x)]) {
       const result = await run(name)
       console.log(JSON.stringify(result))
       !result.passed && (process.exitCode = 1)
@@ -143,7 +144,7 @@ async function main() {
                       ...ownershipNames.map(x => 'ownership:' + x), ...startupNames.map(x => 'startup:' + x),
                       ...phaseNames.map(x => 'phase:' + x), ...leaseNames.map(x => 'lease:' + x),
                       ...parameterNames.map(x => 'parameters:' + x),
-                      ...compatNames.map(x => 'compat:' + x), ...cfNames.map(x => 'cf:' + x)]) {
+                      ...compatNames.map(x => 'compat:' + x), ...cfNames.map(x => 'cf:' + x), ...copyNames.map(x => 'copy:' + x)]) {
     const result = await run(name)
     assert(result.passed, JSON.stringify(result))
     console.log('PASS ' + name)

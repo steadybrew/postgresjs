@@ -8,6 +8,7 @@ import { reports } from './reports.js'
 import { parameters } from './parameters.js'
 import { compat } from './compat.js'
 import { cf } from './cf.js'
+import { copy } from './copy.js'
 import { install, verify, violations } from './invariants.js'
 import { bounded, quiet } from './bounded.js'
 
@@ -66,6 +67,11 @@ async function main() {
   }
   if (name.startsWith('compat:')) {
     await compat(name.slice(7), postgres)
+    finish()
+    return
+  }
+  if (name.startsWith('copy:')) {
+    await copy(name.slice(5), postgres)
     finish()
     return
   }
