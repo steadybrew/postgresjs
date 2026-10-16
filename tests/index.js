@@ -57,7 +57,7 @@ t('Uses default database with slash', async() => {
 })
 
 const processEnv = process.env // eslint-disable-line
-const te = (name, fn) => t(name, globalThis.Deno ? async() => [true, true] : fn)
+const te = globalThis.Deno ? () => {} : t
 const withEnv = (env, fn) => {
   const saved = Object.fromEntries(Object.keys(env).map(k => [k, processEnv[k]]))
   Object.assign(processEnv, env)
@@ -81,7 +81,7 @@ te('Environment false and disable values turn options off', async() => {
 
 te('Environment values still apply when not false', async() => {
   const parsed = withEnv({ PGMAX: '4', PGCONNECT_TIMEOUT: '7' }, () => postgres({}).options)
-  return ['[4,7]', JSON.stringify([+parsed.max, parsed.connect_timeout])]
+  return ['[4,7]', JSON.stringify([parsed.max, parsed.connect_timeout])]
 })
 
 te('Explicit options win over environment values', async() => {
@@ -97,9 +97,11 @@ t('Undefined options use the defaults', async() => {
   return [JSON.stringify(keys.map(k => defaults[k])), JSON.stringify(keys.map(k => parsed[k]))]
 })
 
+t('Max from the URL is a number', async() => [4, postgres('postgres://localhost/db?max=4').options.max])
+
 te('Undefined max uses the environment value', async() => {
   const parsed = withEnv({ PGMAX: '4' }, () => postgres({ max: undefined }).options)
-  return [4, +parsed.max]
+  return [4, parsed.max]
 })
 
 t('Result is array', async() =>

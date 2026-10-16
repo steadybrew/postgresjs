@@ -228,7 +228,7 @@ export async function peer({ catalogError = false, holdStartup = false, failAuth
           const fatal = message('E', Buffer.from('SFATAL\0C57P01\0Mterminating connection\0\0'))
           const answer = fatalDuringSession ? fatal : sessionError
             ? Buffer.concat([message('E', Buffer.from('SERROR\0C42501\0Msession denied\0\0')), rdy()])
-            : Buffer.concat([rowset([['transaction_read_only', 25]], [[readOnly ? 'on' : 'off']]),
+            : Buffer.concat([rowset([['transaction_read_only', 25]], [[readOnly || standby ? 'on' : 'off']]),
                              rowset([['pg_is_in_recovery', 16]], [[standby ? 't' : 'f']]), rdy()])
           fatalAfterSession
             ? socket.end(Buffer.concat([answer, fatal]))

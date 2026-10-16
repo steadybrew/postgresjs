@@ -1305,7 +1305,9 @@ Connections will be attempted in order of the specified hosts/ports. On a succes
 | `'standby'` | a hot standby |
 | `'prefer-standby'` | a hot standby if any host is one, otherwise any server |
 
-During a failover or an upgrade, `'read-write'` and `'primary'` wait for the promoted server (up to `connect_timeout`) instead of connecting to a standby whose writes would fail. Read traffic that should keep using standbys during the switch belongs on `'prefer-standby'` or no `target_session_attrs` at all.
+During a failover or an upgrade, `'read-write'` and `'primary'` wait for the promoted server instead of connecting to a standby whose writes would fail. Read traffic that should keep using standbys during the switch belongs on `'prefer-standby'` or no `target_session_attrs` at all.
+
+The wait is bounded by `connect_timeout` per host. A host that answers but is the wrong kind is skipped at once; when every host answers and none matches, the connection fails immediately with `TARGET_SESSION_ATTRS`. Only a single host, or hosts that fail to connect, keep retrying until the timeout.
 
 ### The Connection Pool
 
