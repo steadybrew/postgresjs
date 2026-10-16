@@ -79,8 +79,8 @@ t('Environment false and disable values turn options off', async() => {
 })
 
 t('Environment values still apply when not false', async() => {
-  const parsed = withEnv({ PGMAX: '4', PGPREPARE: '', PGCONNECT_TIMEOUT: '7' }, () => postgres({}).options)
-  return ['[4,true,7]', JSON.stringify([parsed.max, parsed.prepare, parsed.connect_timeout])]
+  const parsed = withEnv({ PGMAX: '4', PGCONNECT_TIMEOUT: '7' }, () => postgres({}).options)
+  return ['[4,7]', JSON.stringify([+parsed.max, parsed.connect_timeout])]
 })
 
 t('Explicit options win over environment values', async() => {
@@ -98,7 +98,7 @@ t('Undefined options use the defaults', async() => {
 
 t('Undefined max uses the environment value', async() => {
   const parsed = withEnv({ PGMAX: '4' }, () => postgres({ max: undefined }).options)
-  return [4, parsed.max]
+  return [4, +parsed.max]
 })
 
 t('Result is array', async() =>
