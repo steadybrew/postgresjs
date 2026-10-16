@@ -2864,6 +2864,18 @@ t('Cancel queued query', async() => {
   return ['57014', error.code]
 })
 
+t('A query that fails after returning rows does not offset the rows of the next query', async() => {
+  const sql = postgres({ ...options, max: 1 })
+  const error = await sql`select 1 / (g - 3) as x from generate_series(1, 5) g`.catch(x => x)
+  const result = await sql`select 7 as x`
+  await sql.end()
+
+  return [
+    JSON.stringify(['22012', 1, 7]),
+    JSON.stringify([error.code, result.length, result[0] && result[0].x])
+  ]
+})
+
 t('Fragments', async() => [
   1,
   (await sql`
