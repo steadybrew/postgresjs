@@ -1,4 +1,4 @@
-import { Readable, Writable } from 'node:stream'
+import { Duplex, Readable, Writable } from 'node:stream'
 
 /**
  * Establish a connection to a PostgreSQL server.
@@ -45,6 +45,8 @@ interface BaseOptions<T extends Record<string, postgres.PostgresType>> {
    * @default false
   */
   ssl: 'require' | 'allow' | 'prefer' | 'verify-full' | boolean | object;
+  /** Set to 'direct' to start TLS immediately with ALPN instead of sending an SSLRequest first */
+  sslnegotiation: 'direct' | null;
   /**
    * Max number of connections
    * @default 10
@@ -126,6 +128,8 @@ interface BaseOptions<T extends Record<string, postgres.PostgresType>> {
   backoff: boolean | ((attemptNum: number) => number);
   max_lifetime: number | null;
   keep_alive: number | null;
+  /** Function, sync or async, returning the socket-like duplex stream to connect through; it receives the parsed options */
+  socket?: (options: postgres.ParsedOptions<T>) => Duplex | Promise<Duplex>;
 }
 
 
@@ -203,6 +207,7 @@ type Return<T, K extends readonly any[]> =
 
 declare namespace postgres {
   class PostgresError extends Error {
+    constructor(fields: Partial<Omit<PostgresError, 'name' | 'stack' | 'cause'>>);
     name: 'PostgresError';
     severity_local: string;
     severity: string;
