@@ -52,7 +52,7 @@ function rowset(columns, values) {
 export async function peer({ catalogError = false, holdStartup = false, failAuthentication = false, catalogRows = [],
                              closeStartup = 0, closeCatalog = 0, holdCatalog = false, holdSession = false,
                              closeAfterError = false, sessionError = false, fatalAfterSession = false, fatalDuringSession = false,
-                             readOnly = false, standby = false, passwordAuth = false, allowHalfOpen = false,
+                             readOnly = false, standby = false, reported = null, passwordAuth = false, allowHalfOpen = false,
                              holdQuery = '', fatalQuery = '', failQuery = '', closeQuery = '', holdStatement = '', sslReply = '', port = 0,
                              parameterTypes = [],
                              onStartup = () => { /* Optional startup barrier. */ }, onEvent = () => { /* Optional protocol observer. */ } } = {}) {
@@ -73,7 +73,8 @@ export async function peer({ catalogError = false, holdStartup = false, failAuth
     const authenticated = () => {
       const key = Buffer.alloc(8)
       key.writeUInt32BE(pid, 0)
-      socket.write(Buffer.concat([message('R', Buffer.alloc(4)), message('K', key), rdy()]))
+      const parameters = reported ? Object.entries(reported).map(([k, v]) => message('S', Buffer.from(k + '\0' + v + '\0'))) : []
+      socket.write(Buffer.concat([message('R', Buffer.alloc(4)), ...parameters, message('K', key), rdy()]))
     }
     let statement = ''
     let status = 'I'

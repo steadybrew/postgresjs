@@ -46,7 +46,7 @@ async function main() {
   }
   if (name.startsWith('startup:')) {
     const scenario = name.slice(8)
-    const run = ['failover', 'session-select'].includes(scenario) ? selection
+    const run = scenario === 'failover' || /^session-(select|standby|read-only)/.test(scenario) ? selection
       : scenario === 'budget-reset' || scenario === 'end-backoff' || scenario.startsWith('graceful-') || scenario.startsWith('forced-')
           || scenario.startsWith('backoff-')
         ? lifecycle : startup

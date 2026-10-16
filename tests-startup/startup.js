@@ -217,12 +217,20 @@ export async function startup(name, postgres, onEvent) {
 }
 
 export async function selection(name, postgres, onEvent) {
-  const first = await peer({ closeStartup: name === 'failover' ? Infinity : 0,
-                             readOnly: name === 'session-select', onEvent })
-  const second = await peer({ onEvent })
+  const reported = (hot, readOnly) => ({ in_hot_standby: hot, default_transaction_read_only: readOnly })
+  const attrs = name.startsWith('session-read-only') ? 'read-only' : name.startsWith('session-') ? 'read-write' : null
+  const [firstOptions, secondOptions] = {
+    'session-select': [{ readOnly: true }, {}],
+    'session-standby': [{ standby: true }, {}],
+    'session-standby-reported': [{ reported: reported('on', 'off') }, { reported: reported('off', 'off') }],
+    'session-read-only-standby': [{}, { standby: true }],
+    'session-read-only-standby-reported': [{ reported: reported('off', 'off') }, { reported: reported('on', 'off') }]
+  }[name] || [{}, {}]
+  const first = await peer({ closeStartup: name === 'failover' ? Infinity : 0, ...firstOptions, onEvent })
+  const second = await peer({ ...secondOptions, onEvent })
   const sql = postgres({ host: ['127.0.0.1', '127.0.0.1'], port: [first.port, second.port],
                          user: 'fixture', database: 'fixture', max: 1, ssl: false, connect_timeout: 1, backoff: 0.04,
-                         ...(name === 'session-select' ? { target_session_attrs: 'read-write' } : {}) })
+                         ...(attrs ? { target_session_attrs: attrs } : {}) })
   try {
     const held = await sql.reserve()
     assert.strictEqual((await held.unsafe('select 42 as marker'))[0].marker, 42)
