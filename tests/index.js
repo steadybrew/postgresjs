@@ -73,19 +73,19 @@ t('Environment false and disable values turn options off', async() => {
     () => postgres({}).options)
   const ssl = withEnv({ PGSSL: 'false' }, () => postgres({}).options.ssl)
   return [
-    [false, false, false, false, false],
-    [parsed.prepare, parsed.fetch_types, parsed.debug, parsed.ssl, ssl]
+    '[false,false,false,false,false]',
+    JSON.stringify([parsed.prepare, parsed.fetch_types, parsed.debug, parsed.ssl, ssl])
   ]
 })
 
 t('Environment values still apply when not false', async() => {
   const parsed = withEnv({ PGMAX: '4', PGPREPARE: '', PGCONNECT_TIMEOUT: '7' }, () => postgres({}).options)
-  return [[4, true, 7], [parsed.max, parsed.prepare, parsed.connect_timeout]]
+  return ['[4,true,7]', JSON.stringify([parsed.max, parsed.prepare, parsed.connect_timeout])]
 })
 
 t('Explicit options win over environment values', async() => {
   const parsed = withEnv({ PGPREPARE: 'false', PGMAX: '4' }, () => postgres({ prepare: true, max: 2 }).options)
-  return [[true, 2], [parsed.prepare, parsed.max]]
+  return ['[true,2]', JSON.stringify([parsed.prepare, parsed.max])]
 })
 
 t('Undefined options use the defaults', async() => {
@@ -93,7 +93,7 @@ t('Undefined options use the defaults', async() => {
   const explicit = Object.fromEntries(keys.map(k => [k, undefined]))
   const parsed = postgres(explicit).options
   const defaults = postgres({}).options
-  return [keys.map(k => defaults[k]), keys.map(k => parsed[k])]
+  return [JSON.stringify(keys.map(k => defaults[k])), JSON.stringify(keys.map(k => parsed[k]))]
 })
 
 t('Undefined max uses the environment value', async() => {
