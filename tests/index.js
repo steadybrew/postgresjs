@@ -57,6 +57,7 @@ t('Uses default database with slash', async() => {
 })
 
 const processEnv = process.env // eslint-disable-line
+const te = globalThis.Deno ? nt : t
 const withEnv = (env, fn) => {
   const saved = Object.fromEntries(Object.keys(env).map(k => [k, processEnv[k]]))
   Object.assign(processEnv, env)
@@ -68,7 +69,7 @@ const withEnv = (env, fn) => {
   }
 }
 
-t('Environment false and disable values turn options off', async() => {
+te('Environment false and disable values turn options off', async() => {
   const parsed = withEnv({ PGPREPARE: 'false', PGFETCH_TYPES: 'false', PGDEBUG: 'false', PGSSL: 'disable' },
     () => postgres({}).options)
   const ssl = withEnv({ PGSSL: 'false' }, () => postgres({}).options.ssl)
@@ -78,12 +79,12 @@ t('Environment false and disable values turn options off', async() => {
   ]
 })
 
-t('Environment values still apply when not false', async() => {
+te('Environment values still apply when not false', async() => {
   const parsed = withEnv({ PGMAX: '4', PGCONNECT_TIMEOUT: '7' }, () => postgres({}).options)
   return ['[4,7]', JSON.stringify([+parsed.max, parsed.connect_timeout])]
 })
 
-t('Explicit options win over environment values', async() => {
+te('Explicit options win over environment values', async() => {
   const parsed = withEnv({ PGPREPARE: 'false', PGMAX: '4' }, () => postgres({ prepare: true, max: 2 }).options)
   return ['[true,2]', JSON.stringify([parsed.prepare, parsed.max])]
 })
@@ -96,7 +97,7 @@ t('Undefined options use the defaults', async() => {
   return [JSON.stringify(keys.map(k => defaults[k])), JSON.stringify(keys.map(k => parsed[k]))]
 })
 
-t('Undefined max uses the environment value', async() => {
+te('Undefined max uses the environment value', async() => {
   const parsed = withEnv({ PGMAX: '4' }, () => postgres({ max: undefined }).options)
   return [4, +parsed.max]
 })
