@@ -56,6 +56,51 @@ t('Uses default database with slash', async() => {
   return [sql.options.user, sql.options.database]
 })
 
+const processEnv = process.env // eslint-disable-line
+const withEnv = (env, fn) => {
+  const saved = Object.fromEntries(Object.keys(env).map(k => [k, processEnv[k]]))
+  Object.assign(processEnv, env)
+  try {
+    return fn()
+  } finally {
+    for (const [k, v] of Object.entries(saved))
+      v === undefined ? delete processEnv[k] : processEnv[k] = v
+  }
+}
+
+t('Environment false and disable values turn options off', async() => {
+  const parsed = withEnv({ PGPREPARE: 'false', PGFETCH_TYPES: 'false', PGDEBUG: 'false', PGSSL: 'disable' },
+    () => postgres({}).options)
+  const ssl = withEnv({ PGSSL: 'false' }, () => postgres({}).options.ssl)
+  return [
+    [false, false, false, false, false],
+    [parsed.prepare, parsed.fetch_types, parsed.debug, parsed.ssl, ssl]
+  ]
+})
+
+t('Environment values still apply when not false', async() => {
+  const parsed = withEnv({ PGMAX: '4', PGPREPARE: '', PGCONNECT_TIMEOUT: '7' }, () => postgres({}).options)
+  return [[4, true, 7], [parsed.max, parsed.prepare, parsed.connect_timeout]]
+})
+
+t('Explicit options win over environment values', async() => {
+  const parsed = withEnv({ PGPREPARE: 'false', PGMAX: '4' }, () => postgres({ prepare: true, max: 2 }).options)
+  return [[true, 2], [parsed.prepare, parsed.max]]
+})
+
+t('Undefined options use the defaults', async() => {
+  const keys = ['max', 'idle_timeout', 'connect_timeout', 'max_pipeline', 'keep_alive', 'prepare', 'fetch_types', 'ssl', 'parameter_types']
+  const explicit = Object.fromEntries(keys.map(k => [k, undefined]))
+  const parsed = postgres(explicit).options
+  const defaults = postgres({}).options
+  return [keys.map(k => defaults[k]), keys.map(k => parsed[k])]
+})
+
+t('Undefined max uses the environment value', async() => {
+  const parsed = withEnv({ PGMAX: '4' }, () => postgres({ max: undefined }).options)
+  return [4, parsed.max]
+})
+
 t('Result is array', async() =>
   [true, Array.isArray(await sql`select 1`)]
 )

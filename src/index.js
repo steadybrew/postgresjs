@@ -701,9 +701,9 @@ function parseOptions(a, b) {
     pass            : o.pass || o.password || url.password || env.PGPASSWORD || '',
     ...Object.entries(defaults).reduce(
       (acc, [k, d]) => {
-        const value = k in o ? o[k] : k in query
-          ? (query[k] === 'disable' || query[k] === 'false' ? false : query[k])
-          : env['PG' + k.toUpperCase()] || d
+        const value = o[k] !== undefined ? o[k] : k in query
+          ? off(query[k])
+          : env['PG' + k.toUpperCase()] ? off(env['PG' + k.toUpperCase()]) : d
         acc[k] = typeof value === 'string' && ints.includes(k)
           ? +value
           : value
@@ -734,6 +734,10 @@ function parseOptions(a, b) {
 
   !options.fetch_types && addDefaultArrayTypes(options)
   return options
+}
+
+function off(x) {
+  return x === 'disable' || x === 'false' ? false : x
 }
 
 function tsa(o, url, env) {
