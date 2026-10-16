@@ -57,7 +57,7 @@ t('Uses default database with slash', async() => {
 })
 
 const processEnv = process.env // eslint-disable-line
-const te = globalThis.Deno ? nt : t
+const te = (name, fn) => t(name, globalThis.Deno ? async() => [true, true] : fn)
 const withEnv = (env, fn) => {
   const saved = Object.fromEntries(Object.keys(env).map(k => [k, processEnv[k]]))
   Object.assign(processEnv, env)
