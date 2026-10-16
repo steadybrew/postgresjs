@@ -684,7 +684,7 @@ async function cancelPipelinedCachedPlan(postgres) {
     const behind = sql.unsafe('select 1 as x').execute()
     await sleep(50)
     doomed.cancel()
-    const [first, cancelled, next] = await Promise.all([bounded(outcome(ahead)), bounded(outcome(doomed)), bounded(outcome(behind))])
+    const [first, cancelled, next] = await Promise.all([bounded(outcome(ahead)), bounded(outcome(doomed)), bounded(behind.then(rows => JSON.stringify(rows), error => error.message))])
     await turn()
     assert.deepStrictEqual({ first, cancelled: cancelled === 'hung' ? cancelled : 'settled', next, unhandled: fault.errors },
                            { first: 'resolved', cancelled: 'settled', next: '[{"x":1}]', unhandled: [] })
