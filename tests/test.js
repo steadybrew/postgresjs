@@ -22,6 +22,9 @@ async function test(o, name, options, fn) {
 
   await 1
 
+  if (process.env.ONLY_TEST && name !== process.env.ONLY_TEST)
+    return
+
   if (only && !o)
     return
 

@@ -1,9 +1,6 @@
 name: test
 
 on:
-  push:
-    branches: [main]
-    tags: ['v*']
   pull_request:
 
 env:
@@ -12,112 +9,35 @@ env:
   PGSOCKET: /var/run/postgresql
 
 jobs:
-  node:
-    name: Node v${{ matrix.node }} on PostgreSQL v${{ matrix.postgres }}
+  check:
+    name: 4.5.0 tests on ${{ matrix.src }} sources
     strategy:
       fail-fast: false
       matrix:
-        node: ['22', '24', '26']
-        postgres: ['15', '16', '17', '18']
-        exclude: ${{ fromJSON(startsWith(github.ref, 'refs/tags/v') && '[]' || '[{"node":"22","postgres":"16"},{"node":"22","postgres":"17"},{"node":"26","postgres":"15"},{"node":"26","postgres":"16"},{"node":"26","postgres":"17"}]') }}
+        src: [branch, upstream]
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/setup-postgres
         with:
-          version: ${{ matrix.postgres }}
-      - uses: actions/setup-node@v4
-        with:
-          node-version: ${{ matrix.node }}
-      - run: |
-          npm run build
-          npm run test:startup
-          node tests-startup/run.js --cjs
-          npm run test:esm
-          npm run test:cjs
-
-  deno:
-    name: Deno 1.46.3 on PostgreSQL 17
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
+          fetch-depth: 0
       - uses: ./.github/actions/setup-postgres
         with:
           version: '17'
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
-      - uses: denoland/setup-deno@v1
-        with:
-          deno-version: v1.46.3
-      - run: npm run test:deno
-
-  cloudflare:
-    name: Cloudflare workerd on PostgreSQL 17
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    env:
-      POSTGRES_VERSION: '17'
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-      - uses: ./.github/actions/setup-postgres
-        with:
-          version: ${{ env.POSTGRES_VERSION }}
-      - run: npm run build:cf
-      - name: Start workerd PostgreSQL clusters
+      - run: node tests/bootstrap.js
+      - name: Put main's sources in place
+        if: matrix.src == 'main'
         run: |
-          openssl req -new -x509 -nodes -days 1 -subj /CN=localhost \
-            -addext subjectAltName=DNS:localhost,IP:127.0.0.1 \
-            -keyout "$RUNNER_TEMP/server.key" -out "$RUNNER_TEMP/server.crt"
-          bash .github/actions/setup-postgres/cluster.sh "$POSTGRES_VERSION" workerd 55432
-          bash .github/actions/setup-postgres/cluster.sh "$POSTGRES_VERSION" workerd_tls 55433 "$RUNNER_TEMP/server.crt" "$RUNNER_TEMP/server.key"
-      - run: npm run test:workerd -- . 55432
-        env:
-          WORKERD_TLS_PORT: 55433
-          WORKERD_TLS_CA: ${{ runner.temp }}/server.crt
-
-  lint:
-    name: Lint
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-      - run: npm install --no-save eslint@8.57.1
-      - run: npm run lint
-      - run: npm install --no-save typescript@5.6 @types/node@22
-      - run: npx tsc -p tests-types
-
-  publish:
-    name: Stage on npm
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: [node, deno, cloudflare, lint]
-    runs-on: ubuntu-24.04
-    timeout-minutes: 45
-    environment: npm
-    permissions:
-      contents: read
-      id-token: write
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-          registry-url: https://registry.npmjs.org
-      - run: npm install -g npm@12
-      - run: test "v$(node -p 'require("./package.json").version')" = "$GITHUB_REF_NAME"
-      - run: npm install --no-save eslint@8.57.1
-      - run: npm stage publish --tag ${{ contains(github.ref_name, '-') && 'next' || 'latest' }}
-      - name: Move next once the staged version is approved
-        if: ${{ !contains(github.ref_name, '-') }}
-        timeout-minutes: 30
+          git fetch -q origin main
+          for f in $(git ls-tree --name-only origin/main src/); do git show origin/main:$f > $f; done
+          git status --short
+      - name: Put the upstream 3.4.9 sources in place
+        if: matrix.src == 'upstream'
         run: |
-          until npm view "@steadybrew/postgresjs@${GITHUB_REF_NAME#v}" version > /dev/null 2>&1; do sleep 20; done
-          npm dist-tag add "@steadybrew/postgresjs@${GITHUB_REF_NAME#v}" next
+          for f in $(git ls-tree --name-only 411429e src/); do git show 411429e:$f > $f; done
+          git status --short
+      - name: New tests, one at a time
+        run: node .github/check.mjs | tee check.jsonl
