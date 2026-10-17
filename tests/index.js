@@ -56,6 +56,39 @@ t('Uses default database with slash', async() => {
   return [sql.options.user, sql.options.database]
 })
 
+const processEnv = process.env // eslint-disable-line
+const te = globalThis.Deno ? () => undefined : t
+const withEnv = (env, fn) => {
+  const saved = Object.fromEntries(Object.keys(env).map(k => [k, processEnv[k]]))
+  Object.assign(processEnv, env)
+  try {
+    return fn()
+  } finally {
+    for (const [k, v] of Object.entries(saved))
+      v === undefined ? delete processEnv[k] : processEnv[k] = v
+  }
+}
+
+te('Environment false and disable values turn options off', async() => {
+  const parsed = withEnv({ PGPREPARE: 'false', PGFETCH_TYPES: 'false', PGDEBUG: 'false', PGSSL: 'disable' },
+    () => postgres({}).options)
+  const ssl = withEnv({ PGSSL: 'false' }, () => postgres({}).options.ssl)
+  return [
+    '[false,false,false,false,false]',
+    JSON.stringify([parsed.prepare, parsed.fetch_types, parsed.debug, parsed.ssl, ssl])
+  ]
+})
+
+te('Environment values still apply when not false', async() => {
+  const parsed = withEnv({ PGCONNECT_TIMEOUT: '7' }, () => postgres({}).options)
+  return [7, parsed.connect_timeout]
+})
+
+te('Explicit options win over environment values', async() => {
+  const parsed = withEnv({ PGPREPARE: 'false' }, () => postgres({ prepare: true }).options)
+  return [true, parsed.prepare]
+})
+
 t('Result is array', async() =>
   [true, Array.isArray(await sql`select 1`)]
 )
