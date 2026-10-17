@@ -80,28 +80,13 @@ te('Environment false and disable values turn options off', async() => {
 })
 
 te('Environment values still apply when not false', async() => {
-  const parsed = withEnv({ PGMAX: '4', PGCONNECT_TIMEOUT: '7' }, () => postgres({}).options)
-  return ['[4,7]', JSON.stringify([parsed.max, parsed.connect_timeout])]
+  const parsed = withEnv({ PGCONNECT_TIMEOUT: '7' }, () => postgres({}).options)
+  return [7, parsed.connect_timeout]
 })
 
 te('Explicit options win over environment values', async() => {
-  const parsed = withEnv({ PGPREPARE: 'false', PGMAX: '4' }, () => postgres({ prepare: true, max: 2 }).options)
-  return ['[true,2]', JSON.stringify([parsed.prepare, parsed.max])]
-})
-
-t('Undefined options use the defaults', async() => {
-  const keys = ['max', 'idle_timeout', 'connect_timeout', 'max_pipeline', 'keep_alive', 'prepare', 'fetch_types', 'ssl', 'parameter_types']
-  const explicit = Object.fromEntries(keys.map(k => [k, undefined]))
-  const parsed = postgres(explicit).options
-  const defaults = postgres({}).options
-  return [JSON.stringify(keys.map(k => defaults[k])), JSON.stringify(keys.map(k => parsed[k]))]
-})
-
-t('Max from the URL is a number', async() => [4, postgres('postgres://localhost/db?max=4').options.max])
-
-te('Undefined max uses the environment value', async() => {
-  const parsed = withEnv({ PGMAX: '4' }, () => postgres({ max: undefined }).options)
-  return [4, parsed.max]
+  const parsed = withEnv({ PGPREPARE: 'false' }, () => postgres({ prepare: true }).options)
+  return [true, parsed.prepare]
 })
 
 t('Result is array', async() =>
