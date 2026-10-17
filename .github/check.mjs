@@ -11,6 +11,8 @@ const cases = [
   kase('upstream 1255', 'lease:reserve-end-release'),
   kase('upstream 1252', 'report:cancel-pipelined-reserve'),
   index('#68', 'A query that fails after returning rows does not offset the rows of the next query'),
+  index('upstream 1181', 'A query pipelined behind one that fails after returning rows has no empty slots'),
+  index('upstream 1253', 'A query cancelled after returning rows does not offset the rows of the next query'),
   kase('#69', 'copy:out-done-paused'),
   kase('#69', 'copy:out-error-paused'),
   index('#49', 'Environment false and disable values turn options off'),
