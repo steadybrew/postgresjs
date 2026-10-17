@@ -1050,8 +1050,9 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
 
   function mismatchReason(x, xs) {
     return (
+      (x === 'read-write' && xs.in_hot_standby === 'on' && 'is a standby') ||
       (x === 'read-write' && xs.default_transaction_read_only === 'on' && 'is read-only') ||
-      (x === 'read-only' && xs.default_transaction_read_only === 'off' && 'is read-write') ||
+      (x === 'read-only' && xs.in_hot_standby === 'off' && xs.default_transaction_read_only === 'off' && 'is read-write') ||
       (x === 'primary' && xs.in_hot_standby === 'on' && 'is a standby') ||
       (x === 'standby' && xs.in_hot_standby === 'off' && 'is a primary') ||
       (x === 'prefer-standby' && xs.in_hot_standby === 'off' && standbyPass() && 'is a primary') ||
