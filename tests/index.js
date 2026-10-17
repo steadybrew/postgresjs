@@ -2876,6 +2876,43 @@ t('A query that fails after returning rows does not offset the rows of the next 
   ]
 })
 
+t('A query pipelined behind one that fails after returning rows has no empty slots', async() => {
+  const sql = postgres({ ...options, max: 1 })
+  const first = sql`select i, 1 / (4 - i) as boom from generate_series(1, 10) i`.catch(x => x.message)
+  const second = sql`select x from generate_series(1, 5) x`
+  const message = await first
+  const result = await second
+  await sql.end()
+
+  return [
+    JSON.stringify(['division by zero', 5, []]),
+    JSON.stringify([message, result.length, [...Array(result.length).keys()].filter(i => !(i in result))])
+  ]
+})
+
+t('A query cancelled after returning rows does not offset the rows of the next query', { timeout: 10 }, async() => {
+  const sql = postgres({ ...options, max: 1 })
+  const observer = postgres({ ...options, max: 1 })
+  const query = sql`select g as cancel_marker, case when g = 3 then pg_sleep(30) end from generate_series(1, 5) g`
+  const cancelled = query.catch(x => x.code)
+  query.execute()
+  while (!(await observer`
+    select 1 from pg_stat_activity
+    where wait_event = 'PgSleep' and query like '%cancel_marker%' and pid <> pg_backend_pid()
+  `).length)
+    await delay(20)
+  await query.cancel()
+  const code = await cancelled
+  const result = await sql`select 7 as x`
+  await observer.end()
+  await sql.end()
+
+  return [
+    JSON.stringify(['57014', 1, 7]),
+    JSON.stringify([code, result.length, result[0] && result[0].x])
+  ]
+})
+
 t('Fragments', async() => [
   1,
   (await sql`
