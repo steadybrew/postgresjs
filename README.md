@@ -74,7 +74,7 @@ See the [changelog](./CHANGELOG.md#breaking-changes-and-migration) for the full 
 Upstream issues on [porsager/postgres](https://github.com/porsager/postgres/issues) that this fork fixes, and the version that fixed them. Each fix has a test that reproduces the report, except [#1100](https://github.com/porsager/postgres/issues/1100), which rests on a production measurement, and [#1154](https://github.com/porsager/postgres/issues/1154), whose test reproduces the reported stack without a known trigger. The [changelog](./CHANGELOG.md) has the details.
 
 <details>
-<summary>39 bugs and 4 feature requests</summary>
+<summary>44 bugs and 4 feature requests</summary>
 
 **Wrong results and data safety**
 
@@ -87,6 +87,8 @@ Upstream issues on [porsager/postgres](https://github.com/porsager/postgres/issu
 | [#1217](https://github.com/porsager/postgres/issues/1217) | `sql.begin()` rejects with `TRANSACTION_ROLLED_BACK` when the server rolled back the COMMIT | 4.4.0 |
 | [#1249](https://github.com/porsager/postgres/issues/1249), [#1226](https://github.com/porsager/postgres/issues/1226), [#1223](https://github.com/porsager/postgres/issues/1223) | The first query after a reconnect no longer rejects with an error from the closed session | 4.0.0 |
 | [#789](https://github.com/porsager/postgres/issues/789) | `sql.array()` infers the right array type on first use | 4.0.0 |
+| [#1049](https://github.com/porsager/postgres/issues/1049), [#1124](https://github.com/porsager/postgres/issues/1124) | `NULL` elements in arrays parse as `null`, not `NaN` or the string `"NULL"` | 4.0.0 |
+| [#1252](https://github.com/porsager/postgres/issues/1252) | Cancelling a pipelined query that hasn't started no longer gives the next query its result | 4.1.0 |
 
 **Hangs**
 
@@ -99,6 +101,7 @@ Upstream issues on [porsager/postgres](https://github.com/porsager/postgres/issu
 | [#1246](https://github.com/porsager/postgres/issues/1246) | A query sent between a socket error and its close settles, and a transaction reset mid-statement no longer loses a pool connection | 4.1.0 |
 | [#1193](https://github.com/porsager/postgres/issues/1193) | A connection closed during startup settles its first query instead of reconnecting in a tight loop | 4.0.0 |
 | [#1234](https://github.com/porsager/postgres/issues/1234) | Concurrent queries in `sql.begin()` after a column type change roll the transaction back and return the connection to the pool | 4.4.0 |
+| [#1255](https://github.com/porsager/postgres/issues/1255) | A reserved connection whose `max_lifetime` passed is closed when released, and `sql.end()` called before the release resolves | 4.0.0 |
 
 **Crashes**
 
@@ -113,6 +116,7 @@ Upstream issues on [porsager/postgres](https://github.com/porsager/postgres/issu
 | Issue | What happens now | Since |
 | --- | --- | --- |
 | [#1179](https://github.com/porsager/postgres/issues/1179) | Failed connection attempts back off instead of the whole pool retrying at once | 4.0.0 |
+| [#1250](https://github.com/porsager/postgres/issues/1250) | A connection closed with a statement still buffered reconnects, instead of failing every later statement with `CONNECT_TIMEOUT` | 4.0.0 |
 | [#1174](https://github.com/porsager/postgres/issues/1174), [#815](https://github.com/porsager/postgres/issues/815), [#988](https://github.com/porsager/postgres/issues/988) | With several hosts, retries move to the next host, a connect timeout fails over, and `prefer-standby` falls back to a primary | 4.0.0 |
 
 **Transactions, notices and subscriptions**
