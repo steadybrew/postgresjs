@@ -1121,6 +1121,8 @@ The JavaScript value decides how it is serialized and PostgreSQL parses the text
 - a value with a type Postgres.js can tell from the JavaScript value is serialized for that type, as with `'server'`
 - an array whose elements have no such type still makes Postgres.js ask PostgreSQL for the placeholder's type first, because only PostgreSQL knows whether the placeholder is an array, JSON or a custom type; that query takes the extra round trip
 
+Measured in production on one app with `prepare: false` behind the Supabase pooler, a day on each mode: against `'warn'`, which takes the same two round trips as `'server'`, the median query went from 5.3 to 3.1 ms and the p95 from 16.8 to 13.5 ms, and the p95 of a request's total query time from 476 to 318 ms. The p99 was unchanged, because the app's slowest statements spend their time in the server, not the round trip.
+
 What this changes compared to `'server'`:
 
 | Value | Type PostgreSQL infers for the placeholder | `'server'` | `'client'` |
@@ -1510,7 +1512,7 @@ const sql = postgres()
 
 Prepared statements will automatically be created for any queries where it can be inferred that the query is static. This can be disabled by using the `prepare: false` option. For instance — this is useful when [using PGBouncer in `transaction mode`](https://github.com/porsager/postgres/issues/93#issuecomment-656290493).
 
-With `prepare: false`, `parameter_types: 'client'` sends queries with values in one round trip, unless a value is an untyped array; see [Parameter types](#parameter-types).
+With `prepare: false`, `parameter_types: 'client'` sends queries with values in one round trip, unless a value is an untyped array; see [Parameter types](#parameter-types) for how it works and what it saved in production.
 
 **update**: [since 1.21.0](https://www.pgbouncer.org/2023/10/pgbouncer-1-21-0)
 PGBouncer supports protocol-level named prepared statements when [configured
