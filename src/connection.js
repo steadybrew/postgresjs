@@ -104,6 +104,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     , hostIndex = 0
     , length = 0
     , rows = 0
+    , copyPaused = false
     , serverSignature = null
     , nextWriteTimer = null
     , incomings = null
@@ -462,6 +463,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     query = results = errorResponse = chunk = nextWriteTimer = barrier = null
     result = new Result()
     rows = 0
+    copyPaused = false
     nonce = serverSignature = null
   }
 
@@ -684,6 +686,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
 
   function errored(err) {
     stream && (stream.destroy(err), stream = null)
+    resumeCopy()
     query && queryError(query, err)
   }
 
@@ -814,6 +817,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
 
     query = results = errorResponse = null
     result = new Result()
+    rows = 0
 
     dispatch('ready')
   }
@@ -1146,7 +1150,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
 
   function CopyOutResponse() {
     stream = new Stream.Readable({
-      read() { socket.resume() }
+      read() { copyPaused = false; socket.resume() }
     })
     query.resolve(stream)
     connection.owner && connection.owner.next()
@@ -1156,7 +1160,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
   function CopyBothResponse() {
     stream = new Stream.Duplex({
       autoDestroy: true,
-      read() { socket.resume() },
+      read() { copyPaused = false; socket.resume() },
       /* c8 ignore next 11 */
       write(chunk, encoding, callback) {
         socket.write(b().d().raw(chunk).end(), callback)
@@ -1176,12 +1180,23 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
   }
 
   function CopyData(x) {
-    stream && (stream.push(x.subarray(5)) || socket.pause())
+    if (stream && !stream.push(x.subarray(5))) {
+      copyPaused = true
+      socket.pause()
+    }
   }
 
   function CopyDone() {
     stream && stream.push(null)
     stream = null
+    resumeCopy()
+  }
+
+  function resumeCopy() {
+    if (copyPaused) {
+      copyPaused = false
+      socket.resume()
+    }
   }
 
   function NoticeResponse(x) {
