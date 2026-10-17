@@ -52,7 +52,7 @@ function rowset(columns, values) {
 export async function peer({ catalogError = false, holdStartup = false, failAuthentication = false, catalogRows = [],
                              closeStartup = 0, closeCatalog = 0, holdCatalog = false, holdSession = false,
                              closeAfterError = false, sessionError = false, fatalAfterSession = false, fatalDuringSession = false,
-                             readOnly = false, standby = false, passwordAuth = false, allowHalfOpen = false,
+                             readOnly = false, standby = false, reported = null, passwordAuth = false, allowHalfOpen = false,
                              holdQuery = '', fatalQuery = '', failQuery = '', closeQuery = '', holdStatement = '', sslReply = '', port = 0,
                              parameterTypes = [],
                              onStartup = () => { /* Optional startup barrier. */ }, onEvent = () => { /* Optional protocol observer. */ } } = {}) {
@@ -73,7 +73,8 @@ export async function peer({ catalogError = false, holdStartup = false, failAuth
     const authenticated = () => {
       const key = Buffer.alloc(8)
       key.writeUInt32BE(pid, 0)
-      socket.write(Buffer.concat([message('R', Buffer.alloc(4)), message('K', key), rdy()]))
+      const parameters = reported ? Object.entries(reported).map(([k, v]) => message('S', Buffer.from(k + '\0' + v + '\0'))) : []
+      socket.write(Buffer.concat([message('R', Buffer.alloc(4)), ...parameters, message('K', key), rdy()]))
     }
     let statement = ''
     let status = 'I'
@@ -227,7 +228,7 @@ export async function peer({ catalogError = false, holdStartup = false, failAuth
           const fatal = message('E', Buffer.from('SFATAL\0C57P01\0Mterminating connection\0\0'))
           const answer = fatalDuringSession ? fatal : sessionError
             ? Buffer.concat([message('E', Buffer.from('SERROR\0C42501\0Msession denied\0\0')), rdy()])
-            : Buffer.concat([rowset([['transaction_read_only', 25]], [[readOnly ? 'on' : 'off']]),
+            : Buffer.concat([rowset([['transaction_read_only', 25]], [[readOnly || standby ? 'on' : 'off']]),
                              rowset([['pg_is_in_recovery', 16]], [[standby ? 't' : 'f']]), rdy()])
           fatalAfterSession
             ? socket.end(Buffer.concat([answer, fatal]))
