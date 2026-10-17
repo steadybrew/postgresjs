@@ -21,6 +21,7 @@ const scenarios = {
   'stale-transaction-reads-through-rls': staleTransactionReadsThroughRls,
   'reset-mid-begin': resetMidBegin,
   'cancel-pipelined-reserve': cancelPipelinedReserve,
+  'cancel-pipelined-cached-plan': cancelPipelinedCachedPlan,
   'terminated-inflight-then-query:prepared': postgres => terminatedInflightThenQuery(postgres, true),
   'terminated-inflight-then-query:unprepared': postgres => terminatedInflightThenQuery(postgres, false),
   ...Object.fromEntries(['idle-timeout', 'terminate'].flatMap(ender => ['return', 'statement'].map(next =>
@@ -697,3 +698,33 @@ async function cancelPipelinedReserve(postgres) {
     await bounded(admin.end({ timeout: 0 }), 2000)
   }
 }
+
+async function cancelPipelinedCachedPlan(postgres) {
+  const fault = capture()
+  const admin = postgres({ ...pg, max: 1 })
+  const sql = postgres({ ...pg, max: 1 })
+  try {
+    await admin`drop table if exists report_cancel_plan`
+    await admin`create table report_cancel_plan (name text)`
+    await admin`insert into report_cancel_plan values ('1')`
+    const read = () => sql`select name from report_cancel_plan`
+    await read()
+    await admin`alter table report_cancel_plan alter column name type int using name::integer`
+    const ahead = sql.unsafe('select pg_sleep(0.2) as slept').execute()
+    const doomed = read().execute()
+    const behind = sql.unsafe('select 1 as x').execute()
+    await sleep(50)
+    doomed.cancel()
+    const rows = behind.then(result => JSON.stringify(result), error => error.message)
+    const [first, cancelled, next] = await Promise.all([bounded(outcome(ahead)), bounded(outcome(doomed)), bounded(rows)])
+    await turn()
+    assert.deepStrictEqual({ first, cancelled: ['0A000', '57014'].includes(cancelled) ? 'rejected' : cancelled, next, unhandled: fault.errors },
+                           { first: 'resolved', cancelled: 'rejected', next: '[{"x":1}]', unhandled: [] })
+  } finally {
+    fault.stop()
+    await bounded(sql.end({ timeout: 0 }), 2000)
+    await admin`drop table if exists report_cancel_plan`
+    await bounded(admin.end({ timeout: 0 }), 2000)
+  }
+}
+
