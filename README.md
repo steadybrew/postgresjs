@@ -71,10 +71,10 @@ See the [changelog](./CHANGELOG.md#breaking-changes-and-migration) for the full 
 
 ## Fixed Postgres.js issues
 
-Upstream issues on [porsager/postgres](https://github.com/porsager/postgres/issues) that this fork fixes, and the version that fixed them. Each fix has a test that reproduces the report, except [#1100](https://github.com/porsager/postgres/issues/1100), which rests on a production measurement, and [#1154](https://github.com/porsager/postgres/issues/1154), whose test reproduces the reported stack without a known trigger. The [changelog](./CHANGELOG.md) has the details.
+Bugs and feature requests from [porsager/postgres](https://github.com/porsager/postgres) that this fork fixes, whether reported in an issue or in a pull request suggesting a fix, and the version that fixed them. Each fix has a test that reproduces the report, except [#1100](https://github.com/porsager/postgres/issues/1100), which rests on a production measurement, and [#1154](https://github.com/porsager/postgres/issues/1154), whose test reproduces the reported stack without a known trigger. The [changelog](./CHANGELOG.md) has the details.
 
 <details>
-<summary>44 bugs and 4 feature requests</summary>
+<summary>54 bugs and 7 feature requests</summary>
 
 **Wrong results and data safety**
 
@@ -89,6 +89,7 @@ Upstream issues on [porsager/postgres](https://github.com/porsager/postgres/issu
 | [#789](https://github.com/porsager/postgres/issues/789) | `sql.array()` infers the right array type on first use | 4.0.0 |
 | [#1049](https://github.com/porsager/postgres/issues/1049), [#1124](https://github.com/porsager/postgres/issues/1124) | `NULL` elements in arrays parse as `null`, not `NaN` or the string `"NULL"` | 4.0.0 |
 | [#1252](https://github.com/porsager/postgres/issues/1252) | Cancelling a pipelined query that hasn't started no longer gives the next query its result | 4.1.0 |
+| [#1253](https://github.com/porsager/postgres/issues/1253), [#1181](https://github.com/porsager/postgres/issues/1181), [#1119](https://github.com/porsager/postgres/issues/1119) | A query no longer gets empty slots at the start of its result after the previous query on the connection failed or was cancelled partway through its rows | 4.5.0 |
 
 **Hangs**
 
@@ -101,7 +102,8 @@ Upstream issues on [porsager/postgres](https://github.com/porsager/postgres/issu
 | [#1246](https://github.com/porsager/postgres/issues/1246) | A query sent between a socket error and its close settles, and a transaction reset mid-statement no longer loses a pool connection | 4.1.0 |
 | [#1193](https://github.com/porsager/postgres/issues/1193) | A connection closed during startup settles its first query instead of reconnecting in a tight loop | 4.0.0 |
 | [#1234](https://github.com/porsager/postgres/issues/1234) | Concurrent queries in `sql.begin()` after a column type change roll the transaction back and return the connection to the pool | 4.4.0 |
-| [#1255](https://github.com/porsager/postgres/issues/1255) | A reserved connection whose `max_lifetime` passed is closed when released, and `sql.end()` called before the release resolves | 4.0.0 |
+| [#1255](https://github.com/porsager/postgres/issues/1255), [#1261](https://github.com/porsager/postgres/issues/1261) | A reserved connection whose `max_lifetime` passed is closed when released, and `sql.end()` called before the release resolves | 4.0.0 |
+| [#1016](https://github.com/porsager/postgres/pull/1016) | Queries no longer hang after a `COPY ... TO STDOUT` whose reader fell behind | 4.5.0 |
 
 **Crashes**
 
@@ -110,6 +112,8 @@ Upstream issues on [porsager/postgres](https://github.com/porsager/postgres/issu
 | [#1154](https://github.com/porsager/postgres/issues/1154), [#1208](https://github.com/porsager/postgres/issues/1208), [#1133](https://github.com/porsager/postgres/issues/1133) | A reserved or transaction connection that the server or network closes rejects its later statements, and `sql.begin()`'s own `ROLLBACK` or `COMMIT`, with `CONNECTION_CLOSED` instead of crashing the process with `Cannot read properties of null (reading 'write')`. | 4.0.0 |
 | [#1192](https://github.com/porsager/postgres/issues/1192), [#1205](https://github.com/porsager/postgres/issues/1205), [#1086](https://github.com/porsager/postgres/issues/1086) | A failed or cancelled type query at startup rejects the query instead of crashing the process | 4.0.0 |
 | [#1088](https://github.com/porsager/postgres/issues/1088) | Timers no longer fail on Cloudflare Workers | 4.0.0 |
+| [#1227](https://github.com/porsager/postgres/issues/1227) | Assigning `err.stack` on a query error no longer throws on Node 22 and newer | 4.5.0 |
+| [#1009](https://github.com/porsager/postgres/pull/1009) | The `camel` and `pascal` transforms no longer throw on a column name ending with an underscore | 4.5.0 |
 
 **Reconnects and failover**
 
@@ -127,6 +131,14 @@ Upstream issues on [porsager/postgres](https://github.com/porsager/postgres/issu
 | [#1063](https://github.com/porsager/postgres/issues/1063) | `onnotice: false` silences notices | 4.4.0 |
 | [#1087](https://github.com/porsager/postgres/issues/1087) | `sql.subscribe()` no longer adds a listener on each subscribe or loses changes after a transform throws | 4.4.0 |
 
+**TypeScript**
+
+| Issue | What happens now | Since |
+| --- | --- | --- |
+| [#1158](https://github.com/porsager/postgres/issues/1158), [#1177](https://github.com/porsager/postgres/pull/1177) | `sslnegotiation` is in the option types | 4.5.0 |
+| [#968](https://github.com/porsager/postgres/pull/968) | `socket` is in the option types | 4.5.0 |
+| [#703](https://github.com/porsager/postgres/issues/703), [#1194](https://github.com/porsager/postgres/pull/1194) | `new PostgresError('message')` sets the message, as with `Error`, and the types declare both the message and the fields forms | 4.5.0 |
+
 **Feature requests**
 
 | Issue | What you get | Since |
@@ -134,6 +146,8 @@ Upstream issues on [porsager/postgres](https://github.com/porsager/postgres/issu
 | [#443](https://github.com/porsager/postgres/issues/443), [#908](https://github.com/porsager/postgres/issues/908) | `sql.stats()` reports connections in use and idle, and queries waiting | 4.3.0 |
 | [#1100](https://github.com/porsager/postgres/issues/1100) | An `onidle` callback and the `@steadybrew/postgresjs/vercel` adapter | 4.2.0 |
 | [#1164](https://github.com/porsager/postgres/issues/1164) | Built-in array types are decoded, and plain JavaScript arrays are sent, with `fetch_types: false` | 4.0.0 |
+| [#886](https://github.com/porsager/postgres/issues/886), [#1094](https://github.com/porsager/postgres/issues/1094) | `await using` ends a pool and releases a reserved connection when it goes out of scope | 4.5.0 |
+| [#1225](https://github.com/porsager/postgres/issues/1225) | Queries with values in one round trip instead of two, opt-in with `parameter_types: 'client'` | 4.5.0 |
 
 Bun isn't tested here, so Bun-only reports such as [#1066](https://github.com/porsager/postgres/issues/1066) aren't listed; the same crash on Node is [#1208](https://github.com/porsager/postgres/issues/1208).
 
