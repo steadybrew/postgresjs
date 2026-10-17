@@ -24,5 +24,6 @@ postgres().options.socket?.(postgres().options)
 
 new postgres.PostgresError({ message: 'x', code: '23505', severity: 'ERROR' })
 new postgres.PostgresError({ code: '23505' })
-// @ts-expect-error
 new postgres.PostgresError('boom')
+// @ts-expect-error
+new postgres.PostgresError(42)

@@ -2235,6 +2235,15 @@ t('Postgres errors are of type PostgresError', async() =>
   [true, (await sql`bad keyword`.catch(e => e)) instanceof sql.PostgresError]
 )
 
+t('PostgresError takes a message like Error, or the error fields', async() => {
+  const error = new postgres.PostgresError('Error message.')
+  const fields = new postgres.PostgresError({ message: 'duplicate key', code: '23505' })
+  return [
+    'Error message.,PostgresError,,duplicate key,23505',
+    [error.message, error.name, Object.keys(error).filter(k => /^\d+$/.test(k)).join(''), fields.message, fields.code].join()
+  ]
+})
+
 t('Result has columns spec', async() =>
   ['x', (await sql`select 1 as x`).columns[0].name]
 )

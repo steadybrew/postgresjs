@@ -1,8 +1,8 @@
 export class PostgresError extends Error {
   constructor(x) {
-    super(x.message)
+    super(typeof x === 'string' ? x : x.message)
     this.name = this.constructor.name
-    Object.assign(this, x)
+    typeof x === 'string' || Object.assign(this, x)
   }
 }
 

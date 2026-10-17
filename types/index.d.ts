@@ -207,6 +207,7 @@ type Return<T, K extends readonly any[]> =
 
 declare namespace postgres {
   class PostgresError extends Error {
+    constructor(message: string);
     constructor(fields: Partial<Omit<PostgresError, 'name' | 'stack' | 'cause'>>);
     name: 'PostgresError';
     severity_local: string;
