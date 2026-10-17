@@ -92,6 +92,8 @@ jobs:
           node-version: '24'
       - run: npm install --no-save eslint@8.57.1
       - run: npm run lint
+      - run: npm install --no-save typescript@5.6 @types/node@22
+      - run: npx tsc -p tests-types
 
   publish:
     name: Stage on npm
