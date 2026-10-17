@@ -169,6 +169,33 @@ for (const fetch_types of [false, true]) {
     } finally { await client.end() }
   })
 
+  t('SQL null in a smallint[] column with fetch_types=' + fetch_types, async() => {
+    const client = postgres({ ...options, fetch_types })
+    try {
+      await client`create table test (x smallint[])`
+      await client`insert into test values ('{1,NULL,3}')`
+      const [{ x }] = await client`select x from test`
+      return ['1,null,3', x.map(String).join()]
+    } finally {
+      await client`drop table if exists test`
+      await client.end()
+    }
+  })
+
+  t('SQL null in array_agg of a text column with fetch_types=' + fetch_types, async() => {
+    const client = postgres({ ...options, fetch_types })
+    try {
+      await client`create table test (id serial primary key, y text)`
+      await client`insert into test (y) values ('a'), (null), ('b')`
+      const rows = await client`select y from test order by id`
+      const [{ y }] = await client`select array_agg(y order by id)::text[] as y from test`
+      return [JSON.stringify([['a', null, 'b'], ['a', null, 'b']]), JSON.stringify([rows.map(x => x.y), y])]
+    } finally {
+      await client`drop table if exists test`
+      await client.end()
+    }
+  })
+
   t('Array transforms with fetch_types=' + fetch_types, async() => {
     const transform = { undefined: null,
                         column: { from(x) {

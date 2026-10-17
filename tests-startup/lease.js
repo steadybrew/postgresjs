@@ -11,7 +11,7 @@ export const leaseNames = ['reserve-close', 'reserve-release-close', 'reserve-st
                            'reserve-handoff-gap', 'begin-handoff-gap', 'begin-settling', 'begin-commit-fails', 'begin-start-failed',
                            'reserve-raw-begin', 'begin-leaked-savepoint-late', 'reserve-cancel-before-send', 'begin-cancel-before-send',
                            'pool-cancel-before-send', 'reserve-cancel-queued', 'begin-cancel-queued',
-                           'pooled-raw-begin', 'pooled-retry', 'owned-lifetime',
+                           'pooled-raw-begin', 'pooled-retry', 'owned-lifetime', 'owned-lifetime-reserve', 'reserve-end-release',
                            'settling-disconnect-commit', 'settling-disconnect-rollback', 'settling-disconnect-prepare',
                            'settling-end-commit', 'settling-end-rollback', 'settling-end-prepare',
                            'settling-fail-rollback', 'settling-fail-prepare',
@@ -89,7 +89,7 @@ export async function leases(name, postgres, onEvent) {
                 'pooled-raw-begin', 'pooled-retry'].includes(name)
   const sql = postgres({ ...base, max: wide ? 2 : 1,
                          ...(name.startsWith('begin-inflight-end') ? { max: 5, fetch_types: false } : {}),
-                         ...(name === 'owned-lifetime' ? { max_lifetime: 0.2 } : {}),
+                         ...(name.startsWith('owned-lifetime') ? { max_lifetime: 0.2 } : {}),
                          ...(name === 'begin-pipeline-zero' || name.endsWith('-cancel-queued') ? { max_pipeline: 0 } : {}),
                          ...(name === 'begin-backpressure' ? { socket: backpressure } : {}),
                          ...(name.endsWith('-handoff-gap') ? { socket: gap } : {}),
@@ -494,6 +494,23 @@ export async function leases(name, postgres, onEvent) {
       assert.strictEqual(startups(server), 2)
       assert.strictEqual(await settle(marker(sql)), 'resolved')
       assert.strictEqual(await settle(sql.end()), 'resolved')
+    } else if (name === 'owned-lifetime-reserve') {
+      const held = await sql.reserve()
+      await marker(held)
+      await sleep(400)
+      held.release()
+      const next = await sql.reserve()
+      await marker(next)
+      next.release()
+      assert.deepStrictEqual({ startups: startups(server), ended: await settle(sql.end(), 1000) }, { startups: 2, ended: 'resolved' })
+    } else if (name === 'reserve-end-release') {
+      const held = await sql.reserve()
+      await marker(held)
+      const ending = settle(sql.end(), 1000)
+      await sleep(100)
+      held.release()
+      const endOutcome = await ending
+      assert.strictEqual(endOutcome, 'resolved', 'sql.end() before the reserved connection was released settled as ' + endOutcome)
     } else if (settling.length) {
       const [, mode, statement] = settling
       const first = (await select(sql, 'select 42 as marker')).state.pid

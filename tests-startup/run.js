@@ -16,7 +16,7 @@ const startupNames = ['first-types', 'first-types-no-fetch', 'first-types-transf
                       'catalog-error-reserve', 'catalog-error-query', 'session-error', 'catalog-close',
                       'stale-error', 'retry-bound', 'retry-stalled', 'long-backoff', 'server-budget', 'retry-zero', 'stalled', 'catalog-stalled',
                       'session-stalled', 'factory-timeout', 'factory-reject', 'factory-end', 'factory-multi',
-                      'pending-write', 'password-late', 'password-reject', 'failure-drain', 'failover', 'session-select',
+                      'pending-write', 'pending-write-statement', 'password-late', 'password-reject', 'failure-drain', 'failover', 'session-select',
                       'budget-reset', 'end-backoff', 'graceful-startup-close', 'copy-close', 'copy-close-in',
                       'copy-final-close', 'password-close', 'half-open-end', 'graceful-queued-query', 'graceful-queued-reserve',
                       'graceful-first-query', 'forced-queued-query', 'forced-queued-reserve',

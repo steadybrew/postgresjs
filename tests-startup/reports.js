@@ -20,6 +20,7 @@ const scenarios = {
   'late-drain-commits-other-transaction': lateDrainCommitsOtherTransaction,
   'stale-transaction-reads-through-rls': staleTransactionReadsThroughRls,
   'reset-mid-begin': resetMidBegin,
+  'cancel-pipelined-reserve': cancelPipelinedReserve,
   'terminated-inflight-then-query:prepared': postgres => terminatedInflightThenQuery(postgres, true),
   'terminated-inflight-then-query:unprepared': postgres => terminatedInflightThenQuery(postgres, false),
   ...Object.fromEntries(['idle-timeout', 'terminate'].flatMap(ender => ['return', 'statement'].map(next =>
@@ -664,5 +665,35 @@ async function resetMidBegin(postgres) {
     await killer`select pg_terminate_backend(pid) from pg_stat_activity where application_name = ${ application_name }`
     await bounded(killer.end({ timeout: 0 }), 2000)
     await relay.close()
+  }
+}
+
+const answer = promise => bounded(Promise.resolve(promise).then(rows => JSON.stringify(rows), error => 'rejected:' + error.code))
+
+async function cancelPipelinedReserve(postgres) {
+  const fault = capture()
+  const admin = postgres({ ...pg, max: 1 })
+  const sql = postgres({ ...pg, fetch_types: true, max: 1 })
+  try {
+    const r = await sql.reserve()
+    await r`CREATE TABLE IF NOT EXISTS report_cancel (id int)`
+    await r`TRUNCATE report_cancel`
+    await r`INSERT INTO report_cancel VALUES (1)`
+    const q1 = r.unsafe('SELECT pg_sleep(0.2) AS slept').execute()
+    const q2 = r.unsafe('SELECT \'q2\' AS who WHERE false').execute()
+    const q3 = r.unsafe('SELECT count(*)::int AS n FROM report_cancel').execute()
+    await sleep(50)
+    q2.cancel()
+    const [first, cancelled, next] = await Promise.all([bounded(outcome(q1)), answer(q2), answer(q3)])
+    r.release()
+    await turn()
+    assert.deepStrictEqual({ first, cancelled: ['[]', 'rejected:57014'].includes(cancelled) ? 'own answer' : cancelled,
+                             next: ['[{"n":1}]', 'rejected:57014'].includes(next) ? 'own answer' : next, unhandled: fault.errors },
+                           { first: 'resolved', cancelled: 'own answer', next: 'own answer', unhandled: [] })
+  } finally {
+    fault.stop()
+    await bounded(sql.end({ timeout: 0 }), 2000)
+    await admin`drop table if exists report_cancel`
+    await bounded(admin.end({ timeout: 0 }), 2000)
   }
 }
