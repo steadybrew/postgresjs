@@ -55,6 +55,7 @@ export class Query extends Promise {
     if (!this.canceller || this.settled)
       return Promise.resolve()
 
+    Promise.prototype.then.call(this, undefined, () => undefined)
     const cancelled = this.canceller(this)
     this.canceller = null
     cancelled.catch(() => undefined)

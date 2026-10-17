@@ -21,6 +21,7 @@ const scenarios = {
   'stale-transaction-reads-through-rls': staleTransactionReadsThroughRls,
   'reset-mid-begin': resetMidBegin,
   'cancel-pipelined-cached-plan': cancelPipelinedCachedPlan,
+  'cancel-inflight-unawaited': cancelInflightUnawaited,
   'terminated-inflight-then-query:prepared': postgres => terminatedInflightThenQuery(postgres, true),
   'terminated-inflight-then-query:unprepared': postgres => terminatedInflightThenQuery(postgres, false),
   ...Object.fromEntries(['idle-timeout', 'terminate'].flatMap(ender => ['return', 'statement'].map(next =>
@@ -694,5 +695,22 @@ async function cancelPipelinedCachedPlan(postgres) {
     await bounded(sql.end({ timeout: 0 }), 2000)
     await admin`drop table if exists report_cancel_plan`
     await bounded(admin.end({ timeout: 0 }), 2000)
+  }
+}
+
+async function cancelInflightUnawaited(postgres) {
+  const fault = capture()
+  const sql = postgres({ ...pg, max: 1 })
+  try {
+    const dropped = sql`select pg_sleep(30)`.execute()
+    await sleep(200)
+    await dropped.cancel()
+    await sleep(500)
+    await turn()
+    assert.deepStrictEqual(fault.errors, [])
+    assert.strictEqual(await bounded(outcome(dropped)), '57014')
+  } finally {
+    fault.stop()
+    await bounded(sql.end({ timeout: 0 }), 2000)
   }
 }

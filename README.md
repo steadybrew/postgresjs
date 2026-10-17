@@ -700,6 +700,8 @@ setTimeout(() => query.cancel(), 100)
 const result = await query
 ```
 
+A cancelled query rejects with code `57014`. A cancel can arrive too late, in which case the query may still complete, or fail with its own error. `query.cancel()` resolves once the cancel request has been sent. A cancelled query you don't await does not cause an unhandled rejection.
+
 ### Execute
 
 #### ```await sql``.execute()```
