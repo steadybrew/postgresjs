@@ -1,5 +1,24 @@
 # Changelog
 
+## v4.5.0 - 2026-10-17
+
+Promotes `4.5.0-rc1`, whose entry below lists the features: queries with values in one round trip with `parameter_types: 'client'`, `parameter_types: 'warn'` to check a workload first, Node.js 22 support and `await using`. In production on one app with `prepare: false` behind the Supabase pooler, `'client'` cut the median query from 5.3 to 3.1 ms, and `'warn'` had reported no value that would be sent differently. This release also fixes the bugs below. Nothing breaks for code that doesn't opt in; the behavior changes correct settings that did the opposite of what they say.
+
+### Behavior changes
+
+- **`PGPREPARE=false`, `PGFETCH_TYPES=false`, `PGDEBUG=false` and `PGSSL=disable` (or `false`) now turn those options off.** Environment values were used as strings, so they turned the option on. The same values in the connection URL already worked. Closes #49.
+- **`target_session_attrs: 'read-write'` no longer connects to a hot standby, and `'read-only'` now accepts one,** on PostgreSQL 14 and later, as libpq does. A `read-write` connection could land on a standby whose writes failed with "cannot execute INSERT in a read-only transaction". During a failover, `read-write` now waits for the promoted server; see [Multi-host connections](README.md#multi-host-connections---high-availability-ha). Closes #60.
+
+### Fixes
+
+- **A query no longer gets empty slots at the start of its result after the previous query on the connection failed or was cancelled partway through its rows.** The result was longer than it should be and `result[0]` was `undefined`, silently, which usually surfaced later as `Cannot read properties of undefined`. Closes #68. Fixes porsager/postgres#1119, porsager/postgres#1181 and porsager/postgres#1253.
+- **Queries no longer hang after a `COPY ... TO STDOUT` whose reader fell behind.** When the copy ended, or failed, while its stream was full, the connection stayed paused and every later query on it waited forever. Closes #69. Fixes porsager/postgres#1016.
+- **Cancelling a query you don't await no longer crashes the process.** The cancelled query's rejection was unhandled, which ends a Node process by default. Code that awaits the query still gets the error. Closes #130.
+- **TypeScript accepts the `sslnegotiation` and `socket` options.** Both worked at runtime but were missing from the types. Closes #86 and #87. Fixes porsager/postgres#1158, porsager/postgres#1177 and porsager/postgres#968.
+- **`new PostgresError('message')` sets the message, like `Error`.** The string was spread into one property per character and the message stayed empty, and the TypeScript types declared only one of the two forms. Passing the error's fields still works. Closes #90. Fixes porsager/postgres#703 and porsager/postgres#1194.
+- **Column names ending with an underscore no longer throw under the `camel` and `pascal` transforms.** `foo_` becomes `foo_` and `Foo_`. Closes #83. Fixes porsager/postgres#1009.
+- **A cancelled query no longer stays pending forever when a schema change made the server reject it before it started.** It rejects with the server's error. Closes #123.
+
 ## v4.5.0-rc1 - 2026-10-15
 
 Queries with values can now take one round trip instead of two. Also adds Node.js 22 support and `await using`. Nothing breaks for code that doesn't opt in.
