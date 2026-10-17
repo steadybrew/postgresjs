@@ -803,7 +803,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
         query.prepared && retryRoutines.has(errorResponse.routine) && delete statements[query.signature]
         query.retried
           ? errored(query.retried)
-          : query.prepared && retryRoutines.has(errorResponse.routine) && query.owner === connection.owner && !barrier
+          : query.prepared && retryRoutines.has(errorResponse.routine) && query.owner === connection.owner && !barrier && !query.cancelled
             && (x[5] !== 69 || endsAbortedState.test(query.string))
             ? retry(query, errorResponse)
             : errored(errorResponse)
