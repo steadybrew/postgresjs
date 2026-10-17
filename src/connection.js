@@ -800,11 +800,9 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
         query.prepared && retryRoutines.has(errorResponse.routine) && delete statements[query.signature]
         query.retried
           ? errored(query.retried)
-          : query.prepared && retryRoutines.has(errorResponse.routine) && query.owner === connection.owner && !barrier
+          : query.prepared && retryRoutines.has(errorResponse.routine) && query.owner === connection.owner && !barrier && !query.cancelled
             && (x[5] !== 69 || endsAbortedState.test(query.string))
-            ? query.cancelled
-              ? errored(Errors.generic('57014', 'canceling statement due to user request', errorResponse))
-              : retry(query, errorResponse)
+            ? retry(query, errorResponse)
             : errored(errorResponse)
       } else {
         query.initialization && query.initialization(results || result)

@@ -694,8 +694,6 @@ A `COPY` holds its connection until it finishes. Postgres.js cannot tell that a 
 
 Postgres.js supports, [canceling queries in progress](https://www.postgresql.org/docs/7.1/protocol-protocol.html#AEN39000). It works by opening a new connection with a protocol level startup message to cancel the current query running on a specific connection. That means there is no guarantee that the query will be canceled, and due to the possible race conditions it might even result in canceling another query. This is fine for long running queries, but in the case of high load and fast queries it might be better to simply ignore results instead of canceling.
 
-A cancelled query rejects with code `57014`, and `query.cancel()` resolves once the cancel request has been sent.
-
 ```js
 const query = sql`select pg_sleep(100)`.execute()
 setTimeout(() => query.cancel(), 100)

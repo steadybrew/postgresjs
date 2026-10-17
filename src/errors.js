@@ -41,8 +41,8 @@ function postgres(x) {
   return error
 }
 
-function generic(code, message, cause) {
-  const error = Object.assign(new Error(code + ': ' + message, cause && { cause }), { code })
+function generic(code, message) {
+  const error = Object.assign(new Error(code + ': ' + message), { code })
   Error.captureStackTrace(error, generic)
   return error
 }
