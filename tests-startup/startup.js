@@ -414,7 +414,8 @@ export async function phases(name, postgres, onEvent) {
                 'ending-other-open', 'terminate-ready', 'terminate-draining', 'terminate-pipeline'].includes(name)
   const cause = name.startsWith('cause-') ? name.split('-')[2] : ''
   const holding = ['reserve-end', 'cancel-initial', 'failover-timeout', 'deadline-attempt-error', 'deadline-attempt-timeout',
-                   'timeout-keeps-error', 'ending-during-retry', 'terminate-authenticating', 'lifetime-startup'].includes(name) || cause === 'timeout'
+                   'timeout-keeps-error', 'ending-during-retry', 'terminate-authenticating', 'lifetime-startup',
+                   'cancel-query-unawaited'].includes(name) || cause === 'timeout'
   const server = await peer({ holdQuery: hang ? 'hang' : '', holdStartup: holding, readOnly: name === 'single-host-read-only',
                               closeStartup: cause === 'close' || name === 'deadline-backoff' ? Infinity : name === 'prefer-standby-passes' ? 2 : 0,
                               fatalQuery: name === 'begin-fatal-inflight' ? 'fatal' : name === 'fatal-catalog' ? 'pg_catalog.pg_type' : '',
@@ -907,6 +908,28 @@ export async function phases(name, postgres, onEvent) {
       assert.deepStrictEqual(uncaught, [])
       await sql.end({ timeout: 0 })
       assert.strictEqual((await outcome).slice(0, 8), 'rejected')
+    } else if (name === 'cancel-query-unawaited') {
+      const sql = make({ connect_timeout: 2 })
+      const unhandled = []
+      const observe = error => unhandled.push(error && error.code)
+      process.on('unhandledRejection', observe)
+      process.on('uncaughtException', observe)
+      try {
+        const dropped = sql.unsafe('select 1', [], { simple: true }).execute()
+        await sleep(50)
+        await dropped.cancel()
+        const awaited = sql.unsafe('select 2', [], { simple: true })
+        const outcome = settle(awaited)
+        await sleep(50)
+        await awaited.cancel()
+        assert.strictEqual(await outcome, 'rejected:57014')
+        await sleep(200)
+      } finally {
+        process.off('unhandledRejection', observe)
+        process.off('uncaughtException', observe)
+      }
+      assert.deepStrictEqual(unhandled, [])
+      await sql.end({ timeout: 0 })
     } else if (name === 'ending-queued-reconnect' || name === 'ending-queued-down') {
       let calls = 0
       const down = name === 'ending-queued-down'
