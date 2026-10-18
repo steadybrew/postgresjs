@@ -63,7 +63,7 @@ See the [migration guide](docs/upgrading.md) for behaviour changes, manual insta
 
 ### Drizzle, Kysely and tracing
 
-The alias above works with `drizzle-orm/postgres-js`, `drizzle-kit`, `kysely-postgres-js` and dd-trace. The codemod sets it up for existing projects, preserving `import postgres from 'postgres'`.
+The alias above works with `drizzle-orm/postgres-js`, `drizzle-kit`, `kysely-postgres-js` and dd-trace. Drizzle's and Kysely's own tests pass on the fork as they do on 3.4.9 ([results](https://github.com/steadybrew/postgresjs-compat/blob/main/results/4.5.1.md)). The codemod sets it up for existing projects, preserving `import postgres from 'postgres'`.
 
 **Sentry needs an extra step:** add the [tracing preload](docs/upgrading.md#tracing) to retain automatic database spans. The codemod flags Sentry but does **not** apply this adjustment.
 
