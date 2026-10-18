@@ -3,6 +3,7 @@ name: codemod
 on:
   push:
     branches: [main]
+    tags: ['migrate-v*']
     paths: ['codemod/**', '.github/workflows/codemod.yml']
   pull_request:
     paths: ['codemod/**', '.github/workflows/codemod.yml']
@@ -65,3 +66,72 @@ jobs:
         run: npm install -g pnpm@10.18.0
       - run: npm ci --ignore-scripts
       - run: node test/install/run.mjs ${{ matrix.pm }}
+
+  registry:
+    name: Codemod registry package
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    defaults:
+      run:
+        working-directory: codemod
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: |
+          v=$(node -p 'require("./package.json").version')
+          grep -qx "version: \"$v\"" registry/codemod.yaml
+          grep -q "npx -y @steadybrew/postgresjs-migrate@$v " registry/workflow.yaml
+      - run: npx -y codemod@1.18.5 workflow validate -w registry/workflow.yaml
+
+  publish:
+    name: Stage on npm
+    if: startsWith(github.ref, 'refs/tags/migrate-v')
+    needs: [test, regress, install, registry]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write
+    defaults:
+      run:
+        working-directory: codemod
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          registry-url: https://registry.npmjs.org
+      - run: npm install -g npm@12
+      - run: test "migrate-v$(node -p 'require("./package.json").version')" = "$GITHUB_REF_NAME"
+      - name: Stage, unless this version is already on npm
+        run: |
+          npm view "@steadybrew/postgresjs-migrate@${GITHUB_REF_NAME#migrate-v}" version > /dev/null 2>&1 && exit 0
+          npm stage publish --tag ${{ contains(github.ref_name, '-') && 'next' || 'latest' }}
+      - name: Wait for the staged version to be approved
+        timeout-minutes: 30
+        run: until npm view "@steadybrew/postgresjs-migrate@${GITHUB_REF_NAME#migrate-v}" version > /dev/null 2>&1; do sleep 20; done
+
+  codemod-registry:
+    name: Publish to the Codemod registry
+    needs: publish
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    defaults:
+      run:
+        working-directory: codemod
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: npm install -g codemod@1.18.5
+      - run: |
+          token=$(curl -sSf -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=https://app.codemod.com" | node -p 'JSON.parse(require("fs").readFileSync(0)).value')
+          echo "::add-mask::$token"
+          CODEMOD_AUTH_TOKEN=$token codemod publish registry

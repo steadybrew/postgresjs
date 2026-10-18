@@ -1,0 +1,23 @@
+schema_version: "1.0"
+name: "@steadybrew/postgresjs-migrate"
+version: "0.1.0"
+description: Switch a Postgres.js 3.x project to @steadybrew/postgresjs, after checking it for the behaviour changes that matter
+author: Oleg Komarov
+license: Unlicense
+workflow: workflow.yaml
+category: migration
+repository: https://github.com/steadybrew/postgresjs
+
+targets:
+  languages:
+    - javascript
+    - typescript
+
+keywords:
+  - migration
+  - postgres
+  - postgres.js
+
+registry:
+  access: public
+  visibility: public

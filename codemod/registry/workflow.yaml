@@ -1,0 +1,9 @@
+version: "1"
+
+nodes:
+  - id: switch
+    name: Check the project and switch to @steadybrew/postgresjs
+    type: automatic
+    steps:
+      - name: Run @steadybrew/postgresjs-migrate --switch
+        run: npx -y @steadybrew/postgresjs-migrate@0.1.0 . --switch

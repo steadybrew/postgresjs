@@ -1,14 +1,32 @@
 {
   "name": "@steadybrew/postgresjs-migrate",
-  "version": "0.0.0",
-  "private": true,
+  "version": "0.1.0",
+  "description": "Check a Postgres.js 3.x project and switch it to @steadybrew/postgresjs",
+  "license": "Unlicense",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/steadybrew/postgresjs.git",
+    "directory": "codemod"
+  },
+  "homepage": "https://github.com/steadybrew/postgresjs/tree/main/codemod#readme",
+  "bugs": "https://github.com/steadybrew/postgresjs/issues",
+  "keywords": [
+    "postgres",
+    "postgres.js",
+    "postgresjs",
+    "migration",
+    "codemod"
+  ],
   "engines": {
     "node": ">=18"
   },
   "bin": {
     "postgresjs-migrate": "src/cli.mjs"
   },
+  "files": [
+    "src"
+  ],
   "scripts": {
     "test": "node --test test/detect.test.mjs test/switch.test.mjs"
   },

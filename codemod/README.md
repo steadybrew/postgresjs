@@ -7,6 +7,8 @@ npx @steadybrew/postgresjs-migrate .            # report only, changes nothing
 npx @steadybrew/postgresjs-migrate . --switch   # report, then switch
 ```
 
+From the [Codemod](https://codemod.com) registry, run `npx codemod @steadybrew/postgresjs-migrate` in the project's root directory; it runs the same check and switch.
+
 Requires Node.js 18 or newer to run. The fork itself requires Node.js 22 or newer, and the report tells you where your project sets an older version.
 
 ## The report
