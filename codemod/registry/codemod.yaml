@@ -1,6 +1,6 @@
 schema_version: "1.0"
 name: "@steadybrew/postgresjs-migrate"
-version: "0.1.0"
+version: "0.1.1"
 description: Switch a Postgres.js 3.x project to @steadybrew/postgresjs, after checking it for the behaviour changes that matter
 author: Oleg Komarov
 license: Unlicense
