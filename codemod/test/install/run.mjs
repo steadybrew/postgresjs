@@ -38,7 +38,7 @@ try {
     throw new Error('expected postgres 3.x before the switch')
 
   console.log(run(process.execPath, [cli, dir, '--switch']).split('Switched:')[1])
-  run(pm, ['install'])
+  run(pm, pm === 'pnpm' ? ['install', '--no-frozen-lockfile'] : ['install'])
   const after = resolved()
   console.log('after', after)
   for (const [where, name] of Object.entries(after))

@@ -58,7 +58,7 @@ if (!steps.steps.length) {
 console.log('\nSwitched:')
 apply(root, steps).forEach(line => console.log('  ' + line))
 console.log('\nNext:')
-console.log('  ' + installCommand(steps.pm))
+console.log('  ' + installCommand(steps.pm) + ', and commit the updated lockfile with these changes')
 const handled = new Set(['patched-postgres', 'postgres-via-dependency', 'postgres-via-transitive'])
 const open = findings.filter(f => changes[f.id] && changes[f.id].level === 'act' && !handled.has(f.id))
 open.length && console.log('  then change what is listed under "Change before switching" above (' + open.length + ' left)')
