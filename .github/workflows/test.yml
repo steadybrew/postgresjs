@@ -8,6 +8,9 @@ on:
   pull_request:
     paths-ignore: ['**/*.md', 'codemod/**', '.github/workflows/codemod.yml']
 
+permissions:
+  contents: read
+
 env:
   NODE_OPTIONS: --unhandled-rejections=strict
   PGUSER: postgres
@@ -25,11 +28,11 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - uses: ./.github/actions/setup-postgres
         with:
           version: ${{ matrix.postgres }}
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: ${{ matrix.node }}
       - run: |
@@ -44,14 +47,14 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - uses: ./.github/actions/setup-postgres
         with:
           version: '17'
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '24'
-      - uses: denoland/setup-deno@v1
+      - uses: denoland/setup-deno@11b63cf76cfcafb4e43f97b6cad24d8e8438f62d
         with:
           deno-version: v1.46.3
       - run: npm run test:deno
@@ -63,8 +66,8 @@ jobs:
     env:
       POSTGRES_VERSION: '17'
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '24'
       - uses: ./.github/actions/setup-postgres
@@ -88,8 +91,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '24'
       - run: npm install --no-save eslint@8.57.1
@@ -108,8 +111,8 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '24'
           registry-url: https://registry.npmjs.org
