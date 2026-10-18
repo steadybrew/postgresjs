@@ -133,6 +133,6 @@ jobs:
           node-version: '24'
       - run: npm install -g codemod@1.18.5
       - run: |
-          token=$(curl -sSf -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=https://app.codemod.com" | node -p 'JSON.parse(require("fs").readFileSync(0)).value')
+          token=$(curl -sSf -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=https://app.codemod.com" | jq -r .value)
           echo "::add-mask::$token"
           CODEMOD_AUTH_TOKEN=$token codemod publish registry

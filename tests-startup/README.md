@@ -45,7 +45,7 @@ to Node 24.21.0 and PostgreSQL 17.11, both within the existing CI matrix:
 
 ```sh
 docker build -f tests-startup/Dockerfile \
-  --build-arg NODE_VERSION=24.21.0 --build-arg POSTGRES_VERSION=17.11 \
+  --build-arg NODE_VERSION=24.21.0 --build-arg POSTGRES_IMAGE=postgres:17.11-bookworm \
   -t postgresjs-startup-tests .
 docker run --rm --network none -v "$PWD:/repo:ro" postgresjs-startup-tests
 ```

@@ -1,6 +1,5 @@
-# Both versions can be overridden with --build-arg; use supported matrix versions.
-ARG POSTGRES_VERSION=17.11
-FROM postgres:${POSTGRES_VERSION}-bookworm
+ARG POSTGRES_IMAGE=postgres:17.11-bookworm@sha256:3645570cccdfa447589da9f57dd740faa29b30938e861289a5574b6ca6b03826
+FROM ${POSTGRES_IMAGE}
 ARG NODE_VERSION=24.21.0
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates curl openssl xz-utils coreutils libatomic1 \
