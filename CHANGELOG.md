@@ -1,5 +1,15 @@
 # Changelog
 
+## v4.5.1 - 2026-10-18
+
+Documentation only: the code is the same as 4.5.0, so there is nothing to change when upgrading.
+
+### Documentation
+
+- **The README now starts with switching from Postgres.js.** It shows how to check a project and switch it with `npx @steadybrew/postgresjs-migrate`, and then covers features, the fixed-issues table, how releases are published and verified, and compatibility.
+- **The API reference is in [`docs/api.md`](docs/api.md) and ships in the package,** so editors and code assistants reading `node_modules` get this fork's options rather than Postgres.js 3.x's.
+- **The Sentry tracing preload and the other upgrade steps are in the [migration guide](docs/upgrading.md).**
+
 ## v4.5.0 - 2026-10-17
 
 Promotes `4.5.0-rc1`, whose entry below lists the features: queries with values in one round trip with `parameter_types: 'client'`, `parameter_types: 'warn'` to check a workload first, Node.js 22 support and `await using`. In production on one app with `prepare: false` behind the Supabase pooler, `'client'` cut the median query from 5.3 to 3.1 ms, and `'warn'` had reported no value that would be sent differently. This release also fixes the bugs below. Nothing breaks for code that doesn't opt in; the behavior changes correct settings that did the opposite of what they say.
