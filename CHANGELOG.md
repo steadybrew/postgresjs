@@ -7,7 +7,7 @@ Promotes `4.5.0-rc1`, whose entry below lists the features: queries with values 
 ### Behavior changes
 
 - **`PGPREPARE=false`, `PGFETCH_TYPES=false`, `PGDEBUG=false` and `PGSSL=disable` (or `false`) now turn those options off.** Environment values were used as strings, so they turned the option on. The same values in the connection URL already worked. Closes #49.
-- **`target_session_attrs: 'read-write'` no longer connects to a hot standby, and `'read-only'` now accepts one,** on PostgreSQL 14 and later, as libpq does. A `read-write` connection could land on a standby whose writes failed with "cannot execute INSERT in a read-only transaction". During a failover, `read-write` now waits for the promoted server; see [Multi-host connections](README.md#multi-host-connections---high-availability-ha). Closes #60.
+- **`target_session_attrs: 'read-write'` no longer connects to a hot standby, and `'read-only'` now accepts one,** on PostgreSQL 14 and later, as libpq does. A `read-write` connection could land on a standby whose writes failed with "cannot execute INSERT in a read-only transaction". During a failover, `read-write` now waits for the promoted server; see [Multi-host connections](docs/api.md#multi-host-connections---high-availability-ha). Closes #60.
 
 ### Fixes
 
@@ -29,7 +29,7 @@ Queries with values can now take one round trip instead of two. Also adds Node.j
 
 ### Features
 
-- **Queries with values can take one round trip instead of two, with `parameter_types: 'client'`.** Each value is serialized from its JavaScript type and PostgreSQL parses it, instead of Postgres.js first asking PostgreSQL for the placeholder's type. It matters most with `prepare: false` behind PgBouncer, Supavisor or Hyperdrive, where every query with values paid the extra round trip. Some values are stored differently, for example a string sent to a `jsonb` column is parsed as JSON and `'t'` sent to a `boolean` column is true; see [Parameter types](README.md#parameter-types). Planned as the default in 5.0. Refs #41. Addresses porsager/postgres#1225, porsager/postgres#1139 and porsager/postgres#858.
+- **Queries with values can take one round trip instead of two, with `parameter_types: 'client'`.** Each value is serialized from its JavaScript type and PostgreSQL parses it, instead of Postgres.js first asking PostgreSQL for the placeholder's type. It matters most with `prepare: false` behind PgBouncer, Supavisor or Hyperdrive, where every query with values paid the extra round trip. Some values are stored differently, for example a string sent to a `jsonb` column is parsed as JSON and `'t'` sent to a `boolean` column is true; see [Parameter types](docs/api.md#parameter-types). Planned as the default in 5.0. Refs #41. Addresses porsager/postgres#1225, porsager/postgres#1139 and porsager/postgres#858.
 - **`parameter_types: 'warn'` reports the queries `'client'` would send differently,** without changing what is sent. Run it in staging or production before switching. Refs #42, #43.
 - **Queries whose values are all booleans, bigints, `Date`s, `Buffer`s or `sql.typed()` values with a type take one round trip in every mode.** Postgres.js no longer asks PostgreSQL for their types first. Refs #41.
 - **Node.js 22 is supported.** The minimum was 24. Node 22 is maintained until April 2027.
