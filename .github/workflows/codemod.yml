@@ -108,8 +108,9 @@ jobs:
       - run: test "migrate-v$(node -p 'require("./package.json").version')" = "$GITHUB_REF_NAME"
       - name: Stage, unless this version is already on npm
         run: |
-          npm view "@steadybrew/postgresjs-migrate@${GITHUB_REF_NAME#migrate-v}" version > /dev/null 2>&1 && exit 0
-          npm stage publish --tag ${{ contains(github.ref_name, '-') && 'next' || 'latest' }}
+          v=${GITHUB_REF_NAME#migrate-v}
+          npm view "@steadybrew/postgresjs-migrate@$v" version > /dev/null 2>&1 && exit 0
+          npm stage publish --tag $([[ $v == *-* ]] && echo next || echo latest)
       - name: Wait for the staged version to be approved
         timeout-minutes: 30
         run: until npm view "@steadybrew/postgresjs-migrate@${GITHUB_REF_NAME#migrate-v}" version > /dev/null 2>&1; do sleep 20; done
