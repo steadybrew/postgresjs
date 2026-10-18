@@ -9,7 +9,7 @@ npx @steadybrew/postgresjs-migrate . --switch   # report, then switch
 
 From the [Codemod](https://codemod.com) registry, run `npx codemod @steadybrew/postgresjs-migrate` in the project's root directory; it runs the same check and switch.
 
-Requires Node.js 18 or newer to run. The fork itself requires Node.js 22 or newer, and the report tells you where your project sets an older version.
+Requires Node.js 18 or newer to run. The fork declares Node.js 22 or newer; older versions may work but aren't tested. The report flags projects that set an older version.
 
 ## The report
 
@@ -21,7 +21,7 @@ Every finding has a file and line, grouped by what to do about it:
 
 `--json` prints the findings and the facts behind them (clients, ORMs, tracers, lockfiles) instead.
 
-The full list of behaviour changes is in the fork's [Upgrading to 4.0.0](https://github.com/steadybrew/postgresjs#upgrading-to-400) and [changelog](https://github.com/steadybrew/postgresjs/blob/main/CHANGELOG.md).
+The full list of behaviour changes is in the fork's [migration guide](https://github.com/steadybrew/postgresjs/blob/main/docs/upgrading.md#upgrading-to-400) and [changelog](https://github.com/steadybrew/postgresjs/blob/main/CHANGELOG.md).
 
 ## What `--switch` changes
 
@@ -35,4 +35,4 @@ Tested with npm, pnpm and yarn. Bun lockfiles are read and bun projects get `ove
 
 ## Sentry
 
-Sentry's automatic integration only instruments `postgres` 3.x. The report lists Sentry under tracing, and `--switch` reminds you; the preload that fixes it is in the fork's [README](https://github.com/steadybrew/postgresjs#switching-from-postgresjs).
+Sentry's automatic integration only instruments `postgres` 3.x. The report lists Sentry under tracing, and `--switch` reminds you to add a preload; it does not apply the adjustment. The preload is in the fork's [migration guide](https://github.com/steadybrew/postgresjs/blob/main/docs/upgrading.md#tracing).

@@ -1,227 +1,127 @@
+<p align="center">
+  <img width="440" height="180" alt="Postgres.js" src="postgresjs.svg">
+</p>
+
 # Postgres.js by Steady Brew
-
-A maintained fork of [Postgres.js](https://github.com/porsager/postgres), the PostgreSQL client created by [Rasmus Porsager](https://github.com/porsager), with the same API.
-
-- **Fixes reported Postgres.js bugs:** 40 open upstream issues, from queries receiving another query's rows to hung pools and crashed processes, each covered by a regression test. See [the list](#fixed-postgresjs-issues).
-- **Built for serverless and connection poolers:** bounded connection retries with backoff, idle connections replaced when a frozen instance resumes, pool statistics from `sql.stats()`, and an adapter for Vercel Fluid. Query timeouts and cancellable pool waits are next on the [roadmap](ROADMAP.md).
-- **Switch with one line:** your code and the libraries that import `postgres` keep working. See [Switching from Postgres.js](#switching-from-postgresjs).
-
----
-
-<img align="left" width="440" height="180" alt="Fastest full PostgreSQL nodejs client" src="https://raw.githubusercontent.com/porsager/postgres/master/postgresjs.svg?sanitize=true">
-
-- [🚀 Fastest full-featured node & deno client](https://github.com/porsager/postgres-benchmarks#results)
-- 🏷 ES6 Tagged Template Strings at the core
-- 🏄‍♀️ Simple surface API
-- 🖊️ Dynamic query support
-
-<br clear="all">
-
-## Compatibility
 
 [![test](https://github.com/steadybrew/postgresjs/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/steadybrew/postgresjs/actions/workflows/test.yml?query=branch%3Amain)
 
-**Version 4 runs on Node.js 22 or newer** and supports PostgreSQL 15–18. Every release passes the full test matrix before it is published.
+**Keep the [Postgres.js](https://github.com/porsager/postgres) API by [Rasmus Porsager](https://github.com/porsager) and get critical fixes and new features:**
 
-| Runtime | PostgreSQL | Notes |
-| --- | --- | --- |
-| Node 22, 24 and 26, ESM and CJS | 15–18 | |
-| Deno 1.46.3 | 17 | No Deno 2 claim |
-| Cloudflare Workers (workerd) | 17 | A "Stream was cancelled" rejection on socket close remains ([#1196](https://github.com/porsager/postgres/issues/1196), [#1202](https://github.com/porsager/postgres/issues/1202)) |
-| Bun | | Best effort, not tested in CI |
+- **Correctness fixes.** Queries get the right results, transactions stay isolated, and rollbacks are reported as failures.
+- **Fewer hangs and crashes.** Fixes for stuck queries, shutdown hangs and crashes after disconnects.
+- **Pool monitoring.** See busy connections, idle connections and waiting queries with `sql.stats()`.
+- **Faster queries behind poolers.** Removes an extra network round trip for supported values (opt-in).
+- **Vercel Fluid Compute support.** Reuse connections between requests and close idle ones before suspension to avoid connection leaks.
 
-[The test workflow](https://github.com/steadybrew/postgresjs/blob/main/.github/workflows/test.yml) defines which pairs run on each push. Supabase PostgreSQL and Supabase Edge are separate environments; Deno 1.46.3 coverage does not imply Deno 2 or hosted Supabase Edge.
+**[50+ reported upstream bugs fixed](docs/fixed-issues.md)**, with regression tests.
 
-## Switching from Postgres.js
+[Start a new project](#start-a-new-project) · [Switch from Postgres.js](#switching-from-postgresjs) · [Why this fork](#why-this-fork) · [API reference](docs/api.md) · [Roadmap](ROADMAP.md)
+
+<a id="install"></a>
+
+## Start a new project
+
+```sh
+npm install @steadybrew/postgresjs
+```
+
+Or, for Drizzle or Kysely, use the alias:
 
 ```sh
 npm install postgres@npm:@steadybrew/postgresjs@^4
 ```
 
-This installs the fork under the name `postgres`, so `import postgres from 'postgres'` stays as it is, and so do libraries that import it, such as `drizzle-orm/postgres-js`, `drizzle-kit` and `kysely-postgres-js`. Then read [Upgrading to 4.0.0](#upgrading-to-400) for the behaviour changes.
-
-Tracing: from 4.5.0, dd-trace records the same database spans as with Postgres.js when the fork is installed under the `postgres` name. Sentry's automatic integration instruments `postgres` versions below 4 only, so widen its range before Sentry loads:
-
 ```js
-// sentry-postgres.mjs
-import { SENTRY_RUNTIME_INSTRUMENTATIONS } from '@sentry/server-utils/orchestrion/config'
+import postgres from '@steadybrew/postgresjs' // or 'postgres' with the alias
 
-for (const instrumentation of SENTRY_RUNTIME_INSTRUMENTATIONS) {
-  if (instrumentation.module.name === 'postgres')
-    instrumentation.module.versionRange = '>=3.0.0 <5'
-}
+const sql = postgres(process.env.DATABASE_URL)
+
+const minAge = 18
+const users = await sql`select name, age from users where age >= ${ minAge }`
 ```
+
+## Switching from Postgres.js
+
+**Check first.** The [migration codemod](codemod/README.md) reports required changes, behaviour differences to review and useful fixes, with file and line. It changes nothing:
 
 ```sh
-node --import ./sentry-postgres.mjs --import @sentry/node/import app.js
+npx @steadybrew/postgresjs-migrate .
 ```
 
-This covers Sentry's runtime hook, not its bundler plugins. With pnpm, add `@sentry/server-utils` at the same version as `@sentry/node` so the file can import it.
+**Then migrate with Codemod:**
 
-## Upgrading to 4.0.0
-
-Version 4.0.0 fixes connection startup, reservations, reconnects, shutdown, transaction ownership, and built-in array handling. When upgrading from Postgres.js 3.4 or `@steadybrew/postgresjs` 3.x:
-
-- Upgrade to **Node.js 22 or newer** before installing.
-- Keep queries within the reservation or transaction that owns them. Reserved handles used after `release()`, and transaction handles used after completion, reject with `CONNECTION_ENDED`. A handle whose connection has closed cannot run queries on a reconnected session.
-- Pass a non-empty string without NUL characters to transaction `sql.prepare(name)`. Invalid names throw `INVALID_TRANSACTION_NAME`.
-- If you use `fetch_types: false`, review code that expects built-in arrays as raw strings: supported built-in arrays are now decoded as JavaScript arrays. SQL `NULL` elements become JavaScript `null`; quoted `"NULL"` text remains a string.
-
-See the [changelog](./CHANGELOG.md#breaking-changes-and-migration) for the full migration notes and fixes.
-
-## Fixed Postgres.js issues
-
-Bugs and feature requests from [porsager/postgres](https://github.com/porsager/postgres) that this fork fixes, whether reported in an issue or in a pull request suggesting a fix, and the version that fixed them. Each fix has a test that reproduces the report, except [#1100](https://github.com/porsager/postgres/issues/1100), which rests on a production measurement, and [#1154](https://github.com/porsager/postgres/issues/1154), whose test reproduces the reported stack without a known trigger. The [changelog](./CHANGELOG.md) has the details.
-
-<details>
-<summary>54 bugs and 7 feature requests</summary>
-
-**Wrong results and data safety**
-
-| Issue | What happens now | Since |
-| --- | --- | --- |
-| [#1082](https://github.com/porsager/postgres/issues/1082), [#729](https://github.com/porsager/postgres/issues/729) | A query whose values fail to serialize rejects on its own; the query running alongside no longer gets its error, and the next query no longer gets another query's rows | 4.3.0 |
-| [#1216](https://github.com/porsager/postgres/issues/1216) | A transaction handle whose connection closed rejects with `CONNECTION_CLOSED` instead of running inside the next user's transaction, so it can't read their rows through row-level security. | 4.0.0 |
-| [#1248](https://github.com/porsager/postgres/issues/1248) | Statements in a `sql.begin()` callback after its connection closes reject instead of running outside the transaction | 4.0.0 |
-| [#1204](https://github.com/porsager/postgres/issues/1204) | A transaction's connection is not handed to another `sql.begin()` when its socket drains late, so one transaction's `COMMIT` can't commit another's unfinished writes. | 4.0.0 |
-| [#1217](https://github.com/porsager/postgres/issues/1217) | `sql.begin()` rejects with `TRANSACTION_ROLLED_BACK` when the server rolled back the COMMIT | 4.4.0 |
-| [#1249](https://github.com/porsager/postgres/issues/1249), [#1226](https://github.com/porsager/postgres/issues/1226), [#1223](https://github.com/porsager/postgres/issues/1223) | The first query after a reconnect no longer rejects with an error from the closed session | 4.0.0 |
-| [#789](https://github.com/porsager/postgres/issues/789) | `sql.array()` infers the right array type on first use | 4.0.0 |
-| [#1049](https://github.com/porsager/postgres/issues/1049), [#1124](https://github.com/porsager/postgres/issues/1124) | `NULL` elements in arrays parse as `null`, not `NaN` or the string `"NULL"` | 4.0.0 |
-| [#1252](https://github.com/porsager/postgres/issues/1252) | Cancelling a pipelined query that hasn't started no longer gives the next query its result | 4.1.0 |
-| [#1253](https://github.com/porsager/postgres/issues/1253), [#1181](https://github.com/porsager/postgres/issues/1181), [#1119](https://github.com/porsager/postgres/issues/1119) | A query no longer gets empty slots at the start of its result after the previous query on the connection failed or was cancelled partway through its rows | 4.5.0 |
-
-**Hangs**
-
-| Issue | What happens now | Since |
-| --- | --- | --- |
-| [#751](https://github.com/porsager/postgres/issues/751), [#1219](https://github.com/porsager/postgres/issues/1219), [#1203](https://github.com/porsager/postgres/issues/1203) | `sql.reserve()` on a pool that hasn't opened a connection yet resolves, with or without `fetch_types` and on Cloudflare Workers | 4.0.0 |
-| [#1195](https://github.com/porsager/postgres/issues/1195), [#1199](https://github.com/porsager/postgres/issues/1199) | A reservation survives its connection being terminated by the server, and the pool recovers after it is released | 4.0.0 |
-| [#1186](https://github.com/porsager/postgres/issues/1186) | Queries queued on a reserved or transaction handle settle when its connection closes | 4.0.0 |
-| [#1097](https://github.com/porsager/postgres/issues/1097), [#1130](https://github.com/porsager/postgres/issues/1130), [#1242](https://github.com/porsager/postgres/issues/1242), [#861](https://github.com/porsager/postgres/issues/861) | `sql.end()` resolves after a disconnect, after a failed query and after a connection closes inside `sql.begin()`, and waits for queries queued in the pool | 4.0.0 |
-| [#1246](https://github.com/porsager/postgres/issues/1246) | A query sent between a socket error and its close settles, and a transaction reset mid-statement no longer loses a pool connection | 4.1.0 |
-| [#1193](https://github.com/porsager/postgres/issues/1193) | A connection closed during startup settles its first query instead of reconnecting in a tight loop | 4.0.0 |
-| [#1234](https://github.com/porsager/postgres/issues/1234) | Concurrent queries in `sql.begin()` after a column type change roll the transaction back and return the connection to the pool | 4.4.0 |
-| [#1255](https://github.com/porsager/postgres/issues/1255), [#1261](https://github.com/porsager/postgres/issues/1261) | A reserved connection whose `max_lifetime` passed is closed when released, and `sql.end()` called before the release resolves | 4.0.0 |
-| [#1016](https://github.com/porsager/postgres/pull/1016) | Queries no longer hang after a `COPY ... TO STDOUT` whose reader fell behind | 4.5.0 |
-
-**Crashes**
-
-| Issue | What happens now | Since |
-| --- | --- | --- |
-| [#1154](https://github.com/porsager/postgres/issues/1154), [#1208](https://github.com/porsager/postgres/issues/1208), [#1133](https://github.com/porsager/postgres/issues/1133) | A reserved or transaction connection that the server or network closes rejects its later statements, and `sql.begin()`'s own `ROLLBACK` or `COMMIT`, with `CONNECTION_CLOSED` instead of crashing the process with `Cannot read properties of null (reading 'write')`. | 4.0.0 |
-| [#1192](https://github.com/porsager/postgres/issues/1192), [#1205](https://github.com/porsager/postgres/issues/1205), [#1086](https://github.com/porsager/postgres/issues/1086) | A failed or cancelled type query at startup rejects the query instead of crashing the process | 4.0.0 |
-| [#1088](https://github.com/porsager/postgres/issues/1088) | Timers no longer fail on Cloudflare Workers | 4.0.0 |
-| [#1227](https://github.com/porsager/postgres/issues/1227) | Assigning `err.stack` on a query error no longer throws on Node 22 and newer | 4.5.0 |
-| [#1009](https://github.com/porsager/postgres/pull/1009) | The `camel` and `pascal` transforms no longer throw on a column name ending with an underscore | 4.5.0 |
-
-**Reconnects and failover**
-
-| Issue | What happens now | Since |
-| --- | --- | --- |
-| [#1179](https://github.com/porsager/postgres/issues/1179) | Failed connection attempts back off instead of the whole pool retrying at once | 4.0.0 |
-| [#1250](https://github.com/porsager/postgres/issues/1250) | A connection closed with a statement still buffered reconnects, instead of failing every later statement with `CONNECT_TIMEOUT` | 4.0.0 |
-| [#1174](https://github.com/porsager/postgres/issues/1174), [#815](https://github.com/porsager/postgres/issues/815), [#988](https://github.com/porsager/postgres/issues/988) | With several hosts, retries move to the next host, a connect timeout fails over, and `prefer-standby` falls back to a primary | 4.0.0 |
-
-**Transactions, notices and subscriptions**
-
-| Issue | What happens now | Since |
-| --- | --- | --- |
-| [#823](https://github.com/porsager/postgres/issues/823), [#1189](https://github.com/porsager/postgres/issues/1189), [#1210](https://github.com/porsager/postgres/issues/1210) | `sql.begin()` no longer fails with `UNSAFE_TRANSACTION` or sends a second `BEGIN` on a busy connection when transactions and queries run concurrently, at the pipeline limit, under write backpressure or with `max_pipeline: 0` | 4.0.0 |
-| [#1063](https://github.com/porsager/postgres/issues/1063) | `onnotice: false` silences notices | 4.4.0 |
-| [#1087](https://github.com/porsager/postgres/issues/1087) | `sql.subscribe()` no longer adds a listener on each subscribe or loses changes after a transform throws | 4.4.0 |
-
-**TypeScript**
-
-| Issue | What happens now | Since |
-| --- | --- | --- |
-| [#1158](https://github.com/porsager/postgres/issues/1158), [#1177](https://github.com/porsager/postgres/pull/1177) | `sslnegotiation` is in the option types | 4.5.0 |
-| [#968](https://github.com/porsager/postgres/pull/968) | `socket` is in the option types | 4.5.0 |
-| [#703](https://github.com/porsager/postgres/issues/703), [#1194](https://github.com/porsager/postgres/pull/1194) | `new PostgresError('message')` sets the message, as with `Error`, and the types declare both the message and the fields forms | 4.5.0 |
-
-**Feature requests**
-
-| Issue | What you get | Since |
-| --- | --- | --- |
-| [#443](https://github.com/porsager/postgres/issues/443), [#908](https://github.com/porsager/postgres/issues/908) | `sql.stats()` reports connections in use and idle, and queries waiting | 4.3.0 |
-| [#1100](https://github.com/porsager/postgres/issues/1100) | An `onidle` callback and the `@steadybrew/postgresjs/vercel` adapter | 4.2.0 |
-| [#1164](https://github.com/porsager/postgres/issues/1164) | Built-in array types are decoded, and plain JavaScript arrays are sent, with `fetch_types: false` | 4.0.0 |
-| [#886](https://github.com/porsager/postgres/issues/886), [#1094](https://github.com/porsager/postgres/issues/1094) | `await using` ends a pool and releases a reserved connection when it goes out of scope | 4.5.0 |
-| [#1225](https://github.com/porsager/postgres/issues/1225) | Queries with values in one round trip instead of two, opt-in with `parameter_types: 'client'` | 4.5.0 |
-
-Bun isn't tested here, so Bun-only reports such as [#1066](https://github.com/porsager/postgres/issues/1066) aren't listed; the same crash on Node is [#1208](https://github.com/porsager/postgres/issues/1208).
-
-</details>
-
-## Getting started
-
-<br>
-<img height="220" width="458" alt="Good UX with Postgres.js" src="https://raw.githubusercontent.com/porsager/postgres/master/demo.gif">
-<br>
-
-### Installation
-```bash
-$ npm install @steadybrew/postgresjs
+```sh
+npx codemod @steadybrew/postgresjs-migrate
 ```
 
-### Usage
-Create your `sql` database instance
-```js
-// db.js
-import postgres from '@steadybrew/postgresjs'
+Run it from your project root. It checks again, switches dependencies and overrides to the fork, and removes patches already covered by the fork. Your source code and imports stay unchanged. Run your package manager's install afterwards to update the lockfile.
 
-const sql = postgres({ /* options */ }) // will use psql environment variables
+<a id="upgrading-to-400"></a>
 
-export default sql
-```
+See the [migration guide](docs/upgrading.md) for behaviour changes, manual installation and the direct npm CLI.
 
-Simply import for use elsewhere
-```js
-// users.js
-import sql from './db.js'
+### Drizzle, Kysely and tracing
 
-async function getUsersOver(age) {
-  const users = await sql`
-    select
-      name,
-      age
-    from users
-    where age > ${ age }
-  `
-  // users = Result [{ name: "Walter", age: 80 }, { name: 'Murray', age: 68 }, ...]
-  return users
-}
+The alias above works with `drizzle-orm/postgres-js`, `drizzle-kit`, `kysely-postgres-js` and dd-trace. The codemod sets it up for existing projects, preserving `import postgres from 'postgres'`.
 
+**Sentry needs an extra step:** add the [tracing preload](docs/upgrading.md#tracing) to retain automatic database spans. The codemod flags Sentry but does **not** apply this adjustment.
 
-async function insertUser({ name, age }) {
-  const users = await sql`
-    insert into users
-      (name, age)
-    values
-      (${ name }, ${ age })
-    returning name, age
-  `
-  // users = Result [{ name: "Murray", age: 68 }]
-  return users
-}
-```
+## Security
 
-#### ESM dynamic imports
+Published from GitHub Actions through npm trusted publishing, with provenance and maintainer approval using two-factor authentication. No stored npm token, runtime dependencies or registry install scripts. Verify with `npm audit signatures`.
 
-The library can be used with ESM dynamic imports as well as shown here.
+[Changes since upstream 3.4.9](https://github.com/steadybrew/postgresjs/compare/v3.4.9...main) · [Report a vulnerability](SECURITY.md) · [Unlicense](UNLICENSE)
 
-```js
-const { default: postgres } = await import('@steadybrew/postgresjs')
-```
+## Compatibility
+
+Releases pass the [test matrix](.github/workflows/test.yml) before publishing:
+
+| Runtime | PostgreSQL tested |
+| --- | --- |
+| Node.js 22, 24 and 26, ESM and CommonJS | 15–18 |
+| Deno 1.46.3 | 17 |
+| Cloudflare Workers (workerd) | 17 |
+
+TypeScript declarations are included; use `@types/node` 22+ or `skipLibCheck`.
+
+Older Node.js versions may work but aren't tested. The package declares `engines.node: >=22`, so package managers may warn or reject installation on older versions.
+
+Hosted Supabase Edge Functions are deployed in production with this fork, outside the CI matrix. Standalone Deno 2 is unverified. Bun is best effort, without CI coverage. Cloudflare Workers has a known socket-close rejection ([#1196](https://github.com/porsager/postgres/issues/1196), [#1202](https://github.com/porsager/postgres/issues/1202)).
+
+## Why this fork
+
+As many of my deployments are on serverless, I ran into some Postgres.js limitations that made it harder to use it reliably. I moved a couple of projects off it and patched others to compare the pros and cons.
+
+But I also realised that even for a small team of one, there is a clear path to updating and fixing Postgres.js, and I decided to bring those changes, whether from local patches, parked issues or PRs, to the benefit of the wider community.
+
+The aim of this fork is to move faster while keeping rigorous review, automate broader, tedious testing, welcome community contributions, and make a library I enjoy using work better for everyone.
+
+### Fixed Postgres.js issues
+
+- **Transactions keep their own connection.** Fixes connection reuse that could commit another transaction's unfinished writes or let a disconnected handle read another user's rows through RLS. [#1204](https://github.com/porsager/postgres/issues/1204), [#1216](https://github.com/porsager/postgres/issues/1216)
+- **Each query gets its own result.** Fixes pipelined queries receiving another query's rows or error, and results with empty slots after a failed query. [#1082](https://github.com/porsager/postgres/issues/1082), [#1252](https://github.com/porsager/postgres/issues/1252), [#1253](https://github.com/porsager/postgres/issues/1253)
+- **Rollbacks aren't reported as successful commits.** `sql.begin()` rejects when the server rolls back the commit. [#1217](https://github.com/porsager/postgres/issues/1217)
+- **Fewer hangs and crashes.** Fixes reservations and shutdown hanging after disconnects, queries stuck after a slow `COPY` reader, and closed transaction handles crashing the process. [#1195](https://github.com/porsager/postgres/issues/1195), [#1097](https://github.com/porsager/postgres/issues/1097), [#1016](https://github.com/porsager/postgres/pull/1016), [#1208](https://github.com/porsager/postgres/issues/1208)
+- **Recover after outages.** Failed connections [wait before retrying](docs/api.md#connection-timeout), avoiding a burst of simultaneous retries. With [multiple hosts](docs/api.md#multi-host-connections---high-availability-ha), the client tries another server and can wait for a writable primary.
+
+[50+ bug fixes and test coverage →](docs/fixed-issues.md)
+
+### Faster queries behind poolers
+
+With `prepare: false`, parameterized queries can pay for an extra network round trip. The opt-in [`parameter_types: 'client'`](docs/api.md#parameter-types) removes it for supported values. In one production app behind the Supabase pooler, median query time fell from **5.3 ms to 3.1 ms** over a day on each mode. Results depend on your workload; p99 was unchanged. Use `'warn'` first to check for serialization differences.
+
+### New features
+
+- **See pool pressure.** [`sql.stats()`](docs/api.md#pool-stats) reports busy and idle connections and waiting queries.
+- **Handle serverless suspension.** Expired idle connections are replaced on resume; the [Vercel Fluid Compute adapter](docs/api.md#vercel-fluid-compute) keeps instances alive until idle connections close.
+- **Automatic cleanup.** [`await using`](docs/api.md#teardown--cleanup) closes a pool and `using` releases a reserved connection when its scope ends. Requires Node.js 24+ or TypeScript 5.2+.
+- **Arrays without startup discovery.** With [`fetch_types: false`](docs/api.md#auto-fetching-of-array-types), common built-in arrays still parse and serialize without a catalog query.
 
 ## Documentation
 
-The API reference is in [docs/api.md](docs/api.md), and the changes in each release are in the [changelog](CHANGELOG.md).
+- [API reference](docs/api.md) — queries, transactions, types, options and errors. Also shipped in the npm package at `docs/api.md` for editors and code assistants.
+- [Migration guide](docs/upgrading.md) — switching, behaviour changes and tracing.
+- [Changelog](CHANGELOG.md) · [Roadmap](ROADMAP.md) · [Contributing](CONTRIBUTING.md)
 
-## Thank you
-
-A really big thank you to [@JAForbes](https://twitter.com/jmsfbs) who introduced me to Postgres and still holds my hand navigating all the great opportunities we have.
-
-Thanks to [@ACXgit](https://twitter.com/andreacoiutti) for initial tests and dogfooding.
-
-Also thanks to [Ryan Dahl](https://github.com/ry) for letting me have the `postgres` npm package name.
+Based on [Postgres.js](https://github.com/porsager/postgres) by [Rasmus Porsager](https://github.com/porsager). Thank you to its creator and everyone contributing fixes and reproductions.
