@@ -87,7 +87,7 @@ const scenarios = {
   async 'copy-out'(port) {
     const sql = client(port, { max: 1 })
     const rows = 50000
-    const readable = await within(sql`copy (select generate_series(1, ${rows})) to stdout`.readable(), 3000, 'copy readable')
+    const readable = await within(sql.unsafe('copy (select generate_series(1, ' + rows + ')) to stdout').readable(), 3000, 'copy readable')
     const consume = async() => {
       let bytes = 0
         , chunks = 0
