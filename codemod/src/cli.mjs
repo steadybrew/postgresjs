@@ -2,9 +2,11 @@
 import { resolve } from 'node:path'
 import { scanProject } from './detect.mjs'
 import { changes, levels } from './changes.mjs'
+import { apply, installCommand, plan } from './switch.mjs'
 
 const argv = process.argv.slice(2)
 const asJson = argv.includes('--json')
+const doSwitch = argv.includes('--switch')
 const root = resolve(argv.find(a => !a.startsWith('--')) || '.')
 const { facts, findings } = scanProject(root)
 
@@ -36,3 +38,28 @@ for (const level of levels) {
 }
 
 shown.length || console.log('\nNothing found that the switch changes.')
+
+if (!doSwitch) {
+  console.log('\nRun again with --switch to make the switch.')
+  process.exit(0)
+}
+
+const steps = plan(root, { facts, findings })
+if (steps.blockers.length) {
+  console.log('\nNot switching, nothing was changed:')
+  steps.blockers.forEach(b => console.log('  ' + b))
+  process.exit(1)
+}
+if (!steps.steps.length) {
+  console.log('\nNothing to switch: no package declares postgres outside the fork.')
+  process.exit(0)
+}
+
+console.log('\nSwitched:')
+apply(root, steps).forEach(line => console.log('  ' + line))
+console.log('\nNext:')
+console.log('  ' + installCommand(steps.pm))
+const handled = new Set(['patched-postgres', 'postgres-via-dependency', 'postgres-via-transitive'])
+const open = findings.filter(f => changes[f.id] && changes[f.id].level === 'act' && !handled.has(f.id))
+open.length && console.log('  then change what is listed under "Change before switching" above (' + open.length + ' left)')
+facts.tracers.some(t => t.startsWith('@sentry/')) && console.log('  Sentry records no database spans on 4.x until you add the preload: https://github.com/steadybrew/postgresjs#switching-from-postgresjs')

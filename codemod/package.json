@@ -10,7 +10,7 @@
     "postgresjs-migrate": "src/cli.mjs"
   },
   "scripts": {
-    "test": "node --test test/detect.test.mjs"
+    "test": "node --test test/detect.test.mjs test/switch.test.mjs"
   },
   "dependencies": {
     "@ast-grep/napi": "0.51.0"

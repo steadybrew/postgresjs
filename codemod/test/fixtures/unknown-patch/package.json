@@ -1,0 +1,11 @@
+{
+  "name": "unknown-patch",
+  "dependencies": {
+    "postgres": "3.4.9"
+  },
+  "pnpm": {
+    "patchedDependencies": {
+      "postgres@3.4.9": "patches/postgres@3.4.9.patch"
+    }
+  }
+}

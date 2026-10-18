@@ -18,11 +18,23 @@ const callbackOptions = ['onnotice', 'onparameter', 'onnotify', 'onclose', 'debu
 const flippedEnv = /["']?\b(PG(?:SSL|PREPARE|FETCH_TYPES|DEBUG))\b["']?\s*[=:]\s*["']?(disable|false)\b/g
 const errorCodes = /^(CONNECTION_CLOSED|CONNECTION_DESTROYED|CONNECT_TIMEOUT|COPY_IN_PROGRESS|UNSAFE_TRANSACTION)$/
 const knownPatches = [
-  [/function nextWrite[\s\S]{0,1500}?!socket|socket \? socket\.write/, 'write after close crash (#1208, #1154), fixed in 4.0.0'],
-  [/connection\.onclose = (e|error|err) =>/, 'queries after a transaction connection closes (#1154, #1133), fixed in 4.0.0'],
-  [/c\.onclose = (e|error|err) =>|CONNECTION_RELEASED/, 'queries on a reserved connection after close or release, fixed in 4.0.0'],
-  [/result = new Result\(\)\s*\n\+\s*rows = 0/, 'state left over after a connection closes, fixed in 4.0.0']
+  [/function nextWrite[\s\S]*?\+\s*if \(!socket\)|socket \? socket\.write/, 'write after close crash (#1208, #1154), fixed in 4.0.0'],
+  [/connection\.onclose = (e|error|err) =>|\+\s*, closedError\b|\+\s*, closed = false|\+\s*if \((closed|closedError)\)\s*\n\+\s*return q\.reject/, 'queries after a transaction connection closes (#1154, #1133), fixed in 4.0.0'],
+  [/c\.onclose = (e|error|err) =>|CONNECTION_RELEASED|\+\s*if \(closedError\)\s*\n\+\s*return\b/, 'queries on a reserved connection after close or release, fixed in 4.0.0'],
+  [/\+\s*result = new Result\(\)|\+\s*chunk = nextWriteTimer = null/, 'state left over after a connection closes, fixed in 4.0.0']
 ]
+
+export function patchCoverage(patch) {
+  const hunks = patch.split(/^(?=@@ )/m).slice(1).filter(h => /^[+-](?![+-])/m.test(h))
+  const notes = new Set()
+  let covered = 0
+  for (const hunk of hunks) {
+    const matched = knownPatches.filter(([re]) => re.test(hunk))
+    matched.forEach(([, note]) => notes.add(note))
+    matched.length && covered++
+  }
+  return { hunks: hunks.length, covered, notes: [...notes] }
+}
 const timerCalls = new Set(['setTimeout', 'setImmediate', 'setInterval', 'queueMicrotask'])
 const functionKinds = new Set(['arrow_function', 'function_expression', 'function', 'function_declaration', 'method_definition', 'generator_function', 'generator_function_declaration'])
 const sentryServer = /^@sentry\/(node|nextjs|remix|sveltekit|nuxt|astro|nestjs|aws-serverless|google-cloud-serverless|bun|solidstart|tanstackstart-react|react-router)$/
@@ -580,8 +592,10 @@ export function scanProject(root) {
     }
     if (/(^|\/)patches\/postgres[+@]/.test(file)) {
       const patch = read(root, file) || ''
-      const covered = knownPatches.filter(([re]) => re.test(patch)).map(([, note]) => note)
-      add('patched-postgres', file, 1, covered.length ? name + ': ' + covered.join('; ') : name + ': not a known fix')
+      const { hunks, covered, notes } = patchCoverage(patch)
+      add('patched-postgres', file, 1, name + ': ' + (covered === hunks && hunks
+        ? 'every change is in the fork (' + notes.join('; ') + ')'
+        : covered + ' of ' + hunks + ' changes recognised' + (notes.length ? ' (' + notes.join('; ') + ')' : '')))
     }
 
     const lang = languages[extname(file)]

@@ -1,0 +1,7 @@
+{
+  "name": "@app/api",
+  "dependencies": {
+    "drizzle-orm": "catalog:",
+    "postgres": "catalog:"
+  }
+}

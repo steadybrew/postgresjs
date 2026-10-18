@@ -1,0 +1,4 @@
+[
+  ["patched-postgres", "package.json:8"],
+  ["patched-postgres", "patches/postgres@3.4.9.patch:1"]
+]
