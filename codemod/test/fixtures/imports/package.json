@@ -1,0 +1,10 @@
+{
+  "name": "imports",
+  "private": true,
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "postgres": "^3.4.9"
+  }
+}

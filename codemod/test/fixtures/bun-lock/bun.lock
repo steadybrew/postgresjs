@@ -1,0 +1,16 @@
+{
+  "lockfileVersion": 1,
+  "workspaces": {
+    "": {
+      "name": "bun-lock",
+      "dependencies": {
+        "auth-kit": "^1.0.0",
+        "postgres": "^3.4.9",
+      },
+    },
+  },
+  "packages": {
+    "auth-kit": ["auth-kit@1.0.0", "", { "dependencies": { "postgres": "^3.4.0" } }, "sha512-x"],
+    "postgres": ["postgres@3.4.9", "", {}, "sha512-y"],
+  }
+}

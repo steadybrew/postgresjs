@@ -1,0 +1,6 @@
+{
+  "name": "@app/web",
+  "dependencies": {
+    "@app/db": "workspace:*"
+  }
+}

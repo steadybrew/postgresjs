@@ -1,0 +1,5 @@
+node_modules/
+sample/*.log
+sample/dependents.cursor
+sample/dependents.jsonl
+sample/inventory-top20.txt

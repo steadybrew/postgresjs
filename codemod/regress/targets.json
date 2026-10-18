@@ -1,0 +1,17 @@
+[
+  { "repo": "paperclipai/paperclip", "commit": "4415665d67b16ffefbe4519c4bdd521f37bb87b9", "covers": "known patch; use after release; CONNECTION_ENDED retry set" },
+  { "repo": "simstudioai/sim", "commit": "8df65ad39a10a6c34c61ff0674e0e8a7ad2164f0", "covers": "patch; fetch_types false; onclose callbacks; release in a nested cleanup; size" },
+  { "repo": "kortix-ai/suna", "commit": "c9de148e0cb6d9462209566d3362b380a880f458", "covers": "nextWrite patch; CONNECTION_ENDED retry set" },
+  { "repo": "immich-app/immich", "commit": "53618ff7496ee313d1cff7b3bcdf19c82b765cdf", "covers": "imported dependency with its own postgres; UnsupportedPostgresError" },
+  { "repo": "Dokploy/dokploy", "commit": "e0c8d80cdea15a4ac3fe495a6ad38e043b4b80b5", "covers": "transitive prisma with its own postgres" },
+  { "repo": "docmost/docmost", "commit": "744c82bdf86f454ca44a2e19dc150900e884a11e", "covers": "import * as postgres; Kysely" },
+  { "repo": "manaflow-ai/cmux", "commit": "3e7ed5a562ae01cb1cd6ff1faa1a41bbf9f6251b", "covers": "this.listen; new PostgresError" },
+  { "repo": "every-app/open-seo", "commit": "d7ea7852480601af9bc8870942af8311a410e567", "covers": "fetch_types false; CONNECTION_ENDED retry set" },
+  { "repo": "hcengineering/platform", "commit": "698b287e6fc427205fb59846cb0ea1609bf99415", "covers": "fetch_types false; error codes; large monorepo" },
+  { "repo": "justjavac/wechat-miniapp-radar", "commit": "fd7363bee3bb0e458d9b6a9f5f2305092a751865", "covers": "single package with CI workflows" },
+  { "repo": "elizaOS/eliza", "commit": "29a2748fecf2acdc7e423470518259261fb8feb7", "covers": "slowest scan" },
+  { "repo": "teableio/teable", "commit": "b91d88eeb0e923263db24b7f8d29ddb4f50a544e", "covers": "Kysely; query cancellation tests" },
+  { "repo": "ts-safeql/safeql", "commit": "7370d114e11b15f650c5b8a6d1b9586e7d66b201", "covers": "COPY; reserve; new PostgresError" },
+  { "repo": "fedify-dev/fedify", "commit": "756933d07ed00530bfadf73e176563dcdeb4a7ed", "covers": "listen" },
+  { "repo": "corsairdev/corsair", "commit": "ecde40add47b24e1432859725f7e38074daf87b4", "covers": "reserve" }
+]

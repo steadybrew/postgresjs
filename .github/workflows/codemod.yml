@@ -1,0 +1,46 @@
+name: codemod
+
+on:
+  push:
+    branches: [main]
+    paths: ['codemod/**', '.github/workflows/codemod.yml']
+  pull_request:
+    paths: ['codemod/**', '.github/workflows/codemod.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Node v${{ matrix.node }}
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['18', '22', '24']
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: codemod
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - run: npm ci --ignore-scripts
+      - run: npm test
+
+  regress:
+    name: Real projects
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: codemod
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci --ignore-scripts
+      - run: node regress/run.mjs

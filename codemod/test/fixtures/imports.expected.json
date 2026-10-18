@@ -1,0 +1,7 @@
+[
+  ["node-version", "package.json:5"],
+  ["callback-can-throw", "src/channel.ts:11"],
+  ["prepare-false", "src/dynamic.mjs:3"],
+  ["callback-can-throw", "src/namespace.ts:4"],
+  ["fetch-types-false", "src/required.cjs:3"]
+]

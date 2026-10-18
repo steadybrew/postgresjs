@@ -1,0 +1,9 @@
+{
+  "name": "@app/db",
+  "dependencies": {
+    "client-lib": "^2.0.0",
+    "framework-y": "^1.0.0",
+    "kysely-postgres-js": "^3.0.0",
+    "postgres": "^3.4.9"
+  }
+}

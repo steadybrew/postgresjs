@@ -1,0 +1,3 @@
+[
+  ["postgres-via-dependency", "yarn.lock:8"]
+]

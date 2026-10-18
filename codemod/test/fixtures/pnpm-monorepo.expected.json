@@ -1,0 +1,7 @@
+[
+  ["node-below-22-ci", ".github/workflows/db.yml:9"],
+  ["node-below-22", "packages/db/Dockerfile:1"],
+  ["postgres-via-dependency", "pnpm-lock.yaml:65"],
+  ["postgres-via-transitive", "pnpm-lock.yaml:73"],
+  ["postgres-via-tooling", "pnpm-lock.yaml:89"]
+]

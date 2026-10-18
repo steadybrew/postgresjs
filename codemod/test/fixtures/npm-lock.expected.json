@@ -1,0 +1,4 @@
+[
+  ["postgres-via-transitive", "package-lock.json:12"],
+  ["postgres-via-tooling", "package-lock.json:16"]
+]

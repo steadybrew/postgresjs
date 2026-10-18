@@ -1,0 +1,2965 @@
+{
+ "immich-app/immich": {
+  "commit": "53618ff7496ee313d1cff7b3bcdf19c82b765cdf",
+  "stars": 116432,
+  "facts": {
+   "postgres": [
+    {
+     "file": "server/package.json",
+     "range": "3.4.9"
+    }
+   ],
+   "fork": false,
+   "lockfiles": [
+    "pnpm-lock.yaml"
+   ],
+   "importers": 0,
+   "clients": 0,
+   "reserves": 0,
+   "begins": 0,
+   "copies": 0,
+   "subscribes": 0,
+   "listens": 0,
+   "maxOne": 0,
+   "orm": [
+    "kysely",
+    "kysely-postgres-js"
+   ],
+   "tracers": [
+    "@opentelemetry/sdk-node"
+   ],
+   "runtimes": [],
+   "typescript": true
+  },
+  "findings": [
+   {
+    "id": "node-version",
+    "file": ".nvmrc",
+    "line": 1,
+    "text": "24.21.0 → 24"
+   },
+   {
+    "id": "postgres-via-dependency",
+    "file": "pnpm-lock.yaml",
+    "line": 2978,
+    "text": "@immich/sql-tools depends on postgres 3.4.9, imported by your code"
+   }
+  ]
+ },
+ "paperclipai/paperclip": {
+  "commit": "4415665d67b16ffefbe4519c4bdd521f37bb87b9",
+  "stars": 103277,
+  "facts": {
+   "postgres": [
+    {
+     "file": "packages/db/package.json",
+     "range": "^3.4.9"
+    }
+   ],
+   "fork": false,
+   "lockfiles": [
+    "pnpm-lock.yaml"
+   ],
+   "importers": 35,
+   "clients": 100,
+   "reserves": 5,
+   "begins": 5,
+   "copies": 0,
+   "subscribes": 0,
+   "listens": 1,
+   "maxOne": 98,
+   "orm": [
+    "drizzle-orm",
+    "drizzle-kit"
+   ],
+   "tracers": [
+    "@opentelemetry/auto-instrumentations-node",
+    "@opentelemetry/sdk-node",
+    "@sentry/node"
+   ],
+   "runtimes": [
+    "cloudflare",
+    "vercel"
+   ],
+   "typescript": true
+  },
+  "findings": [
+   {
+    "id": "patched-postgres",
+    "file": "package.json",
+    "line": 125,
+    "text": "postgres@3.4.9"
+   },
+   {
+    "id": "reserved-used-after-release",
+    "file": "packages/db/src/__fixtures__/postgres-connection-recovery.mjs",
+    "line": 83,
+    "text": "reserved.unsafe"
+   },
+   {
+    "id": "error-code-check",
+    "file": "packages/db/src/__fixtures__/postgres-connection-recovery.mjs",
+    "line": 52,
+    "text": "CONNECTION_CLOSED"
+   },
+   {
+    "id": "error-code-check",
+    "file": "packages/db/src/__fixtures__/postgres-connection-recovery.mjs",
+    "line": 59,
+    "text": "CONNECTION_CLOSED"
+   },
+   {
+    "id": "error-code-check",
+    "file": "packages/db/src/__fixtures__/postgres-connection-recovery.mjs",
+    "line": 76,
+    "text": "CONNECTION_CLOSED"
+   },
+   {
+    "id": "error-code-check",
+    "file": "packages/db/src/__fixtures__/postgres-connection-recovery.mjs",
+    "line": 83,
+    "text": "CONNECTION_CLOSED"
+   },
+   {
+    "id": "error-code-check",
+    "file": "packages/db/src/__fixtures__/postgres-connection-recovery.mjs",
+    "line": 98,
+    "text": "CONNECTION_CLOSED"
+   },
+   {
+    "id": "error-code-check",
+    "file": "packages/db/src/client-disconnect-replay.test.ts",
+    "line": 125,
+    "text": "CONNECTION_CLOSED"
+   },
+   {
+    "id": "error-code-check",
+    "file": "packages/db/src/client-disconnect-replay.test.ts",
+    "line": 162,
+    "text": "CONNECTION_CLOSED"
+   },
+   {
+    "id": "patched-postgres",
+    "file": "patches/postgres@3.4.9.patch",
+    "line": 1,
+    "text": "postgres@3.4.9.patch: queries after a transaction connection closes (#1154, #1133), fixed in 4.0.0; queries on a reserved connection after close or release, fixed in 4.0.0; state left over after a connection closes, fixed in 4.0.0"
+   },
+   {
+    "id": "promise-race-timeout",
+    "file": "server/src/__tests__/agent-runtime-assignments.test.ts",
+    "line": 217,
+    "text": "Promise.race([work, new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error(\"Profile operation waited for another pooled connection\")), 3000); })])"
+   },
+   {
+    "id": "error-code-check",
+    "file": "server/src/__tests__/cloud-tenant-transient-db-retry.test.ts",
+    "line": 16,
+    "text": "CONNECT_TIMEOUT"
+   },
+   {
+    "id": "error-code-check",
+    "file": "server/src/__tests__/cloud-tenant-transient-db-retry.test.ts",
+    "line": 17,
+    "text": "CONNECTION_CLOSED"
+   },
+   {
+    "id": "connection-ended-check",
+    "file": "server/src/__tests__/cloud-tenant-transient-db-retry.test.ts",
+    "line": 18,
+    "text": "CONNECTION_ENDED"
+   },
+   {
+    "id": "error-code-check",
+    "file": "server/src/__tests__/cloud-tenant-transient-db-retry.test.ts",
+    "line": 19,
+    "text": "CONNECTION_DESTROYED"
+   },
+   {
+    "id": "error-code-check",
+    "file": "server/src/__tests__/cloud-tenant-transient-db-retry.test.ts",
+    "line": 21,
+    "text": "CONNECTION_CLOSED"
+   },
+   {
+    "id": "error-code-check",
+    "file": "server/src/__tests__/cloud-tenant-transient-db-retry.test.ts",
+    "line": 32,
+    "text": "CONNECTION_CLOSED"
+   },
+   {
+    "id": "error-code-check",
+    "file": "server/src/__tests__/cloud-tenant-transient-db-retry.test.ts",
+    "line": 38,
+    "text": "CONNECT_TIMEOUT"
+   },
+   {
+    "id": "error-code-check",
+    "file": "server/src/__tests__/cloud-tenant-transient-db-retry.test.ts",
+    "line": 55,
+    "text": "CONNECTION_CLOSED"
+   },
+   {
+    "id": "error-code-check",
+    "file": "server/src/__tests__/cloud-tenant-transient-db-retry.test.ts",
+    "line": 73,
+    "text": "CONNECT_TIMEOUT"
+   },
+   {
+    "id": "error-code-check",
+    "file": "server/src/__tests__/dashboard-disconnect-retry.test.ts",
+    "line": 15,
+    "text": "CONNECTION_CLOSED"
+   },
+   {
+    "id": "error-code-check",
+    "file": "server/src/__tests__/dashboard-disconnect-retry.test.ts",
+    "line": 79,
+    "text": "CONNECT_TIMEOUT"
+   },
+   {
+    "id": "connection-ended-check",
+    "file": "server/src/__tests__/dashboard-disconnect-retry.test.ts",
+    "line": 79,
+    "text": "CONNECTION_ENDED"
+   },
+   {
+    "id": "promise-race-timeout",
+    "file": "server/src/__tests__/dot-runner.test.ts",
+    "line": 1039,
+    "text": "Promise.race([resultPromise.catch(() => {}), new Promise(resolve => setTimeout(resolve, 1000))])"
+   },
+   {
+    "id": "connection-ended-check",
+    "file": "server/src/__tests__/error-handler.test.ts",
+    "line": 90,
+    "text": "CONNECTION_ENDED"
+   },
+   {
+    "id": "error-code-check",
+    "file": "server/src/__tests__/error-handler.test.ts",
+    "line": 138,
+    "text": "CONNECTION_CLOSED"
+   },
+   {
+    "id": "promise-race-timeout",
+    "file": "server/src/__tests__/execution-workspaces-service.test.ts",
+    "line": 4116,
+    "text": "Promise.race(["
+   },
+   {
+    "id": "promise-race-timeout",
+    "file": "server/src/__tests__/generic-mcp-connection.test.ts",
+    "line": 1352,
+    "text": "Promise.race(["
+   },
+   {
+    "id": "connection-ended-check",
+    "file": "server/src/__tests__/public-mcp-dispatch-shutdown.test.ts",
+    "line": 23,
+    "text": "CONNECTION_ENDED"
+   },
+   {
+    "id": "promise-race-timeout",
+    "file": "server/src/__tests__/satisfied-connection-intents.test.ts",
+    "line": 112,
+    "text": "Promise.race([event, new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(\"Connection worker did not settle\")), 8000); })])"
+   },
+   {
+    "id": "promise-race-timeout",
+    "file": "server/src/__tests__/secrets-service.test.ts",
+    "line": 144,
+    "text": "Promise.race([timeout, violationSignal])"
+   },
+   {
+    "id": "error-code-check",
+    "file": "server/src/__tests__/service-read-disconnect-retry.test.ts",
+    "line": 15,
+    "text": "CONNECTION_CLOSED"
+   },
+   {
+    "id": "connection-ended-check",
+    "file": "server/src/__tests__/service-read-disconnect-retry.test.ts",
+    "line": 83,
+    "text": "CONNECTION_ENDED"
+   },
+   {
+    "id": "error-code-check",
+    "file": "server/src/__tests__/service-read-disconnect-retry.test.ts",
+    "line": 110,
+    "text": "CONNECTION_CLOSED"
+   },
+   {
+    "id": "error-code-check",
+    "file": "server/src/__tests__/service-read-disconnect-retry.test.ts",
+    "line": 131,
+    "text": "CONNECT_TIMEOUT"
+   },
+   {
+    "id": "error-code-check",
+    "file": "server/src/database-retry.ts",
+    "line": 3,
+    "text": "CONNECT_TIMEOUT"
+   },
+   {
+    "id": "error-code-check",
+    "file": "server/src/database-retry.ts",
+    "line": 4,
+    "text": "CONNECTION_CLOSED"
+   },
+   {
+    "id": "connection-ended-check",
+    "file": "server/src/database-retry.ts",
+    "line": 5,
+    "text": "CONNECTION_ENDED"
+   },
+   {
+    "id": "error-code-check",
+    "file": "server/src/database-retry.ts",
+    "line": 6,
+    "text": "CONNECTION_DESTROYED"
+   },
+   {
+    "id": "connection-ended-check",
+    "file": "server/src/database-retry.ts",
+    "line": 27,
+    "text": "CONNECTION_ENDED"
+   },
+   {
+    "id": "promise-race-timeout",
+    "file": "server/src/services/ai-connection-router.ts",
+    "line": 184,
+    "text": "Promise.race(["
+   },
+   {
+    "id": "promise-race-timeout",
+    "file": "server/src/services/ai-connection-router.ts",
+    "line": 199,
+    "text": "Promise.race(["
+   },
+   {
+    "id": "promise-race-timeout",
+    "file": "server/src/services/chat-teams-file-transfers.test.ts",
+    "line": 1248,
+    "text": "Promise.race(["
+   },
+   {
+    "id": "promise-race-timeout",
+    "file": "server/src/services/chat-teams-file-transfers.test.ts",
+    "line": 1369,
+    "text": "Promise.race(["
+   },
+   {
+    "id": "promise-race-timeout",
+    "file": "server/src/services/chat-teams-file-transfers.ts",
+    "line": 724,
+    "text": "Promise.race(["
+   },
+   {
+    "id": "error-code-check",
+    "file": "server/src/services/execution-projection-read-retry.test.ts",
+    "line": 15,
+    "text": "CONNECTION_CLOSED"
+   },
+   {
+    "id": "connection-ended-check",
+    "file": "server/src/services/execution-projection-read-retry.test.ts",
+    "line": 80,
+    "text": "CONNECTION_ENDED"
+   },
+   {
+    "id": "error-code-check",
+    "file": "server/src/services/execution-projection-read-retry.test.ts",
+    "line": 113,
+    "text": "CONNECTION_CLOSED"
+   },
+   {
+    "id": "promise-race-timeout",
+    "file": "server/src/services/issues.ts",
+    "line": 6634,
+    "text": "Promise.race(["
+   },
+   {
+    "id": "promise-race-timeout",
+    "file": "server/src/services/native-runtime/chat-attachment-reuse.ts",
+    "line": 1278,
+    "text": "Promise.race([objectPromise, acquisitionTimeout])"
+   },
+   {
+    "id": "promise-race-timeout",
+    "file": "server/src/services/native-runtime/chat-attachment-reuse.ts",
+    "line": 1334,
+    "text": "Promise.race(["
+   },
+   {
+    "id": "promise-race-timeout",
+    "file": "server/src/services/native-runtime/chat-attachment-reuse.ts",
+    "line": 1375,
+    "text": "Promise.race([write, timeout])"
+   },
+   {
+    "id": "promise-race-timeout",
+    "file": "server/src/services/native-runtime/native-workspace-finalizer.test.ts",
+    "line": 714,
+    "text": "Promise.race([second, new Promise((resolve) => setTimeout(() => resolve(\"still-running\"), 1_000))])"
+   },
+   {
+    "id": "promise-race-timeout",
+    "file": "server/src/services/plugin-host-services.ts",
+    "line": 201,
+    "text": "Promise.race([dnsPromise, timeoutPromise])"
+   },
+   {
+    "id": "promise-race-timeout",
+    "file": "server/src/services/tool-gateway.ts",
+    "line": 6497,
+    "text": "Promise.race(["
+   },
+   {
+    "id": "callback-can-throw",
+    "file": "server/src/__tests__/agent-runtime-hooks.test.ts",
+    "line": 187,
+    "text": "listen"
+   },
+   {
+    "id": "node-version",
+    "file": ".github/workflows/cloud-migrator-artifacts.yml",
+    "line": 31,
+    "text": "node-version: 24 → 24"
+   },
+   {
+    "id": "node-version",
+    "file": ".github/workflows/cloud-migrator-artifacts.yml",
+    "line": 69,
+    "text": "node-version: 24 → 24"
+   },
+   {
+    "id": "node-version",
+    "file": ".github/workflows/docker.yml",
+    "line": 133,
+    "text": "node-version: 24 → 24"
+   },
+   {
+    "id": "node-version",
+    "file": ".nvmrc",
+    "line": 1,
+    "text": "24 → 24"
+   },
+   {
+    "id": "node-version",
+    "file": "Dockerfile",
+    "line": 2,
+    "text": "FROM node:24 → 24"
+   },
+   {
+    "id": "node-version",
+    "file": "package.json",
+    "line": 109,
+    "text": "engines.node >=24.11.0"
+   },
+   {
+    "id": "node-version",
+    "file": "packages/db/package.json",
+    "line": 64,
+    "text": "engines.node >=24.11.0"
+   }
+  ]
+ },
+ "thedotmack/claude-mem": {
+  "commit": "4d9997951eb32ba792f612066ce433b6339b451a",
+  "stars": 101377,
+  "facts": {
+   "postgres": [
+    {
+     "file": "services/sync-api/package.json",
+     "range": "^3.4.7"
+    }
+   ],
+   "fork": false,
+   "lockfiles": [],
+   "importers": 6,
+   "clients": 9,
+   "reserves": 0,
+   "begins": 5,
+   "copies": 0,
+   "subscribes": 0,
+   "listens": 0,
+   "maxOne": 8,
+   "orm": [],
+   "tracers": [],
+   "runtimes": [
+    "cloudflare",
+    "bun-types"
+   ],
+   "typescript": true
+  },
+  "findings": [
+   {
+    "id": "error-code-check",
+    "file": "services/sync-api/src/index.ts",
+    "line": 60,
+    "text": "CONNECTION_CLOSED"
+   },
+   {
+    "id": "connection-ended-check",
+    "file": "services/sync-api/src/index.ts",
+    "line": 61,
+    "text": "CONNECTION_ENDED"
+   },
+   {
+    "id": "error-code-check",
+    "file": "services/sync-api/src/index.ts",
+    "line": 62,
+    "text": "CONNECTION_DESTROYED"
+   },
+   {
+    "id": "error-code-check",
+    "file": "services/sync-api/src/index.ts",
+    "line": 63,
+    "text": "CONNECT_TIMEOUT"
+   },
+   {
+    "id": "error-code-check",
+    "file": "services/sync-api/test/lock-hold.test.ts",
+    "line": 205,
+    "text": "CONNECTION_CLOSED"
+   },
+   {
+    "id": "callback-can-throw",
+    "file": "services/sync-api/test/query-plan.test.ts",
+    "line": 44,
+    "text": "debug"
+   },
+   {
+    "id": "node-below-22-ci",
+    "file": ".github/workflows/ci.yml",
+    "line": 18,
+    "text": "node-version: '20' → 20"
+   },
+   {
+    "id": "node-below-22-ci",
+    "file": ".github/workflows/ci.yml",
+    "line": 84,
+    "text": "node-version: '20' → 20"
+   },
+   {
+    "id": "node-below-22-ci",
+    "file": ".github/workflows/ci.yml",
+    "line": 222,
+    "text": "node-version: '20' → 20"
+   },
+   {
+    "id": "node-below-22-ci",
+    "file": ".github/workflows/ci.yml",
+    "line": 257,
+    "text": "node-version: '20' → 20"
+   },
+   {
+    "id": "node-below-22-ci",
+    "file": ".github/workflows/ci.yml",
+    "line": 300,
+    "text": "node-version: '20' → 20"
+   },
+   {
+    "id": "node-below-22",
+    "file": "package.json",
+    "line": 63,
+    "text": "engines.node >=20.12.0"
+   }
+  ]
+ },
+ "justjavac/wechat-miniapp-radar": {
+  "commit": "fd7363bee3bb0e458d9b6a9f5f2305092a751865",
+  "stars": 51178,
+  "facts": {
+   "postgres": [
+    {
+     "file": "package.json",
+     "range": "^3.4.9"
+    }
+   ],
+   "fork": false,
+   "lockfiles": [
+    "package-lock.json"
+   ],
+   "importers": 2,
+   "clients": 2,
+   "reserves": 0,
+   "begins": 0,
+   "copies": 0,
+   "subscribes": 0,
+   "listens": 0,
+   "maxOne": 2,
+   "orm": [
+    "drizzle-orm",
+    "drizzle-kit"
+   ],
+   "tracers": [],
+   "runtimes": [
+    "vercel",
+    "next"
+   ],
+   "typescript": true
+  },
+  "findings": [
+   {
+    "id": "prepare-false",
+    "file": "db/client.ts",
+    "line": 8,
+    "text": "prepare: false"
+   },
+   {
+    "id": "prepare-false",
+    "file": "scripts/verify-db.ts",
+    "line": 25,
+    "text": "prepare: false"
+   },
+   {
+    "id": "node-below-22-ci",
+    "file": ".github/workflows/link-check.yml",
+    "line": 25,
+    "text": "node-version: 20 → 20"
+   },
+   {
+    "id": "node-below-22-ci",
+    "file": ".github/workflows/validate.yml",
+    "line": 18,
+    "text": "node-version: 20 → 20"
+   },
+   {
+    "id": "node-below-22-ci",
+    "file": ".github/workflows/verify-vercel.yml",
+    "line": 70,
+    "text": "node-version: 20 → 20"
+   },
+   {
+    "id": "node-below-22",
+    "file": "package.json",
+    "line": 78,
+    "text": "engines.node >=20"
+   }
+  ]
+ },
+ "moeru-ai/airi": {
+  "commit": "266e8d9467197f9562279d6291eddae758b11fe2",
+  "stars": 50450,
+  "facts": {
+   "postgres": [
+    {
+     "file": "packages/memory-pgvector/package.json",
+     "range": "catalog:"
+    }
+   ],
+   "fork": false,
+   "lockfiles": [
+    "pnpm-lock.yaml"
+   ],
+   "importers": 0,
+   "clients": 0,
+   "reserves": 0,
+   "begins": 0,
+   "copies": 0,
+   "subscribes": 0,
+   "listens": 0,
+   "maxOne": 0,
+   "orm": [
+    "drizzle-orm",
+    "drizzle-kit",
+    "kysely"
+   ],
+   "tracers": [
+    "@opentelemetry/auto-instrumentations-node",
+    "@opentelemetry/sdk-node"
+   ],
+   "runtimes": [],
+   "typescript": true
+  },
+  "findings": [
+   {
+    "id": "node-version",
+    "file": ".tool-versions",
+    "line": 1,
+    "text": "nodejs 26.7.0 → 26"
+   }
+  ]
+ },
+ "Dokploy/dokploy": {
+  "commit": "e0c8d80cdea15a4ac3fe495a6ad38e043b4b80b5",
+  "stars": 37829,
+  "facts": {
+   "postgres": [
+    {
+     "file": "apps/dokploy/package.json",
+     "range": "3.4.4"
+    },
+    {
+     "file": "packages/server/package.json",
+     "range": "3.4.4"
+    }
+   ],
+   "fork": false,
+   "lockfiles": [
+    "pnpm-lock.yaml"
+   ],
+   "importers": 5,
+   "clients": 6,
+   "reserves": 0,
+   "begins": 0,
+   "copies": 0,
+   "subscribes": 0,
+   "listens": 0,
+   "maxOne": 3,
+   "orm": [
+    "drizzle-orm",
+    "drizzle-kit"
+   ],
+   "tracers": [],
+   "runtimes": [
+    "next"
+   ],
+   "typescript": true
+  },
+  "findings": [
+   {
+    "id": "node-version",
+    "file": ".github/workflows/dokploy.yml",
+    "line": 210,
+    "text": "node-version: 24.4.0 → 24"
+   },
+   {
+    "id": "node-version",
+    "file": ".github/workflows/pull-request.yml",
+    "line": 23,
+    "text": "node-version: 24.4.0 → 24"
+   },
+   {
+    "id": "node-version",
+    "file": ".github/workflows/sync-openapi-docs.yml",
+    "line": 30,
+    "text": "node-version: 24.4.0 → 24"
+   },
+   {
+    "id": "node-version",
+    "file": ".nvmrc",
+    "line": 1,
+    "text": "24.4.0 → 24"
+   },
+   {
+    "id": "node-version",
+    "file": "Dockerfile",
+    "line": 2,
+    "text": "FROM node:24 → 24"
+   },
+   {
+    "id": "node-version",
+    "file": "Dockerfile.cloud",
+    "line": 2,
+    "text": "FROM node:24 → 24"
+   },
+   {
+    "id": "node-version",
+    "file": "Dockerfile.schedule",
+    "line": 2,
+    "text": "FROM node:24 → 24"
+   },
+   {
+    "id": "node-version",
+    "file": "Dockerfile.server",
+    "line": 2,
+    "text": "FROM node:24 → 24"
+   },
+   {
+    "id": "node-version",
+    "file": "apps/dokploy/package.json",
+    "line": 189,
+    "text": "engines.node ^24.4.0"
+   },
+   {
+    "id": "node-version",
+    "file": "package.json",
+    "line": 35,
+    "text": "engines.node ^24.4.0"
+   },
+   {
+    "id": "node-version",
+    "file": "packages/server/package.json",
+    "line": 121,
+    "text": "engines.node ^24.4.0"
+   },
+   {
+    "id": "postgres-via-transitive",
+    "file": "pnpm-lock.yaml",
+    "line": 17274,
+    "text": "prisma depends on postgres 3.4.7"
+   }
+  ]
+ },
+ "supermemoryai/supermemory": {
+  "commit": "00f48d0378cf2c536cfcd0bb628ad80c41d6f602",
+  "stars": 31260,
+  "facts": {
+   "postgres": [
+    {
+     "file": "package.json",
+     "range": "^3.4.7"
+    }
+   ],
+   "fork": false,
+   "lockfiles": [
+    "bun.lock"
+   ],
+   "importers": 0,
+   "clients": 0,
+   "reserves": 0,
+   "begins": 0,
+   "copies": 0,
+   "subscribes": 0,
+   "listens": 0,
+   "maxOne": 0,
+   "orm": [
+    "drizzle-orm",
+    "drizzle-kit"
+   ],
+   "tracers": [],
+   "runtimes": [
+    "cloudflare",
+    "next",
+    "bun",
+    "bun-types"
+   ],
+   "typescript": true
+  },
+  "findings": [
+   {
+    "id": "node-version",
+    "file": ".github/workflows/publish-memory-graph.yml",
+    "line": 31,
+    "text": "node-version: '24' → 24"
+   },
+   {
+    "id": "node-version",
+    "file": ".github/workflows/publish-tools.yml",
+    "line": 31,
+    "text": "node-version: '24' → 24"
+   },
+   {
+    "id": "node-below-22",
+    "file": "package.json",
+    "line": 14,
+    "text": "engines.node >=20"
+   }
+  ]
+ },
+ "simstudioai/sim": {
+  "commit": "8df65ad39a10a6c34c61ff0674e0e8a7ad2164f0",
+  "stars": 29834,
+  "facts": {
+   "postgres": [
+    {
+     "file": "apps/desktop/package.json",
+     "range": "^3.4.5"
+    },
+    {
+     "file": "apps/realtime/package.json",
+     "range": "^3.4.5"
+    },
+    {
+     "file": "apps/sim/package.json",
+     "range": "^3.4.5"
+    },
+    {
+     "file": "packages/db/package.json",
+     "range": "^3.4.5"
+    },
+    {
+     "file": "packages/sim-setup/package.json",
+     "range": "^3.4.5"
+    }
+   ],
+   "fork": false,
+   "lockfiles": [
+    "bun.lock"
+   ],
+   "importers": 128,
+   "clients": 183,
+   "reserves": 22,
+   "begins": 164,
+   "copies": 0,
+   "subscribes": 0,
+   "listens": 0,
+   "maxOne": 110,
+   "orm": [
+    "drizzle-orm",
+    "drizzle-kit"
+   ],
+   "tracers": [
+    "@opentelemetry/sdk-node"
+   ],
+   "runtimes": [
+    "vercel",
+    "next",
+    "bun",
+    "bun-types",
+    "aws"
+   ],
+   "typescript": true
+  },
+  "findings": [
+   {
+    "id": "promise-race-timeout",
+    "file": "apps/desktop/e2e/fixtures/live-sim.ts",
+    "line": 149,
+    "text": "Promise.race([this.reached, timeout])"
+   },
+   {
+    "id": "fetch-types-false",
+    "file": "apps/realtime/src/database/operations.ts",
+    "line": 274,
+    "text": "fetch_types: false"
+   },
+   {
+    "id": "promise-race-timeout",
+    "file": "apps/sim/app/api/schedules/execute/route.ts",
+    "line": 120,
+    "text": "Promise.race(["
+   },
+   {
+    "id": "error-code-check",
+    "file": "apps/sim/background/webhook-execution.test.ts",
+    "line": 429,
+    "text": "CONNECT_TIMEOUT"
+   },
+   {
+    "id": "error-code-check",
+    "file": "apps/sim/background/webhook-execution.test.ts",
+    "line": 688,
+    "text": "CONNECT_TIMEOUT"
+   },
+   {
+    "id": "error-code-check",
+    "file": "apps/sim/background/webhook-execution.test.ts",
+    "line": 876,
+    "text": "CONNECTION_CLOSED"
+   },
+   {
+    "id": "prepare-false",
+    "file": "apps/sim/ee/access-requests/lib/application/flow.integration.ts",
+    "line": 49,
+    "text": "prepare: false"
+   },
+   {
+    "id": "error-code-check",
+    "file": "apps/sim/executor/handlers/agent/memory.ts",
+    "line": 112,
+    "text": "CONNECTION_CLOSED"
+   },
+   {
+    "id": "connection-ended-check",
+    "file": "apps/sim/executor/handlers/agent/memory.ts",
+    "line": 113,
+    "text": "CONNECTION_ENDED"
+   },
+   {
+    "id": "error-code-check",
+    "file": "apps/sim/executor/handlers/agent/memory.ts",
+    "line": 114,
+    "text": "CONNECT_TIMEOUT"
+   },
+   {
+    "id": "prepare-false",
+    "file": "apps/sim/lib/api-key/byok.integration.ts",
+    "line": 17,
+    "text": "prepare: false"
+   },
+   {
+    "id": "fetch-types-false",
+    "file": "apps/sim/lib/auth/sim-auth-adapter.integration.ts",
+    "line": 47,
+    "text": "fetch_types: false"
+   },
+   {
+    "id": "fetch-types-false",
+    "file": "apps/sim/lib/benchmarks/repository.integration.ts",
+    "line": 134,
+    "text": "fetch_types: false"
+   },
+   {
+    "id": "prepare-false",
+    "file": "apps/sim/lib/billing/application/organization-billing/get-organization-plan-seats.integration.ts",
+    "line": 28,
+    "text": "prepare: false"
+   },
+   {
+    "id": "prepare-false",
+    "file": "apps/sim/lib/billing/core/ledger-read.integration.ts",
+    "line": 21,
+    "text": "prepare: false"
+   },
+   {
+    "id": "prepare-false",
+    "file": "apps/sim/lib/billing/core/organization-activity.integration.ts",
+    "line": 29,
+    "text": "prepare: false"
+   },
+   {
+    "id": "fetch-types-false",
+    "file": "apps/sim/lib/billing/core/organization-activity.integration.ts",
+    "line": 30,
+    "text": "fetch_types: false"
+   },
+   {
+    "id": "prepare-false",
+    "file": "apps/sim/lib/billing/core/organization-usage-pagination.integration.ts",
+    "line": 19,
+    "text": "prepare: false"
+   },
+   {
+    "id": "prepare-false",
+    "file": "apps/sim/lib/billing/core/reporting-usage-cache.integration.ts",
+    "line": 54,
+    "text": "prepare: false"
+   },
+   {
+    "id": "prepare-false",
+    "file": "apps/sim/lib/billing/core/subscription.integration.ts",
+    "line": 17,
+    "text": "prepare: false"
+   },
+   {
+    "id": "prepare-false",
+    "file": "apps/sim/lib/billing/core/usage-analytics-queries.integration.ts",
+    "line": 22,
+    "text": "prepare: false"
+   },
+   {
+    "id": "prepare-false",
+    "file": "apps/sim/lib/billing/core/usage-log.integration.ts",
+    "line": 47,
+    "text": "prepare: false"
+   },
+   {
+    "id": "fetch-types-false",
+    "file": "apps/sim/lib/billing/core/usage-log.integration.ts",
+    "line": 48,
+    "text": "fetch_types: false"
+   },
+   {
+    "id": "fetch-types-false",
+    "file": "apps/sim/lib/billing/core/usage-log.integration.ts",
+    "line": 181,
+    "text": "fetch_types: false"
+   },
+   {
+    "id": "error-code-check",
+    "file": "apps/sim/lib/billing/core/usage-log.integration.ts",
+    "line": 200,
+    "text": "CONNECTION_CLOSED"
+   },
+   {
+    "id": "error-code-check",
+    "file": "apps/sim/lib/billing/core/usage-log.integration.ts",
+    "line": 205,
+    "text": "CONNECTION_CLOSED"
+   },
+   {
+    "id": "error-code-check",
+    "file": "apps/sim/lib/billing/core/usage-log.integration.ts",
+    "line": 260,
+    "text": "CONNECTION_CLOSED"
+   },
+   {
+    "id": "prepare-false",
+    "file": "apps/sim/lib/billing/core/usage-threshold-email.integration.ts",
+    "line": 36,
+    "text": "prepare: false"
+   },
+   {
+    "id": "callback-can-throw",
+    "file": "apps/sim/lib/billing/core/usage-threshold-email.integration.ts",
+    "line": 39,
+    "text": "debug"
+   },
+   {
+    "id": "prepare-false",
+    "file": "apps/sim/lib/billing/organizations/member-limits.integration.ts",
+    "line": 31,
+    "text": "prepare: false"
+   },
+   {
+    "id": "fetch-types-false",
+    "file": "apps/sim/lib/billing/webhooks/enterprise-missing-organization.integration.ts",
+    "line": 64,
+    "text": "fetch_types: false"
+   },
+   {
+    "id": "fetch-types-false",
+    "file": "apps/sim/lib/billing/webhooks/stripe-sync-convergence.integration.ts",
+    "line": 95,
+    "text": "fetch_types: false"
+   },
+   {
+    "id": "fetch-types-false",
+    "file": "apps/sim/lib/billing/webhooks/stripe-sync-convergence.integration.ts",
+    "line": 1440,
+    "text": "fetch_types: false"
+   },
+   {
+    "id": "error-code-check",
+    "file": "apps/sim/lib/core/errors/background-retry.test.ts",
+    "line": 35,
+    "text": "CONNECTION_CLOSED"
+   },
+   {
+    "id": "error-code-check",
+    "file": "apps/sim/lib/core/errors/retryable-infrastructure.test.ts",
+    "line": 16,
+    "text": "CONNECT_TIMEOUT"
+   },
+   {
+    "id": "error-code-check",
+    "file": "apps/sim/lib/core/errors/retryable-infrastructure.test.ts",
+    "line": 17,
+    "text": "CONNECTION_CLOSED"
+   },
+   {
+    "id": "connection-ended-check",
+    "file": "apps/sim/lib/core/errors/retryable-infrastructure.test.ts",
+    "line": 18,
+    "text": "CONNECTION_ENDED"
+   },
+   {
+    "id": "error-code-check",
+    "file": "apps/sim/lib/core/errors/retryable-infrastructure.test.ts",
+    "line": 19,
+    "text": "CONNECTION_DESTROYED"
+   },
+   {
+    "id": "error-code-check",
+    "file": "apps/sim/lib/core/errors/retryable-infrastructure.test.ts",
+    "line": 32,
+    "text": "CONNECT_TIMEOUT"
+   },
+   {
+    "id": "error-code-check",
+    "file": "apps/sim/lib/core/errors/retryable-infrastructure.test.ts",
+    "line": 36,
+    "text": "CONNECT_TIMEOUT"
+   },
+   {
+    "id": "error-code-check",
+    "file": "apps/sim/lib/core/errors/retryable-infrastructure.test.ts",
+    "line": 60,
+    "text": "CONNECT_TIMEOUT"
+   },
+   {
+    "id": "error-code-check",
+    "file": "apps/sim/lib/core/errors/retryable-infrastructure.ts",
+    "line": 52,
+    "text": "CONNECT_TIMEOUT"
+   },
+   {
+    "id": "error-code-check",
+    "file": "apps/sim/lib/core/errors/retryable-infrastructure.ts",
+    "line": 53,
+    "text": "CONNECTION_CLOSED"
+   },
+   {
+    "id": "connection-ended-check",
+    "file": "apps/sim/lib/core/errors/retryable-infrastructure.ts",
+    "line": 54,
+    "text": "CONNECTION_ENDED"
+   },
+   {
+    "id": "error-code-check",
+    "file": "apps/sim/lib/core/errors/retryable-infrastructure.ts",
+    "line": 55,
+    "text": "CONNECTION_DESTROYED"
+   },
+   {
+    "id": "fetch-types-false",
+    "file": "apps/sim/lib/core/outbox/retention.integration.ts",
+    "line": 39,
+    "text": "fetch_types: false"
+   },
+   {
+    "id": "fetch-types-false",
+    "file": "apps/sim/lib/core/outbox/service.integration.ts",
+    "line": 61,
+    "text": "fetch_types: false"
+   },
+   {
+    "id": "promise-race-timeout",
+    "file": "apps/sim/lib/data-drains/service.integration.ts",
+    "line": 521,
+    "text": "Promise.race(["
+   },
+   {
+    "id": "prepare-false",
+    "file": "apps/sim/lib/db/advisory-locks.integration.ts",
+    "line": 13,
+    "text": "prepare: false"
+   },
+   {
+    "id": "error-code-check",
+    "file": "apps/sim/lib/db/read-retry.test.ts",
+    "line": 50,
+    "text": "CONNECTION_CLOSED"
+   },
+   {
+    "id": "error-code-check",
+    "file": "apps/sim/lib/db/read-retry.ts",
+    "line": 20,
+    "text": "CONNECT_TIMEOUT"
+   },
+   {
+    "id": "error-code-check",
+    "file": "apps/sim/lib/db/read-retry.ts",
+    "line": 21,
+    "text": "CONNECTION_CLOSED"
+   },
+   {
+    "id": "error-code-check",
+    "file": "apps/sim/lib/db/read-retry.ts",
+    "line": 22,
+    "text": "CONNECTION_DESTROYED"
+   },
+   {
+    "id": "connection-ended-check",
+    "file": "apps/sim/lib/db/read-retry.ts",
+    "line": 23,
+    "text": "CONNECTION_ENDED"
+   },
+   {
+    "id": "error-code-check",
+    "file": "apps/sim/lib/execution/preprocessing.test.ts",
+    "line": 264,
+    "text": "CONNECT_TIMEOUT"
+   },
+   {
+    "id": "error-code-check",
+    "file": "apps/sim/lib/execution/preprocessing.test.ts",
+    "line": 323,
+    "text": "CONNECT_TIMEOUT"
+   },
+   {
+    "id": "fetch-types-false",
+    "file": "apps/sim/lib/knowledge/__integration__/migration-fixture.ts",
+    "line": 9,
+    "text": "fetch_types: false"
+   },
+   {
+    "id": "error-code-check",
+    "file": "apps/sim/lib/knowledge/connectors/error.ts",
+    "line": 29,
+    "text": "CONNECT_TIMEOUT"
+   },
+   {
+    "id": "error-code-check",
+    "file": "apps/sim/lib/knowledge/connectors/error.ts",
+    "line": 30,
+    "text": "CONNECTION_CLOSED"
+   },
+   {
+    "id": "error-code-check",
+    "file": "apps/sim/lib/knowledge/connectors/error.ts",
+    "line": 31,
+    "text": "CONNECTION_DESTROYED"
+   },
+   {
+    "id": "connection-ended-check",
+    "file": "apps/sim/lib/knowledge/connectors/error.ts",
+    "line": 32,
+    "text": "CONNECTION_ENDED"
+   },
+   {
+    "id": "promise-race-timeout",
+    "file": "apps/sim/lib/knowledge/documents/service.ts",
+    "line": 389,
+    "text": "Promise.race(["
+   },
+   {
+    "id": "promise-race-timeout",
+    "file": "apps/sim/lib/knowledge/documents/service.ts",
+    "line": 412,
+    "text": "Promise.race(["
+   },
+   {
+    "id": "fetch-types-false",
+    "file": "apps/sim/lib/knowledge/tags/date-tag-condition.integration.ts",
+    "line": 105,
+    "text": "fetch_types: false"
+   },
+   {
+    "id": "error-code-check",
+    "file": "apps/sim/lib/projects/files/__integration__/content-rendered.integration.ts",
+    "line": 349,
+    "text": "CONNECTION_CLOSED"
+   },
+   {
+    "id": "promise-race-timeout",
+    "file": "apps/sim/lib/table/rows/writes.integration.ts",
+    "line": 1590,
+    "text": "Promise.race([settled, sleep(50).then(() => 'pending')])"
+   },
+   {
+    "id": "fetch-types-false",
+    "file": "apps/sim/lib/uploads/contexts/organization-logo/application.integration.ts",
+    "line": 28,
+    "text": "fetch_types: false"
+   },
+   {
+    "id": "error-code-check",
+    "file": "apps/sim/lib/uploads/contexts/workspace/__integration__/file-versions.integration.ts",
+    "line": 354,
+    "text": "CONNECTION_CLOSED"
+   },
+   {
+    "id": "error-code-check",
+    "file": "apps/sim/lib/uploads/contexts/workspace/__integration__/file-versions.integration.ts",
+    "line": 360,
+    "text": "CONNECTION_CLOSED"
+   },
+   {
+    "id": "prepare-false",
+    "file": "apps/sim/lib/workspace-files/search/chunks.integration.ts",
+    "line": 254,
+    "text": "prepare: false"
+   },
+   {
+    "id": "fetch-types-false",
+    "file": "apps/sim/lib/workspace-files/search/chunks.integration.ts",
+    "line": 75,
+    "text": "fetch_types: false"
+   },
+   {
+    "id": "fetch-types-false",
+    "file": "apps/sim/lib/workspace-files/search/chunks.integration.ts",
+    "line": 85,
+    "text": "fetch_types: false"
+   },
+   {
+    "id": "fetch-types-false",
+    "file": "apps/sim/lib/workspace-files/search/dispatcher.integration.ts",
+    "line": 64,
+    "text": "fetch_types: false"
+   },
+   {
+    "id": "error-code-check",
+    "file": "apps/sim/lib/workspace-files/search/indexing.test.ts",
+    "line": 191,
+    "text": "CONNECTION_CLOSED"
+   },
+   {
+    "id": "prepare-false",
+    "file": "apps/sim/lib/workspaces/organization-workspaces.integration.ts",
+    "line": 20,
+    "text": "prepare: false"
+   },
+   {
+    "id": "prepare-false",
+    "file": "apps/sim/scripts/create-oauth-client.ts",
+    "line": 122,
+    "text": "prepare: false"
+   },
+   {
+    "id": "prepare-false",
+    "file": "apps/sim/scripts/repair-table-order-key-collation.ts",
+    "line": 57,
+    "text": "prepare: false"
+   },
+   {
+    "id": "patched-postgres",
+    "file": "package.json",
+    "line": 213,
+    "text": "postgres@3.4.9"
+   },
+   {
+    "id": "fetch-types-false",
+    "file": "packages/db/db.ts",
+    "line": 63,
+    "text": "fetch_types: false"
+   },
+   {
+    "id": "error-code-check",
+    "file": "packages/db/maintenance/project-enforcement.ts",
+    "line": 19,
+    "text": "CONNECTION_CLOSED"
+   },
+   {
+    "id": "prepare-false",
+    "file": "packages/db/maintenance/search-retirement.integration.ts",
+    "line": 102,
+    "text": "prepare: false"
+   },
+   {
+    "id": "callback-can-throw",
+    "file": "packages/db/public-share-ownership.integration.ts",
+    "line": 389,
+    "text": "debug"
+   },
+   {
+    "id": "error-code-check",
+    "file": "packages/db/script-migrations/0021_embedding_search_connector.test.ts",
+    "line": 77,
+    "text": "CONNECTION_CLOSED"
+   },
+   {
+    "id": "prepare-false",
+    "file": "packages/db/scripts/backfill-api-key-hash.ts",
+    "line": 117,
+    "text": "prepare: false"
+   },
+   {
+    "id": "prepare-false",
+    "file": "packages/db/scripts/deregister-sso-provider.ts",
+    "line": 54,
+    "text": "prepare: false"
+   },
+   {
+    "id": "prepare-false",
+    "file": "packages/db/scripts/migrate-block-api-keys-to-byok.ts",
+    "line": 347,
+    "text": "prepare: false"
+   },
+   {
+    "id": "prepare-false",
+    "file": "packages/db/scripts/migrate-deployment-versions.ts",
+    "line": 119,
+    "text": "prepare: false"
+   },
+   {
+    "id": "error-code-check",
+    "file": "packages/db/scripts/migrate-slack-custom-bots.test.ts",
+    "line": 20,
+    "text": "CONNECTION_CLOSED"
+   },
+   {
+    "id": "error-code-check",
+    "file": "packages/db/scripts/migrate-slack-custom-bots.test.ts",
+    "line": 34,
+    "text": "CONNECTION_CLOSED"
+   },
+   {
+    "id": "prepare-false",
+    "file": "packages/db/scripts/migrate-slack-custom-bots.ts",
+    "line": 1653,
+    "text": "prepare: false"
+   },
+   {
+    "id": "prepare-false",
+    "file": "packages/db/scripts/migrate-slack-custom-bots.ts",
+    "line": 1664,
+    "text": "prepare: false"
+   },
+   {
+    "id": "error-code-check",
+    "file": "packages/db/scripts/migrate-slack-custom-bots.ts",
+    "line": 103,
+    "text": "CONNECT_TIMEOUT"
+   },
+   {
+    "id": "error-code-check",
+    "file": "packages/db/scripts/migrate-slack-custom-bots.ts",
+    "line": 104,
+    "text": "CONNECTION_CLOSED"
+   },
+   {
+    "id": "error-code-check",
+    "file": "packages/db/scripts/migrate-slack-custom-bots.ts",
+    "line": 105,
+    "text": "CONNECTION_DESTROYED"
+   },
+   {
+    "id": "connection-ended-check",
+    "file": "packages/db/scripts/migrate-slack-custom-bots.ts",
+    "line": 106,
+    "text": "CONNECTION_ENDED"
+   },
+   {
+    "id": "error-code-check",
+    "file": "packages/db/scripts/migrate.ts",
+    "line": 105,
+    "text": "CONNECT_TIMEOUT"
+   },
+   {
+    "id": "error-code-check",
+    "file": "packages/db/scripts/migrate.ts",
+    "line": 106,
+    "text": "CONNECTION_CLOSED"
+   },
+   {
+    "id": "error-code-check",
+    "file": "packages/db/scripts/migrate.ts",
+    "line": 107,
+    "text": "CONNECTION_DESTROYED"
+   },
+   {
+    "id": "connection-ended-check",
+    "file": "packages/db/scripts/migrate.ts",
+    "line": 108,
+    "text": "CONNECTION_ENDED"
+   },
+   {
+    "id": "error-code-check",
+    "file": "packages/db/scripts/project-contract.integration.ts",
+    "line": 102,
+    "text": "CONNECTION_CLOSED"
+   },
+   {
+    "id": "prepare-false",
+    "file": "packages/db/scripts/push.ts",
+    "line": 36,
+    "text": "prepare: false"
+   },
+   {
+    "id": "callback-can-throw",
+    "file": "packages/db/scripts/push.ts",
+    "line": 41,
+    "text": "onclose"
+   },
+   {
+    "id": "prepare-false",
+    "file": "packages/db/scripts/reconcile-project-membership.ts",
+    "line": 9,
+    "text": "prepare: false"
+   },
+   {
+    "id": "prepare-false",
+    "file": "packages/db/scripts/register-sso-provider.ts",
+    "line": 151,
+    "text": "prepare: false"
+   },
+   {
+    "id": "prepare-false",
+    "file": "packages/db/scripts/retire-indexed-search.ts",
+    "line": 193,
+    "text": "prepare: false"
+   },
+   {
+    "id": "callback-can-throw",
+    "file": "packages/db/scripts/retire-indexed-search.ts",
+    "line": 203,
+    "text": "onclose"
+   },
+   {
+    "id": "error-code-check",
+    "file": "packages/utils/src/errors.test.ts",
+    "line": 89,
+    "text": "CONNECTION_CLOSED"
+   },
+   {
+    "id": "error-code-check",
+    "file": "packages/utils/src/errors.test.ts",
+    "line": 90,
+    "text": "CONNECTION_DESTROYED"
+   },
+   {
+    "id": "connection-ended-check",
+    "file": "packages/utils/src/errors.test.ts",
+    "line": 91,
+    "text": "CONNECTION_ENDED"
+   },
+   {
+    "id": "error-code-check",
+    "file": "packages/utils/src/errors.test.ts",
+    "line": 92,
+    "text": "CONNECT_TIMEOUT"
+   },
+   {
+    "id": "error-code-check",
+    "file": "packages/utils/src/errors.test.ts",
+    "line": 171,
+    "text": "CONNECTION_CLOSED"
+   },
+   {
+    "id": "error-code-check",
+    "file": "packages/utils/src/errors.test.ts",
+    "line": 179,
+    "text": "CONNECTION_CLOSED"
+   },
+   {
+    "id": "error-code-check",
+    "file": "packages/utils/src/errors.ts",
+    "line": 117,
+    "text": "CONNECTION_CLOSED"
+   },
+   {
+    "id": "error-code-check",
+    "file": "packages/utils/src/errors.ts",
+    "line": 118,
+    "text": "CONNECTION_DESTROYED"
+   },
+   {
+    "id": "connection-ended-check",
+    "file": "packages/utils/src/errors.ts",
+    "line": 119,
+    "text": "CONNECTION_ENDED"
+   },
+   {
+    "id": "error-code-check",
+    "file": "packages/utils/src/errors.ts",
+    "line": 120,
+    "text": "CONNECT_TIMEOUT"
+   },
+   {
+    "id": "patched-postgres",
+    "file": "patches/postgres@3.4.9.patch",
+    "line": 1,
+    "text": "postgres@3.4.9.patch: queries after a transaction connection closes (#1154, #1133), fixed in 4.0.0"
+   },
+   {
+    "id": "node-version",
+    "file": ".github/workflows/desktop-e2e.yml",
+    "line": 200,
+    "text": "node-version: 22 → 22"
+   },
+   {
+    "id": "node-version",
+    "file": ".github/workflows/desktop-release.yml",
+    "line": 151,
+    "text": "node-version: 22 → 22"
+   },
+   {
+    "id": "node-version",
+    "file": ".github/workflows/docs.yml",
+    "line": 33,
+    "text": "node-version: '22' → 22"
+   },
+   {
+    "id": "node-version",
+    "file": ".github/workflows/publish-sim-setup.yml",
+    "line": 38,
+    "text": "node-version: '22' → 22"
+   },
+   {
+    "id": "node-below-22-ci",
+    "file": ".github/workflows/publish-sim-setup.yml",
+    "line": 110,
+    "text": "node-version: '20' → 20"
+   },
+   {
+    "id": "node-below-22",
+    "file": "apps/desktop/package.json",
+    "line": 13,
+    "text": "engines.node >=20.0.0"
+   },
+   {
+    "id": "node-below-22",
+    "file": "apps/realtime/package.json",
+    "line": 9,
+    "text": "engines.node >=20.0.0"
+   },
+   {
+    "id": "node-version",
+    "file": "apps/sim/package.json",
+    "line": 8,
+    "text": "engines.node >=24.0.0 <25.0.0"
+   },
+   {
+    "id": "node-below-22",
+    "file": "packages/db/package.json",
+    "line": 9,
+    "text": "engines.node >=20.0.0"
+   },
+   {
+    "id": "node-below-22",
+    "file": "packages/sim-setup/package.json",
+    "line": 48,
+    "text": "engines.node >=20"
+   }
+  ]
+ },
+ "manaflow-ai/cmux": {
+  "commit": "3e7ed5a562ae01cb1cd6ff1faa1a41bbf9f6251b",
+  "stars": 28225,
+  "facts": {
+   "postgres": [
+    {
+     "file": "web/package.json",
+     "range": "^3.4.9"
+    },
+    {
+     "file": "workers/iroh-v2/package.json",
+     "range": "3.4.9"
+    }
+   ],
+   "fork": false,
+   "lockfiles": [
+    "bun.lock"
+   ],
+   "importers": 40,
+   "clients": 43,
+   "reserves": 0,
+   "begins": 12,
+   "copies": 0,
+   "subscribes": 0,
+   "listens": 0,
+   "maxOne": 22,
+   "orm": [
+    "drizzle-orm",
+    "drizzle-kit"
+   ],
+   "tracers": [
+    "@sentry/nextjs"
+   ],
+   "runtimes": [
+    "cloudflare",
+    "vercel",
+    "next",
+    "bun",
+    "bun-types"
+   ],
+   "typescript": true
+  },
+  "findings": [
+   {
+    "id": "prepare-false",
+    "file": "web/db/client.ts",
+    "line": 290,
+    "text": "prepare: false"
+   },
+   {
+    "id": "prepare-false",
+    "file": "web/db/client.ts",
+    "line": 358,
+    "text": "prepare: false"
+   },
+   {
+    "id": "promise-race-timeout",
+    "file": "web/services/billing/recovery.ts",
+    "line": 76,
+    "text": "Promise.race(["
+   },
+   {
+    "id": "promise-race-timeout",
+    "file": "web/services/observability/vmAlerts.ts",
+    "line": 311,
+    "text": "Promise.race([task, timeoutTask])"
+   },
+   {
+    "id": "prepare-false",
+    "file": "web/services/relay/allow.ts",
+    "line": 202,
+    "text": "prepare: false"
+   },
+   {
+    "id": "new-postgres-error",
+    "file": "web/tests/coderouter-route-crash-observability.test.ts",
+    "line": 79,
+    "text": "new PostgresError(\"operator does not exist: uuid = text\", \"42883\")"
+   },
+   {
+    "id": "prepare-false",
+    "file": "workers/iroh-v2/live/ownership-database.test.ts",
+    "line": 12,
+    "text": "prepare: false"
+   },
+   {
+    "id": "prepare-false",
+    "file": "workers/iroh-v2/src/ownership/planetscale.ts",
+    "line": 28,
+    "text": "prepare: false"
+   },
+   {
+    "id": "node-below-22-ci",
+    "file": ".github/workflows/ci-macos.yml",
+    "line": 2612,
+    "text": "node-version: \"20\" → 20"
+   },
+   {
+    "id": "node-below-22-ci",
+    "file": ".github/workflows/ci-macos.yml",
+    "line": 3107,
+    "text": "node-version: \"20\" → 20"
+   },
+   {
+    "id": "node-below-22-ci",
+    "file": ".github/workflows/ci-macos.yml",
+    "line": 3442,
+    "text": "node-version: \"20\" → 20"
+   },
+   {
+    "id": "node-below-22-ci",
+    "file": ".github/workflows/ci.yml",
+    "line": 1312,
+    "text": "node-version: \"20\" → 20"
+   },
+   {
+    "id": "node-below-22-ci",
+    "file": ".github/workflows/cmux-tui-sdks.yml",
+    "line": 216,
+    "text": "node-version: \"20.19.5\" → 20"
+   },
+   {
+    "id": "node-below-22-ci",
+    "file": ".github/workflows/cmux-tui-sdks.yml",
+    "line": 390,
+    "text": "node-version: \"20.19.5\" → 20"
+   },
+   {
+    "id": "node-below-22-ci",
+    "file": ".github/workflows/cmux-tui-sdks.yml",
+    "line": 577,
+    "text": "node-version: \"20.19.5\" → 20"
+   },
+   {
+    "id": "node-version",
+    "file": ".github/workflows/cmux-tui.yml",
+    "line": 136,
+    "text": "node-version: \"22.14.0\" → 22"
+   },
+   {
+    "id": "node-version",
+    "file": ".github/workflows/cmux-tui.yml",
+    "line": 821,
+    "text": "node-version: \"22.14.0\" → 22"
+   },
+   {
+    "id": "node-version",
+    "file": ".github/workflows/ios-e2e.yml",
+    "line": 179,
+    "text": "node-version: \"22\" → 22"
+   },
+   {
+    "id": "node-version",
+    "file": ".github/workflows/iroh-v2.yml",
+    "line": 77,
+    "text": "node-version: \"22\" → 22"
+   },
+   {
+    "id": "node-version",
+    "file": ".github/workflows/iroh-v2.yml",
+    "line": 106,
+    "text": "node-version: \"22\" → 22"
+   },
+   {
+    "id": "node-below-22-ci",
+    "file": ".github/workflows/nightly.yml",
+    "line": 1953,
+    "text": "node-version: \"20\" → 20"
+   },
+   {
+    "id": "node-below-22-ci",
+    "file": ".github/workflows/release.yml",
+    "line": 265,
+    "text": "node-version: \"20\" → 20"
+   },
+   {
+    "id": "node-version",
+    "file": ".github/workflows/sdk-publish-npm.yml",
+    "line": 131,
+    "text": "node-version: \"22.14.0\" → 22"
+   }
+  ]
+ },
+ "hcengineering/platform": {
+  "commit": "698b287e6fc427205fb59846cb0ea1609bf99415",
+  "stars": 27932,
+  "facts": {
+   "postgres": [
+    {
+     "file": "dev/tool/package.json",
+     "range": "^3.4.7"
+    },
+    {
+     "file": "foundations/communication/packages/cockroach/package.json",
+     "range": "^3.4.7"
+    },
+    {
+     "file": "foundations/core/packages/postgres-base/package.json",
+     "range": "^3.4.7"
+    },
+    {
+     "file": "foundations/server/packages/postgres/package.json",
+     "range": "^3.4.7"
+    },
+    {
+     "file": "server/account/package.json",
+     "range": "^3.4.7"
+    },
+    {
+     "file": "services/backup/backup-api-pod/package.json",
+     "range": "^3.4.7"
+    },
+    {
+     "file": "services/billing/pod-billing/package.json",
+     "range": "^3.4.7"
+    },
+    {
+     "file": "services/datalake/pod-datalake/package.json",
+     "range": "^3.4.7"
+    },
+    {
+     "file": "services/payment/pod-payment/package.json",
+     "range": "^3.4.7"
+    },
+    {
+     "file": "services/telegram-bot/pod-telegram-bot/package.json",
+     "range": "^3.4.7"
+    },
+    {
+     "file": "services/worker/package.json",
+     "range": "^3.4.7"
+    }
+   ],
+   "fork": false,
+   "lockfiles": [
+    "package-lock.json"
+   ],
+   "importers": 14,
+   "clients": 10,
+   "reserves": 5,
+   "begins": 3,
+   "copies": 0,
+   "subscribes": 0,
+   "listens": 0,
+   "maxOne": 0,
+   "orm": [],
+   "tracers": [
+    "@opentelemetry/sdk-node",
+    "@opentelemetry/auto-instrumentations-node"
+   ],
+   "runtimes": [
+    "cloudflare",
+    "vercel"
+   ],
+   "typescript": true
+  },
+  "findings": [
+   {
+    "id": "error-code-check",
+    "file": "dev/tool/src/db.ts",
+    "line": 819,
+    "text": "CONNECTION_CLOSED"
+   },
+   {
+    "id": "error-code-check",
+    "file": "foundations/core/packages/postgres-base/src/index.ts",
+    "line": 434,
+    "text": "CONNECTION_CLOSED"
+   },
+   {
+    "id": "error-code-check",
+    "file": "foundations/core/packages/postgres-base/src/index.ts",
+    "line": 435,
+    "text": "CONNECTION_DESTROYED"
+   },
+   {
+    "id": "error-code-check",
+    "file": "server/account/src/collections/postgres/postgres.ts",
+    "line": 808,
+    "text": "CONNECTION_CLOSED"
+   },
+   {
+    "id": "error-code-check",
+    "file": "server/account/src/collections/postgres/postgres.ts",
+    "line": 809,
+    "text": "CONNECTION_DESTROYED"
+   },
+   {
+    "id": "prepare-false",
+    "file": "services/billing/pod-billing/src/db/postgres.ts",
+    "line": 43,
+    "text": "prepare: false"
+   },
+   {
+    "id": "fetch-types-false",
+    "file": "services/billing/pod-billing/src/db/postgres.ts",
+    "line": 42,
+    "text": "fetch_types: false"
+   },
+   {
+    "id": "prepare-false",
+    "file": "services/datalake/pod-datalake/src/datalake/db.ts",
+    "line": 91,
+    "text": "prepare: false"
+   },
+   {
+    "id": "fetch-types-false",
+    "file": "services/datalake/pod-datalake/src/datalake/db.ts",
+    "line": 90,
+    "text": "fetch_types: false"
+   },
+   {
+    "id": "node-version",
+    "file": ".nvmrc",
+    "line": 1,
+    "text": "v22 → 22"
+   },
+   {
+    "id": "node-version",
+    "file": "foundations/core/.nvmrc",
+    "line": 1,
+    "text": "v22 → 22"
+   },
+   {
+    "id": "node-version",
+    "file": "foundations/server/.nvmrc",
+    "line": 1,
+    "text": "v22 → 22"
+   }
+  ]
+ },
+ "onlook-dev/onlook": {
+  "commit": "423e2e924366419e418ee049093872d535eea41a",
+  "stars": 26928,
+  "facts": {
+   "postgres": [
+    {
+     "file": "packages/db/package.json",
+     "range": "^3.4.7"
+    }
+   ],
+   "fork": false,
+   "lockfiles": [
+    "bun.lock"
+   ],
+   "importers": 1,
+   "clients": 1,
+   "reserves": 0,
+   "begins": 0,
+   "copies": 0,
+   "subscribes": 0,
+   "listens": 0,
+   "maxOne": 0,
+   "orm": [
+    "drizzle-orm",
+    "drizzle-kit"
+   ],
+   "tracers": [],
+   "runtimes": [
+    "vercel",
+    "next",
+    "bun",
+    "bun-types"
+   ],
+   "typescript": true
+  },
+  "findings": [
+   {
+    "id": "error-code-check",
+    "file": "apps/web/client/public/onlook-preload-script.js",
+    "line": 1,
+    "text": "CONNECTION_DESTROYED"
+   },
+   {
+    "id": "prepare-false",
+    "file": "packages/db/src/client.ts",
+    "line": 13,
+    "text": "prepare: false"
+   }
+  ]
+ },
+ "every-app/open-seo": {
+  "commit": "d7ea7852480601af9bc8870942af8311a410e567",
+  "stars": 23893,
+  "facts": {
+   "postgres": [
+    {
+     "file": "package.json",
+     "range": "^3.4.9"
+    }
+   ],
+   "fork": false,
+   "lockfiles": [
+    "pnpm-lock.yaml"
+   ],
+   "importers": 6,
+   "clients": 4,
+   "reserves": 0,
+   "begins": 0,
+   "copies": 0,
+   "subscribes": 0,
+   "listens": 0,
+   "maxOne": 4,
+   "orm": [
+    "drizzle-orm",
+    "drizzle-kit"
+   ],
+   "tracers": [],
+   "runtimes": [
+    "cloudflare"
+   ],
+   "typescript": true
+  },
+  "findings": [
+   {
+    "id": "fetch-types-false",
+    "file": "src/db/pg/client.ts",
+    "line": 77,
+    "text": "fetch_types: false"
+   },
+   {
+    "id": "error-code-check",
+    "file": "src/db/pg/retry.test.ts",
+    "line": 63,
+    "text": "CONNECTION_CLOSED"
+   },
+   {
+    "id": "error-code-check",
+    "file": "src/db/pg/retry.test.ts",
+    "line": 79,
+    "text": "CONNECTION_CLOSED"
+   },
+   {
+    "id": "error-code-check",
+    "file": "src/db/pg/retry.test.ts",
+    "line": 90,
+    "text": "CONNECT_TIMEOUT"
+   },
+   {
+    "id": "error-code-check",
+    "file": "src/db/pg/retry.ts",
+    "line": 31,
+    "text": "CONNECTION_CLOSED"
+   },
+   {
+    "id": "connection-ended-check",
+    "file": "src/db/pg/retry.ts",
+    "line": 32,
+    "text": "CONNECTION_ENDED"
+   },
+   {
+    "id": "error-code-check",
+    "file": "src/db/pg/retry.ts",
+    "line": 33,
+    "text": "CONNECTION_DESTROYED"
+   },
+   {
+    "id": "error-code-check",
+    "file": "src/db/pg/retry.ts",
+    "line": 34,
+    "text": "CONNECT_TIMEOUT"
+   },
+   {
+    "id": "error-code-check",
+    "file": "src/db/pg/retry.ts",
+    "line": 56,
+    "text": "CONNECT_TIMEOUT"
+   },
+   {
+    "id": "node-version",
+    "file": ".github/workflows/ci.yml",
+    "line": 29,
+    "text": "node-version: 22 → 22"
+   },
+   {
+    "id": "node-version",
+    "file": ".github/workflows/pr-preview.yml",
+    "line": 64,
+    "text": "node-version: 22 → 22"
+   },
+   {
+    "id": "node-version",
+    "file": ".github/workflows/sourcemaps.yml",
+    "line": 26,
+    "text": "node-version: 22 → 22"
+   }
+  ]
+ },
+ "kriasoft/react-starter-kit": {
+  "commit": "dbdb0d4991bbaae1671ff62180089f2733dd406a",
+  "stars": 23694,
+  "facts": {
+   "postgres": [
+    {
+     "file": "apps/api/package.json",
+     "range": "^3.4.9"
+    },
+    {
+     "file": "db/package.json",
+     "range": "^3.4.9"
+    }
+   ],
+   "fork": false,
+   "lockfiles": [
+    "bun.lock"
+   ],
+   "importers": 2,
+   "clients": 2,
+   "reserves": 0,
+   "begins": 0,
+   "copies": 0,
+   "subscribes": 0,
+   "listens": 0,
+   "maxOne": 2,
+   "orm": [
+    "drizzle-orm",
+    "drizzle-kit"
+   ],
+   "tracers": [],
+   "runtimes": [
+    "cloudflare",
+    "bun",
+    "bun-types"
+   ],
+   "typescript": true
+  },
+  "findings": []
+ },
+ "docmost/docmost": {
+  "commit": "744c82bdf86f454ca44a2e19dc150900e884a11e",
+  "stars": 22004,
+  "facts": {
+   "postgres": [
+    {
+     "file": "apps/server/package.json",
+     "range": "3.4.8"
+    }
+   ],
+   "fork": false,
+   "lockfiles": [
+    "pnpm-lock.yaml"
+   ],
+   "importers": 1,
+   "clients": 1,
+   "reserves": 0,
+   "begins": 0,
+   "copies": 0,
+   "subscribes": 0,
+   "listens": 0,
+   "maxOne": 0,
+   "orm": [
+    "kysely",
+    "kysely-postgres-js"
+   ],
+   "tracers": [],
+   "runtimes": [],
+   "typescript": true
+  },
+  "findings": [
+   {
+    "id": "node-version",
+    "file": "Dockerfile",
+    "line": 1,
+    "text": "FROM node:26 → 26"
+   }
+  ]
+ },
+ "teableio/teable": {
+  "commit": "b91d88eeb0e923263db24b7f8d29ddb4f50a544e",
+  "stars": 21894,
+  "facts": {
+   "postgres": [
+    {
+     "file": "packages/v2/adapter-db-postgres-postgresjs/package.json",
+     "range": "3.4.7"
+    }
+   ],
+   "fork": false,
+   "lockfiles": [
+    "pnpm-lock.yaml"
+   ],
+   "importers": 1,
+   "clients": 1,
+   "reserves": 0,
+   "begins": 0,
+   "copies": 0,
+   "subscribes": 0,
+   "listens": 0,
+   "maxOne": 0,
+   "orm": [
+    "kysely",
+    "kysely-postgres-js"
+   ],
+   "tracers": [
+    "@opentelemetry/sdk-node",
+    "@sentry/nestjs",
+    "@sentry/nextjs"
+   ],
+   "runtimes": [
+    "next"
+   ],
+   "typescript": true
+  },
+  "findings": [
+   {
+    "id": "promise-race-timeout",
+    "file": "packages/v2/adapter-table-repository-postgres/src/integration/postgres-query-cancellation.pg.integration.spec.ts",
+    "line": 77,
+    "text": "Promise.race(["
+   },
+   {
+    "id": "promise-race-timeout",
+    "file": "packages/v2/adapter-table-repository-postgres/src/integration/postgres-query-cancellation.pgbouncer.pg.integration.spec.ts",
+    "line": 64,
+    "text": "Promise.race(["
+   },
+   {
+    "id": "promise-race-timeout",
+    "file": "packages/v2/adapter-table-repository-postgres/src/record/repository/record-query-statement-budget.db.spec.ts",
+    "line": 44,
+    "text": "Promise.race(["
+   },
+   {
+    "id": "node-version",
+    "file": "package.json",
+    "line": 85,
+    "text": "engines.node >=22.0.0"
+   }
+  ]
+ },
+ "vercel/chatbot": {
+  "commit": "c2f8235e1f3ea903ad8b7f61447c4f74164b5c58",
+  "stars": 20995,
+  "facts": {
+   "postgres": [
+    {
+     "file": "package.json",
+     "range": "^3.4.9"
+    }
+   ],
+   "fork": false,
+   "lockfiles": [
+    "pnpm-lock.yaml"
+   ],
+   "importers": 2,
+   "clients": 2,
+   "reserves": 0,
+   "begins": 0,
+   "copies": 0,
+   "subscribes": 0,
+   "listens": 0,
+   "maxOne": 1,
+   "orm": [
+    "drizzle-orm",
+    "drizzle-kit"
+   ],
+   "tracers": [],
+   "runtimes": [
+    "vercel",
+    "next"
+   ],
+   "typescript": true
+  },
+  "findings": [
+   {
+    "id": "node-below-22-ci",
+    "file": ".github/workflows/lint.yml",
+    "line": 10,
+    "text": "node-version: [20] → 20"
+   }
+  ]
+ },
+ "kortix-ai/suna": {
+  "commit": "c9de148e0cb6d9462209566d3362b380a880f458",
+  "stars": 20278,
+  "facts": {
+   "postgres": [
+    {
+     "file": "apps/api/package.json",
+     "range": "^3.4.8"
+    },
+    {
+     "file": "packages/db/package.json",
+     "range": "^3.4.0"
+    }
+   ],
+   "fork": false,
+   "lockfiles": [
+    "pnpm-lock.yaml"
+   ],
+   "importers": 19,
+   "clients": 22,
+   "reserves": 2,
+   "begins": 12,
+   "copies": 0,
+   "subscribes": 0,
+   "listens": 0,
+   "maxOne": 15,
+   "orm": [
+    "drizzle-orm",
+    "drizzle-kit"
+   ],
+   "tracers": [
+    "@sentry/bun",
+    "@sentry/nextjs"
+   ],
+   "runtimes": [
+    "vercel",
+    "next",
+    "bun-types"
+   ],
+   "typescript": true
+  },
+  "findings": [
+   {
+    "id": "prepare-false",
+    "file": "apps/api/src/__tests__/integration-iam-cache-bust-notify.test.ts",
+    "line": 31,
+    "text": "prepare: false"
+   },
+   {
+    "id": "prepare-false",
+    "file": "apps/api/src/__tests__/integration-lifecycle-command-due-notify.test.ts",
+    "line": 25,
+    "text": "prepare: false"
+   },
+   {
+    "id": "prepare-false",
+    "file": "apps/api/src/__tests__/integration-lifecycle-command-settle-wake.test.ts",
+    "line": 28,
+    "text": "prepare: false"
+   },
+   {
+    "id": "prepare-false",
+    "file": "apps/api/src/__tests__/integration-session-changed-notify.test.ts",
+    "line": 29,
+    "text": "prepare: false"
+   },
+   {
+    "id": "prepare-false",
+    "file": "apps/api/src/__tests__/integration-session-prompts-changed-notify.test.ts",
+    "line": 27,
+    "text": "prepare: false"
+   },
+   {
+    "id": "prepare-false",
+    "file": "apps/api/src/__tests__/integration-tunnel-forward-notify.test.ts",
+    "line": 35,
+    "text": "prepare: false"
+   },
+   {
+    "id": "promise-race-timeout",
+    "file": "apps/api/src/projects/routes/session-stream.test.ts",
+    "line": 240,
+    "text": "Promise.race(["
+   },
+   {
+    "id": "promise-race-timeout",
+    "file": "apps/api/src/projects/routes/session-stream.test.ts",
+    "line": 960,
+    "text": "Promise.race(["
+   },
+   {
+    "id": "promise-race-timeout",
+    "file": "apps/api/src/projects/session-title-generate.ts",
+    "line": 445,
+    "text": "Promise.race([generate(model, authorization, promptText), timeout])"
+   },
+   {
+    "id": "promise-race-timeout",
+    "file": "apps/api/src/projects/trigger-events/store.integration.test.ts",
+    "line": 197,
+    "text": "Promise.race([burst, Bun.sleep(10_000).then(() => 'stalled' as const)])"
+   },
+   {
+    "id": "prepare-false",
+    "file": "apps/api/src/shared/__tests__/integration-pg-broadcast.test.ts",
+    "line": 32,
+    "text": "prepare: false"
+   },
+   {
+    "id": "error-code-check",
+    "file": "apps/api/src/shared/audit-db.test.ts",
+    "line": 113,
+    "text": "CONNECTION_CLOSED"
+   },
+   {
+    "id": "connection-ended-check",
+    "file": "apps/api/src/shared/audit-db.test.ts",
+    "line": 113,
+    "text": "CONNECTION_ENDED"
+   },
+   {
+    "id": "error-code-check",
+    "file": "apps/api/src/shared/database-errors.test.ts",
+    "line": 28,
+    "text": "CONNECT_TIMEOUT"
+   },
+   {
+    "id": "error-code-check",
+    "file": "apps/api/src/shared/database-errors.ts",
+    "line": 38,
+    "text": "CONNECT_TIMEOUT"
+   },
+   {
+    "id": "error-code-check",
+    "file": "apps/api/src/shared/error-cause.test.ts",
+    "line": 16,
+    "text": "CONNECTION_CLOSED"
+   },
+   {
+    "id": "error-code-check",
+    "file": "apps/api/src/shared/error-cause.test.ts",
+    "line": 17,
+    "text": "CONNECTION_CLOSED"
+   },
+   {
+    "id": "error-code-check",
+    "file": "apps/api/src/shared/error-cause.ts",
+    "line": 156,
+    "text": "CONNECTION_CLOSED"
+   },
+   {
+    "id": "connection-ended-check",
+    "file": "apps/api/src/shared/error-cause.ts",
+    "line": 157,
+    "text": "CONNECTION_ENDED"
+   },
+   {
+    "id": "error-code-check",
+    "file": "apps/api/src/shared/error-cause.ts",
+    "line": 158,
+    "text": "CONNECTION_DESTROYED"
+   },
+   {
+    "id": "prepare-false",
+    "file": "apps/api/src/shared/leader-election.ts",
+    "line": 326,
+    "text": "prepare: false"
+   },
+   {
+    "id": "promise-race-timeout",
+    "file": "apps/api/src/shared/leader-election.ts",
+    "line": 113,
+    "text": "Promise.race(["
+   },
+   {
+    "id": "prepare-false",
+    "file": "apps/api/src/shared/pg-broadcast.ts",
+    "line": 279,
+    "text": "prepare: false"
+   },
+   {
+    "id": "promise-race-timeout",
+    "file": "apps/kortix-sandbox-agent-server/src/__tests__/opencode-runtime-routes.test.ts",
+    "line": 591,
+    "text": "Promise.race(["
+   },
+   {
+    "id": "patched-postgres",
+    "file": "package.json",
+    "line": 137,
+    "text": "postgres@3.4.9"
+   },
+   {
+    "id": "prepare-false",
+    "file": "packages/db/scripts/verify-pool-concurrency.ts",
+    "line": 18,
+    "text": "prepare: false"
+   },
+   {
+    "id": "prepare-false",
+    "file": "packages/db/scripts/verify-statement-timeout.ts",
+    "line": 15,
+    "text": "prepare: false"
+   },
+   {
+    "id": "error-code-check",
+    "file": "packages/db/src/client.test.ts",
+    "line": 178,
+    "text": "CONNECT_TIMEOUT"
+   },
+   {
+    "id": "error-code-check",
+    "file": "packages/db/src/client.test.ts",
+    "line": 220,
+    "text": "CONNECT_TIMEOUT"
+   },
+   {
+    "id": "error-code-check",
+    "file": "packages/db/src/client.test.ts",
+    "line": 242,
+    "text": "CONNECT_TIMEOUT"
+   },
+   {
+    "id": "error-code-check",
+    "file": "packages/db/src/client.test.ts",
+    "line": 250,
+    "text": "CONNECTION_DESTROYED"
+   },
+   {
+    "id": "error-code-check",
+    "file": "packages/db/src/client.test.ts",
+    "line": 334,
+    "text": "CONNECT_TIMEOUT"
+   },
+   {
+    "id": "error-code-check",
+    "file": "packages/db/src/client.test.ts",
+    "line": 367,
+    "text": "CONNECT_TIMEOUT"
+   },
+   {
+    "id": "error-code-check",
+    "file": "packages/db/src/client.ts",
+    "line": 198,
+    "text": "CONNECT_TIMEOUT"
+   },
+   {
+    "id": "error-code-check",
+    "file": "packages/db/src/postgres-write-guard.test.ts",
+    "line": 169,
+    "text": "CONNECTION_CLOSED"
+   },
+   {
+    "id": "patched-postgres",
+    "file": "patches/postgres@3.4.9.patch",
+    "line": 1,
+    "text": "postgres@3.4.9.patch: write after close crash (#1208, #1154), fixed in 4.0.0"
+   },
+   {
+    "id": "promise-race-timeout",
+    "file": "scripts/worktree/cli.ts",
+    "line": 679,
+    "text": "Promise.race([api.exited, Bun.sleep(4000)])"
+   },
+   {
+    "id": "promise-race-timeout",
+    "file": "scripts/worktree/cli.ts",
+    "line": 705,
+    "text": "Promise.race([Promise.all([api.exited, gateway.exited, web.exited]), Bun.sleep(4000)])"
+   },
+   {
+    "id": "node-version",
+    "file": ".github/workflows/catalog-refresh.yml",
+    "line": 35,
+    "text": "node-version: 22 → 22"
+   },
+   {
+    "id": "node-version",
+    "file": ".github/workflows/ci.yml",
+    "line": 128,
+    "text": "node-version: 22 → 22"
+   },
+   {
+    "id": "node-version",
+    "file": ".github/workflows/ci.yml",
+    "line": 212,
+    "text": "node-version: 22 → 22"
+   },
+   {
+    "id": "node-version",
+    "file": ".github/workflows/ci.yml",
+    "line": 263,
+    "text": "node-version: 22 → 22"
+   },
+   {
+    "id": "node-version",
+    "file": ".github/workflows/ci.yml",
+    "line": 311,
+    "text": "node-version: 22 → 22"
+   },
+   {
+    "id": "node-version",
+    "file": ".github/workflows/ci.yml",
+    "line": 356,
+    "text": "node-version: 22 → 22"
+   },
+   {
+    "id": "node-version",
+    "file": ".github/workflows/db-drift.yml",
+    "line": 73,
+    "text": "node-version: 22 → 22"
+   },
+   {
+    "id": "node-version",
+    "file": ".github/workflows/db-drift.yml",
+    "line": 160,
+    "text": "node-version: 22 → 22"
+   },
+   {
+    "id": "node-version",
+    "file": ".github/workflows/db-migrations.yml",
+    "line": 157,
+    "text": "node-version: 22 → 22"
+   },
+   {
+    "id": "node-version",
+    "file": ".github/workflows/db-migrations.yml",
+    "line": 196,
+    "text": "node-version: 22 → 22"
+   },
+   {
+    "id": "node-version",
+    "file": ".github/workflows/deploy-dev.yml",
+    "line": 705,
+    "text": "node-version: 22 → 22"
+   },
+   {
+    "id": "node-version",
+    "file": ".github/workflows/deploy-dev.yml",
+    "line": 1270,
+    "text": "node-version: 22 → 22"
+   },
+   {
+    "id": "node-version",
+    "file": ".github/workflows/deploy-prod.yml",
+    "line": 404,
+    "text": "node-version: 22 → 22"
+   },
+   {
+    "id": "node-version",
+    "file": ".github/workflows/deploy-prod.yml",
+    "line": 519,
+    "text": "node-version: 22 → 22"
+   },
+   {
+    "id": "node-version",
+    "file": ".github/workflows/deploy-prod.yml",
+    "line": 556,
+    "text": "node-version: 22 → 22"
+   },
+   {
+    "id": "node-version",
+    "file": ".github/workflows/deploy-prod.yml",
+    "line": 593,
+    "text": "node-version: 22 → 22"
+   },
+   {
+    "id": "node-version",
+    "file": ".github/workflows/deploy-prod.yml",
+    "line": 656,
+    "text": "node-version: 22 → 22"
+   },
+   {
+    "id": "node-version",
+    "file": ".github/workflows/deploy-prod.yml",
+    "line": 1154,
+    "text": "node-version: 22 → 22"
+   },
+   {
+    "id": "node-version",
+    "file": ".github/workflows/deploy-prod.yml",
+    "line": 1433,
+    "text": "node-version: 22 → 22"
+   },
+   {
+    "id": "node-version",
+    "file": ".github/workflows/deploy-prod.yml",
+    "line": 1563,
+    "text": "node-version: 22 → 22"
+   },
+   {
+    "id": "node-version",
+    "file": ".github/workflows/deploy-staging.yml",
+    "line": 554,
+    "text": "node-version: 22 → 22"
+   },
+   {
+    "id": "node-version",
+    "file": ".github/workflows/deploy-staging.yml",
+    "line": 648,
+    "text": "node-version: 22 → 22"
+   },
+   {
+    "id": "node-version",
+    "file": "apps/api/Dockerfile",
+    "line": 105,
+    "text": "FROM node:22 → 22"
+   }
+  ]
+ },
+ "elizaOS/eliza": {
+  "commit": "29a2748fecf2acdc7e423470518259261fb8feb7",
+  "stars": 19612,
+  "facts": {
+   "postgres": [
+    {
+     "file": "packages/auth/package.json",
+     "range": "^3.4.7"
+    }
+   ],
+   "fork": false,
+   "lockfiles": [
+    "bun.lock"
+   ],
+   "importers": 2,
+   "clients": 4,
+   "reserves": 0,
+   "begins": 3,
+   "copies": 0,
+   "subscribes": 0,
+   "listens": 0,
+   "maxOne": 3,
+   "orm": [
+    "drizzle-orm",
+    "drizzle-kit"
+   ],
+   "tracers": [],
+   "runtimes": [
+    "cloudflare",
+    "bun",
+    "bun-types"
+   ],
+   "typescript": true
+  },
+  "findings": [
+   {
+    "id": "promise-race-timeout",
+    "file": "packages/agent/src/runtime/eliza.ts",
+    "line": 5969,
+    "text": "Promise.race(["
+   },
+   {
+    "id": "promise-race-timeout",
+    "file": "packages/auth/src/server/__tests__/embedded-refresh-revocation.integration.test.ts",
+    "line": 23,
+    "text": "Promise.race(["
+   },
+   {
+    "id": "promise-race-timeout",
+    "file": "packages/auth/src/server/api/routes/auth.ts",
+    "line": 1065,
+    "text": "Promise.race(["
+   },
+   {
+    "id": "prepare-false",
+    "file": "packages/auth/src/server/db/client.ts",
+    "line": 159,
+    "text": "prepare: false"
+   },
+   {
+    "id": "prepare-false",
+    "file": "packages/auth/src/server/db/client.ts",
+    "line": 251,
+    "text": "prepare: false"
+   },
+   {
+    "id": "error-code-check",
+    "file": "packages/auth/src/server/db/client.ts",
+    "line": 214,
+    "text": "CONNECT_TIMEOUT"
+   },
+   {
+    "id": "promise-race-timeout",
+    "file": "packages/cloud/shared/src/lib/services/subscription-funding-transaction.pglite.test.ts",
+    "line": 2685,
+    "text": "Promise.race(["
+   },
+   {
+    "id": "promise-race-timeout",
+    "file": "plugins/plugin-sql/src/index.ts",
+    "line": 353,
+    "text": "Promise.race(["
+   },
+   {
+    "id": "node-version",
+    "file": "package.json",
+    "line": 27,
+    "text": "engines.node 24.15.0"
+   }
+  ]
+ },
+ "triggerdotdev/trigger.dev": {
+  "commit": "9f8cc32b327d16a840327e53c607d0dbf92f6294",
+  "stars": 16559,
+  "facts": {
+   "postgres": [
+    {
+     "file": "internal-packages/dashboard-agent-db/package.json",
+     "range": "^3.4.0"
+    }
+   ],
+   "fork": false,
+   "lockfiles": [
+    "pnpm-lock.yaml"
+   ],
+   "importers": 3,
+   "clients": 3,
+   "reserves": 0,
+   "begins": 0,
+   "copies": 0,
+   "subscribes": 0,
+   "listens": 0,
+   "maxOne": 2,
+   "orm": [
+    "drizzle-orm",
+    "drizzle-kit"
+   ],
+   "tracers": [
+    "@sentry/remix"
+   ],
+   "runtimes": [
+    "cloudflare",
+    "vercel"
+   ],
+   "typescript": true
+  },
+  "findings": [
+   {
+    "id": "prepare-false",
+    "file": "internal-packages/dashboard-agent-db/migrate-status.mjs",
+    "line": 40,
+    "text": "prepare: false"
+   },
+   {
+    "id": "prepare-false",
+    "file": "internal-packages/dashboard-agent-db/migrate.mjs",
+    "line": 49,
+    "text": "prepare: false"
+   },
+   {
+    "id": "prepare-false",
+    "file": "internal-packages/dashboard-agent-db/src/client.ts",
+    "line": 57,
+    "text": "prepare: false"
+   },
+   {
+    "id": "node-version",
+    "file": ".nvmrc",
+    "line": 1,
+    "text": "v24.18.0 → 24"
+   }
+  ]
+ },
+ "omnivore-app/omnivore": {
+  "commit": "83055978e7617038cc9c9278b24d1be824713b21",
+  "stars": 16282,
+  "facts": {
+   "postgres": [
+    {
+     "file": "packages/discover/package.json",
+     "range": "^3.4.0"
+    }
+   ],
+   "fork": false,
+   "lockfiles": [
+    "yarn.lock"
+   ],
+   "importers": 0,
+   "clients": 0,
+   "reserves": 0,
+   "begins": 0,
+   "copies": 0,
+   "subscribes": 0,
+   "listens": 0,
+   "maxOne": 0,
+   "orm": [],
+   "tracers": [
+    "@sentry/node",
+    "@sentry/nextjs"
+   ],
+   "runtimes": [
+    "next"
+   ],
+   "typescript": true
+  },
+  "findings": [
+   {
+    "id": "node-version",
+    "file": ".node-version",
+    "line": 1,
+    "text": "24.19.0 → 24"
+   },
+   {
+    "id": "node-version",
+    "file": "package.json",
+    "line": 41,
+    "text": "volta.node 24.19.0"
+   },
+   {
+    "id": "node-version",
+    "file": "packages/discover/Dockerfile",
+    "line": 1,
+    "text": "FROM node:24 → 24"
+   },
+   {
+    "id": "node-version",
+    "file": "packages/discover/Dockerfile",
+    "line": 36,
+    "text": "FROM node:24 → 24"
+   }
+  ]
+ }
+}

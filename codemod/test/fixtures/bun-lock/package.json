@@ -1,0 +1,7 @@
+{
+  "name": "bun-lock",
+  "dependencies": {
+    "postgres": "^3.4.9",
+    "auth-kit": "^1.0.0"
+  }
+}

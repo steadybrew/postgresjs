@@ -1,0 +1,4 @@
+[
+  ["node-version", ".nvmrc:1"],
+  ["node-version", "package.json:5"]
+]

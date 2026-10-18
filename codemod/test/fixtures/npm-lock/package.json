@@ -1,0 +1,10 @@
+{
+  "name": "npm-lock",
+  "dependencies": {
+    "postgres": "^3.4.9",
+    "wrapper": "^1.0.0"
+  },
+  "devDependencies": {
+    "seeder": "^1.0.0"
+  }
+}

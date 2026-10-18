@@ -1,0 +1,1705 @@
+[
+ {
+  "repo": "vercel/next.js",
+  "stars": 143053,
+  "archived": false,
+  "fork": false,
+  "pushedAt": "2026-10-17T18:08:10Z",
+  "branch": "canary",
+  "sizeKb": 2597588,
+  "declared": [
+   {
+    "path": "examples/next-forms/package.json",
+    "private": true,
+    "kinds": [
+     "dependencies"
+    ],
+    "range": "^3.4.3",
+    "auxiliary": true
+   }
+  ],
+  "use": "auxiliary"
+ },
+ {
+  "repo": "immich-app/immich",
+  "stars": 116432,
+  "archived": false,
+  "fork": false,
+  "pushedAt": "2026-10-17T18:51:44Z",
+  "branch": "main",
+  "sizeKb": 318397,
+  "declared": [
+   {
+    "path": "server/package.json",
+    "name": "immich",
+    "private": true,
+    "kinds": [
+     "dependencies"
+    ],
+    "range": "3.4.9",
+    "auxiliary": false
+   }
+  ],
+  "use": "runtime"
+ },
+ {
+  "repo": "paperclipai/paperclip",
+  "stars": 103277,
+  "archived": false,
+  "fork": false,
+  "pushedAt": "2026-10-17T14:42:07Z",
+  "branch": "master",
+  "sizeKb": 382788,
+  "declared": [
+   {
+    "path": "packages/db/package.json",
+    "name": "@paperclipai/db",
+    "private": false,
+    "kinds": [
+     "dependencies"
+    ],
+    "range": "^3.4.9",
+    "auxiliary": false
+   }
+  ],
+  "use": "runtime"
+ },
+ {
+  "repo": "thedotmack/claude-mem",
+  "stars": 101377,
+  "archived": false,
+  "fork": false,
+  "pushedAt": "2026-10-17T18:32:16Z",
+  "branch": "main",
+  "sizeKb": 583768,
+  "declared": [
+   {
+    "path": "services/sync-api/package.json",
+    "name": "cmem-sync-api",
+    "private": true,
+    "kinds": [
+     "dependencies"
+    ],
+    "range": "^3.4.7",
+    "auxiliary": false
+   }
+  ],
+  "use": "runtime"
+ },
+ {
+  "repo": "oven-sh/bun",
+  "stars": 96276,
+  "archived": false,
+  "fork": false,
+  "pushedAt": "2026-10-17T19:03:13Z",
+  "branch": "main",
+  "sizeKb": 1243693,
+  "declared": [
+   {
+    "path": "bench/postgres/package.json",
+    "name": "postgres",
+    "private": false,
+    "kinds": [
+     "dependencies"
+    ],
+    "range": "^3.4.7",
+    "auxiliary": true
+   },
+   {
+    "path": "bench/install/package.json",
+    "name": "installbench",
+    "private": true,
+    "kinds": [
+     "dependencies"
+    ],
+    "range": "^3.4.4",
+    "auxiliary": true
+   },
+   {
+    "path": "test/package.json",
+    "name": "test",
+    "private": true,
+    "kinds": [
+     "dependencies"
+    ],
+    "range": "3.3.5",
+    "auxiliary": true
+   }
+  ],
+  "use": "auxiliary"
+ },
+ {
+  "repo": "justjavac/wechat-miniapp-radar",
+  "stars": 51178,
+  "archived": false,
+  "fork": false,
+  "pushedAt": "2026-10-02T01:03:25Z",
+  "branch": "main",
+  "sizeKb": 1497,
+  "declared": [
+   {
+    "path": "package.json",
+    "name": "miniprogram-radar",
+    "private": true,
+    "kinds": [
+     "dependencies"
+    ],
+    "range": "^3.4.9",
+    "auxiliary": false
+   }
+  ],
+  "use": "runtime"
+ },
+ {
+  "repo": "moeru-ai/airi",
+  "stars": 50450,
+  "archived": false,
+  "fork": false,
+  "pushedAt": "2026-10-17T17:36:02Z",
+  "branch": "main",
+  "sizeKb": 590678,
+  "declared": [
+   {
+    "path": "packages/memory-pgvector/package.json",
+    "name": "@proj-airi/memory-pgvector",
+    "private": true,
+    "kinds": [
+     "dependencies"
+    ],
+    "range": "catalog:",
+    "auxiliary": false
+   }
+  ],
+  "use": "runtime"
+ },
+ {
+  "repo": "trpc/trpc",
+  "stars": 40711,
+  "archived": false,
+  "fork": false,
+  "pushedAt": "2026-10-17T19:01:37Z",
+  "branch": "main",
+  "sizeKb": 119117,
+  "declared": [
+   {
+    "path": "examples/next-sse-chat/package.json",
+    "name": "examples-next-sse-chat",
+    "private": true,
+    "kinds": [
+     "dependencies"
+    ],
+    "range": "^3.4.4",
+    "auxiliary": true
+   }
+  ],
+  "use": "auxiliary"
+ },
+ {
+  "repo": "CopilotKit/CopilotKit",
+  "stars": 38067,
+  "archived": false,
+  "fork": false,
+  "pushedAt": "2026-10-17T14:18:25Z",
+  "branch": "main",
+  "sizeKb": 887087,
+  "declared": [
+   {
+    "path": "examples/showcases/deep-agents-finance-erp/package.json",
+    "name": "deep-agents-finance-erp",
+    "private": true,
+    "kinds": [
+     "dependencies"
+    ],
+    "range": "^3.4.8",
+    "auxiliary": true
+   }
+  ],
+  "use": "auxiliary"
+ },
+ {
+  "repo": "Dokploy/dokploy",
+  "stars": 37829,
+  "archived": false,
+  "fork": false,
+  "pushedAt": "2026-10-16T15:40:46Z",
+  "branch": "canary",
+  "sizeKb": 34941,
+  "declared": [
+   {
+    "path": "apps/dokploy/package.json",
+    "name": "dokploy",
+    "private": true,
+    "kinds": [
+     "dependencies"
+    ],
+    "range": "3.4.4",
+    "auxiliary": false
+   },
+   {
+    "path": "packages/server/package.json",
+    "name": "@dokploy/server",
+    "private": false,
+    "kinds": [
+     "dependencies"
+    ],
+    "range": "3.4.4",
+    "auxiliary": false
+   }
+  ],
+  "use": "runtime"
+ },
+ {
+  "repo": "drizzle-team/drizzle-orm",
+  "stars": 36067,
+  "archived": false,
+  "fork": false,
+  "pushedAt": "2026-10-16T11:57:25Z",
+  "branch": "main",
+  "sizeKb": 62574,
+  "declared": [
+   {
+    "path": "drizzle-orm/package.json",
+    "name": "drizzle-orm",
+    "private": false,
+    "kinds": [
+     "devDependencies",
+     "peerDependencies"
+    ],
+    "range": "^3.3.5",
+    "auxiliary": false
+   },
+   {
+    "path": "drizzle-kit/package.json",
+    "name": "drizzle-kit",
+    "private": false,
+    "kinds": [
+     "devDependencies"
+    ],
+    "range": "^3.4.4",
+    "auxiliary": false
+   },
+   {
+    "path": "integration-tests/package.json",
+    "name": "integration-tests",
+    "private": true,
+    "kinds": [
+     "dependencies"
+    ],
+    "range": "^3.3.5",
+    "auxiliary": true
+   }
+  ],
+  "use": "peer"
+ },
+ {
+  "repo": "supermemoryai/supermemory",
+  "stars": 31260,
+  "archived": false,
+  "fork": false,
+  "pushedAt": "2026-10-17T00:59:27Z",
+  "branch": "main",
+  "sizeKb": 214958,
+  "declared": [
+   {
+    "path": "package.json",
+    "name": "supermemory",
+    "private": true,
+    "kinds": [
+     "dependencies"
+    ],
+    "range": "^3.4.7",
+    "auxiliary": false
+   }
+  ],
+  "use": "runtime"
+ },
+ {
+  "repo": "better-auth/better-auth",
+  "stars": 30332,
+  "archived": false,
+  "fork": false,
+  "pushedAt": "2026-10-17T10:03:23Z",
+  "branch": "main",
+  "sizeKb": 164697,
+  "declared": [
+   {
+    "path": "e2e/adapter/package.json",
+    "name": "@better-auth-test/adapter-base",
+    "private": true,
+    "kinds": [
+     "devDependencies"
+    ],
+    "range": "^3.4.8",
+    "auxiliary": true
+   },
+   {
+    "path": "e2e/integration/vanilla-node/package.json",
+    "name": "@better-auth-test/fixtures-vanilla-node",
+    "private": true,
+    "kinds": [
+     "dependencies"
+    ],
+    "range": "^3.4.8",
+    "auxiliary": true
+   }
+  ],
+  "use": "auxiliary"
+ },
+ {
+  "repo": "simstudioai/sim",
+  "stars": 29834,
+  "archived": false,
+  "fork": false,
+  "pushedAt": "2026-10-17T19:03:24Z",
+  "branch": "main",
+  "sizeKb": 714959,
+  "declared": [
+   {
+    "path": "apps/realtime/package.json",
+    "name": "@sim/realtime",
+    "private": true,
+    "kinds": [
+     "dependencies"
+    ],
+    "range": "^3.4.5",
+    "auxiliary": false
+   },
+   {
+    "path": "packages/db/package.json",
+    "name": "@sim/db",
+    "private": true,
+    "kinds": [
+     "dependencies"
+    ],
+    "range": "^3.4.5",
+    "auxiliary": false
+   },
+   {
+    "path": "apps/desktop/package.json",
+    "name": "@sim/desktop",
+    "private": true,
+    "kinds": [
+     "devDependencies"
+    ],
+    "range": "^3.4.5",
+    "auxiliary": false
+   },
+   {
+    "path": "packages/sim-setup/package.json",
+    "name": "sim-setup",
+    "private": false,
+    "kinds": [
+     "devDependencies"
+    ],
+    "range": "^3.4.5",
+    "auxiliary": false
+   },
+   {
+    "path": "apps/sim/package.json",
+    "name": "@sim/app",
+    "private": true,
+    "kinds": [
+     "dependencies"
+    ],
+    "range": "^3.4.5",
+    "auxiliary": false
+   }
+  ],
+  "use": "runtime"
+ },
+ {
+  "repo": "t3-oss/create-t3-app",
+  "stars": 29161,
+  "archived": false,
+  "fork": false,
+  "pushedAt": "2025-12-13T10:39:23Z",
+  "branch": "main",
+  "sizeKb": 8482,
+  "declared": [
+   {
+    "path": "cli/package.json",
+    "name": "create-t3-app",
+    "private": false,
+    "kinds": [
+     "devDependencies"
+    ],
+    "range": "^3.4.4",
+    "auxiliary": false
+   }
+  ],
+  "use": "dev"
+ },
+ {
+  "repo": "nextauthjs/next-auth",
+  "stars": 28364,
+  "archived": false,
+  "fork": false,
+  "pushedAt": "2026-07-22T19:42:19Z",
+  "branch": "main",
+  "sizeKb": 70532,
+  "declared": [
+   {
+    "path": "packages/adapter-drizzle/package.json",
+    "name": "@auth/drizzle-adapter",
+    "private": false,
+    "kinds": [
+     "devDependencies"
+    ],
+    "range": "^3.4.3",
+    "auxiliary": false
+   }
+  ],
+  "use": "dev"
+ },
+ {
+  "repo": "manaflow-ai/cmux",
+  "stars": 28225,
+  "archived": false,
+  "fork": false,
+  "pushedAt": "2026-10-17T19:03:01Z",
+  "branch": "main",
+  "sizeKb": 5353975,
+  "declared": [
+   {
+    "path": "workers/iroh-v2/package.json",
+    "name": "@cmux/iroh-v2",
+    "private": true,
+    "kinds": [
+     "dependencies"
+    ],
+    "range": "3.4.9",
+    "auxiliary": false
+   },
+   {
+    "path": "web/package.json",
+    "name": "web",
+    "private": true,
+    "kinds": [
+     "dependencies"
+    ],
+    "range": "^3.4.9",
+    "auxiliary": false
+   }
+  ],
+  "use": "runtime"
+ },
+ {
+  "repo": "pingdotgg/t3code",
+  "stars": 28091,
+  "archived": false,
+  "fork": false,
+  "pushedAt": "2026-10-17T18:44:52Z",
+  "branch": "main",
+  "sizeKb": 518408,
+  "declared": [
+   {
+    "path": ".repos/effect-smol/packages/sql/pg/package.json",
+    "name": "@effect/sql-pg",
+    "private": false,
+    "kinds": [
+     "devDependencies"
+    ],
+    "range": "^3.4.9",
+    "auxiliary": false
+   }
+  ],
+  "use": "dev"
+ },
+ {
+  "repo": "hcengineering/platform",
+  "stars": 27932,
+  "archived": false,
+  "fork": false,
+  "pushedAt": "2026-10-14T05:50:21Z",
+  "branch": "develop",
+  "sizeKb": 316754,
+  "declared": [
+   {
+    "path": "foundations/server/packages/postgres/package.json",
+    "name": "@hcengineering/postgres",
+    "private": false,
+    "kinds": [
+     "dependencies"
+    ],
+    "range": "^3.4.7",
+    "auxiliary": false
+   },
+   {
+    "path": "foundations/core/packages/postgres-base/package.json",
+    "name": "@hcengineering/postgres-base",
+    "private": false,
+    "kinds": [
+     "dependencies"
+    ],
+    "range": "^3.4.7",
+    "auxiliary": false
+   },
+   {
+    "path": "server/account/package.json",
+    "name": "@hcengineering/account",
+    "private": false,
+    "kinds": [
+     "dependencies"
+    ],
+    "range": "^3.4.7",
+    "auxiliary": false
+   },
+   {
+    "path": "dev/tool/package.json",
+    "name": "@hcengineering/tool",
+    "private": false,
+    "kinds": [
+     "dependencies"
+    ],
+    "range": "^3.4.7",
+    "auxiliary": false
+   },
+   {
+    "path": "services/worker/package.json",
+    "name": "@hcengineering/pod-worker",
+    "private": false,
+    "kinds": [
+     "dependencies"
+    ],
+    "range": "^3.4.7",
+    "auxiliary": false
+   },
+   {
+    "path": "foundations/communication/packages/cockroach/package.json",
+    "name": "@hcengineering/communication-cockroach",
+    "private": false,
+    "kinds": [
+     "dependencies"
+    ],
+    "range": "^3.4.7",
+    "auxiliary": false
+   },
+   {
+    "path": "services/payment/pod-payment/package.json",
+    "name": "@hcengineering/pod-payment",
+    "private": false,
+    "kinds": [
+     "dependencies"
+    ],
+    "range": "^3.4.7",
+    "auxiliary": false
+   },
+   {
+    "path": "services/billing/pod-billing/package.json",
+    "name": "@hcengineering/pod-billing",
+    "private": false,
+    "kinds": [
+     "dependencies"
+    ],
+    "range": "^3.4.7",
+    "auxiliary": false
+   },
+   {
+    "path": "services/backup/backup-api-pod/package.json",
+    "name": "@hcengineering/backup-api-pod",
+    "private": false,
+    "kinds": [
+     "dependencies"
+    ],
+    "range": "^3.4.7",
+    "auxiliary": false
+   },
+   {
+    "path": "services/datalake/pod-datalake/package.json",
+    "name": "@hcengineering/pod-datalake",
+    "private": false,
+    "kinds": [
+     "dependencies"
+    ],
+    "range": "^3.4.7",
+    "auxiliary": false
+   },
+   {
+    "path": "services/telegram-bot/pod-telegram-bot/package.json",
+    "name": "@hcengineering/pod-telegram-bot",
+    "private": false,
+    "kinds": [
+     "dependencies"
+    ],
+    "range": "^3.4.7",
+    "auxiliary": false
+   }
+  ],
+  "use": "runtime"
+ },
+ {
+  "repo": "onlook-dev/onlook",
+  "stars": 26928,
+  "archived": false,
+  "fork": false,
+  "pushedAt": "2026-08-25T01:06:22Z",
+  "branch": "main",
+  "sizeKb": 83029,
+  "declared": [
+   {
+    "path": "packages/db/package.json",
+    "name": "@onlook/db",
+    "private": true,
+    "kinds": [
+     "dependencies"
+    ],
+    "range": "^3.4.7",
+    "auxiliary": false
+   }
+  ],
+  "use": "runtime"
+ },
+ {
+  "repo": "anomalyco/sst",
+  "stars": 26356,
+  "archived": false,
+  "fork": false,
+  "pushedAt": "2026-10-08T14:58:57Z",
+  "branch": "dev",
+  "sizeKb": 169857,
+  "declared": [
+   {
+    "path": "examples/aws-aurora-postgres/package.json",
+    "name": "aws-aurora-postgres",
+    "private": false,
+    "kinds": [
+     "dependencies"
+    ],
+    "range": "^3.4.5",
+    "auxiliary": true
+   },
+   {
+    "path": "examples/aws-planetscale-drizzle-postgres/package.json",
+    "name": "aws-planetscale-drizzle-postgres",
+    "private": false,
+    "kinds": [
+     "dependencies"
+    ],
+    "range": "^3.4.5",
+    "auxiliary": true
+   },
+   {
+    "path": "examples/aws-t3/package.json",
+    "name": "aws-t3",
+    "private": true,
+    "kinds": [
+     "dependencies"
+    ],
+    "range": "^3.4.4",
+    "auxiliary": true
+   },
+   {
+    "path": "examples/aws-aurora-local/package.json",
+    "name": "aws-aurora-local",
+    "private": false,
+    "kinds": [
+     "dependencies"
+    ],
+    "range": "^3.4.5",
+    "auxiliary": true
+   },
+   {
+    "path": "examples/aws-supabase-drizzle/package.json",
+    "name": "aws-supabase-drizzle",
+    "private": false,
+    "kinds": [
+     "dependencies"
+    ],
+    "range": "^3.4.4",
+    "auxiliary": true
+   },
+   {
+    "path": "examples/cloudflare-hyperdrive-aws/package.json",
+    "name": "cloudflare-hyperdrive-aws",
+    "private": false,
+    "kinds": [
+     "dependencies"
+    ],
+    "range": "^3.4.5",
+    "auxiliary": true
+   }
+  ],
+  "use": "auxiliary"
+ },
+ {
+  "repo": "clockworklabs/SpacetimeDB",
+  "stars": 25309,
+  "archived": false,
+  "fork": false,
+  "pushedAt": "2026-10-17T09:20:08Z",
+  "branch": "master",
+  "sizeKb": 122042,
+  "declared": [
+   {
+    "path": "tools/llm-oneshot/apps/chat-app/typescript/gpt-5-2/postgres/chat-app-20260108-140800/server/package.json",
+    "name": "chat-app-postgres-server",
+    "private": true,
+    "kinds": [
+     "dependencies"
+    ],
+    "range": "^3.4.7",
+    "auxiliary": false
+   },
+   {
+    "path": "tools/llm-oneshot/apps/chat-app/typescript/opus-4-5/postgres/chat-app-20260104-120000/server/package.json",
+    "name": "chat-app-server",
+    "private": false,
+    "kinds": [
+     "dependencies"
+    ],
+    "range": "^3.4.5",
+    "auxiliary": false
+   },
+   {
+    "path": "tools/llm-oneshot/apps/chat-app/typescript/opus-4-5/postgres/chat-app-20260104-160000/server/package.json",
+    "name": "chat-app-server",
+    "private": false,
+    "kinds": [
+     "dependencies"
+    ],
+    "range": "^3.4.5",
+    "auxiliary": false
+   },
+   {
+    "path": "tools/llm-oneshot/apps/chat-app/typescript/opus-4-5/postgres/chat-app-20260104-180000/server/package.json",
+    "name": "chat-app-server",
+    "private": false,
+    "kinds": [
+     "dependencies"
+    ],
+    "range": "^3.4.5",
+    "auxiliary": false
+   },
+   {
+    "path": "tools/llm-oneshot/apps/chat-app/typescript/grok-code/postgres/chat-app-20260128-112222/server/package.json",
+    "name": "chat-app-server",
+    "private": false,
+    "kinds": [
+     "dependencies"
+    ],
+    "range": "^3.4.8",
+    "auxiliary": false
+   },
+   {
+    "path": "tools/llm-oneshot/apps/chat-app/typescript/gemini-3-pro/postgres/chat-app-20260108-120000/server/package.json",
+    "name": "chat-app-server",
+    "private": false,
+    "kinds": [
+     "dependencies"
+    ],
+    "range": "^3.4.4",
+    "auxiliary": false
+   }
+  ],
+  "use": "runtime"
+ },
+ {
+  "repo": "every-app/open-seo",
+  "stars": 23893,
+  "archived": false,
+  "fork": false,
+  "pushedAt": "2026-10-14T06:57:07Z",
+  "branch": "main",
+  "sizeKb": 30292,
+  "declared": [
+   {
+    "path": "package.json",
+    "name": "open-seo",
+    "private": true,
+    "kinds": [
+     "dependencies"
+    ],
+    "range": "^3.4.9",
+    "auxiliary": false
+   }
+  ],
+  "use": "runtime"
+ },
+ {
+  "repo": "kriasoft/react-starter-kit",
+  "stars": 23694,
+  "archived": false,
+  "fork": false,
+  "pushedAt": "2026-10-12T12:18:29Z",
+  "branch": "main",
+  "sizeKb": 34864,
+  "declared": [
+   {
+    "path": "db/package.json",
+    "name": "@repo/db",
+    "private": true,
+    "kinds": [
+     "dependencies"
+    ],
+    "range": "^3.4.9",
+    "auxiliary": false
+   },
+   {
+    "path": "apps/api/package.json",
+    "name": "@repo/api",
+    "private": true,
+    "kinds": [
+     "dependencies"
+    ],
+    "range": "^3.4.9",
+    "auxiliary": false
+   }
+  ],
+  "use": "runtime"
+ },
+ {
+  "repo": "docmost/docmost",
+  "stars": 22004,
+  "archived": false,
+  "fork": false,
+  "pushedAt": "2026-10-16T17:15:07Z",
+  "branch": "main",
+  "sizeKb": 17356,
+  "declared": [
+   {
+    "path": "apps/server/package.json",
+    "name": "server",
+    "private": true,
+    "kinds": [
+     "dependencies"
+    ],
+    "range": "3.4.8",
+    "auxiliary": false
+   }
+  ],
+  "use": "runtime"
+ },
+ {
+  "repo": "teableio/teable",
+  "stars": 21894,
+  "archived": false,
+  "fork": false,
+  "pushedAt": "2026-10-17T02:05:14Z",
+  "branch": "develop",
+  "sizeKb": 82062,
+  "declared": [
+   {
+    "path": "packages/v2/adapter-db-postgres-postgresjs/package.json",
+    "name": "@teable/v2-adapter-db-postgres-postgresjs",
+    "private": true,
+    "kinds": [
+     "dependencies"
+    ],
+    "range": "3.4.7",
+    "auxiliary": false
+   }
+  ],
+  "use": "runtime"
+ },
+ {
+  "repo": "vercel/chatbot",
+  "stars": 20995,
+  "archived": false,
+  "fork": false,
+  "pushedAt": "2026-07-08T21:55:02Z",
+  "branch": "main",
+  "sizeKb": 6321,
+  "declared": [
+   {
+    "path": "package.json",
+    "name": "chatbot",
+    "private": true,
+    "kinds": [
+     "dependencies"
+    ],
+    "range": "^3.4.9",
+    "auxiliary": false
+   }
+  ],
+  "use": "runtime"
+ },
+ {
+  "repo": "kortix-ai/suna",
+  "stars": 20278,
+  "archived": false,
+  "fork": false,
+  "pushedAt": "2026-10-17T19:06:42Z",
+  "branch": "dev",
+  "sizeKb": 752859,
+  "declared": [
+   {
+    "path": "packages/db/package.json",
+    "name": "@kortix/db",
+    "private": true,
+    "kinds": [
+     "dependencies"
+    ],
+    "range": "^3.4.0",
+    "auxiliary": false
+   },
+   {
+    "path": "apps/api/package.json",
+    "name": "kortix-api",
+    "private": true,
+    "kinds": [
+     "dependencies"
+    ],
+    "range": "^3.4.8",
+    "auxiliary": false
+   }
+  ],
+  "use": "runtime"
+ },
+ {
+  "repo": "elizaOS/eliza",
+  "stars": 19612,
+  "archived": false,
+  "fork": false,
+  "pushedAt": "2026-10-17T05:20:38Z",
+  "branch": "develop",
+  "sizeKb": 2074390,
+  "declared": [
+   {
+    "path": "packages/auth/package.json",
+    "name": "@elizaos/auth",
+    "private": false,
+    "kinds": [
+     "dependencies"
+    ],
+    "range": "^3.4.7",
+    "auxiliary": false
+   }
+  ],
+  "use": "runtime"
+ },
+ {
+  "repo": "vercel-labs/json-render",
+  "stars": 18701,
+  "archived": false,
+  "fork": false,
+  "pushedAt": "2026-10-13T20:00:54Z",
+  "branch": "main",
+  "sizeKb": 6307,
+  "declared": [
+   {
+    "path": "examples/dashboard/package.json",
+    "name": "example-dashboard",
+    "private": true,
+    "kinds": [
+     "dependencies"
+    ],
+    "range": "^3.4.8",
+    "auxiliary": true
+   }
+  ],
+  "use": "auxiliary"
+ },
+ {
+  "repo": "questdb/questdb",
+  "stars": 17447,
+  "archived": false,
+  "fork": false,
+  "pushedAt": "2026-10-17T19:02:37Z",
+  "branch": "master",
+  "sizeKb": 2192109,
+  "declared": [
+   {
+    "path": "compat/src/test/nodejs-postgres/package.json",
+    "name": "nodejs_test_runner-postgres",
+    "private": true,
+    "kinds": [
+     "dependencies"
+    ],
+    "range": "^3.4.5",
+    "auxiliary": true
+   }
+  ],
+  "use": "auxiliary"
+ },
+ {
+  "repo": "Effect-TS/effect",
+  "stars": 17315,
+  "archived": false,
+  "fork": false,
+  "pushedAt": "2026-10-17T11:20:06Z",
+  "branch": "main",
+  "sizeKb": 149933,
+  "declared": [
+   {
+    "path": "packages/sql/pg/package.json",
+    "name": "@effect/sql-pg",
+    "private": false,
+    "kinds": [
+     "devDependencies"
+    ],
+    "range": "^3.4.9",
+    "auxiliary": false
+   }
+  ],
+  "use": "dev"
+ },
+ {
+  "repo": "suitenumerique/docs",
+  "stars": 16926,
+  "archived": false,
+  "fork": false,
+  "pushedAt": "2026-10-16T16:10:27Z",
+  "branch": "main",
+  "sizeKb": 163384,
+  "declared": [],
+  "use": "none"
+ },
+ {
+  "repo": "triggerdotdev/trigger.dev",
+  "stars": 16559,
+  "archived": false,
+  "fork": false,
+  "pushedAt": "2026-10-17T18:51:25Z",
+  "branch": "main",
+  "sizeKb": 200460,
+  "declared": [
+   {
+    "path": "internal-packages/dashboard-agent-db/package.json",
+    "name": "@internal/dashboard-agent-db",
+    "private": true,
+    "kinds": [
+     "dependencies"
+    ],
+    "range": "^3.4.0",
+    "auxiliary": false
+   }
+  ],
+  "use": "runtime"
+ },
+ {
+  "repo": "MODSetter/SurfSense",
+  "stars": 16494,
+  "archived": false,
+  "fork": false,
+  "pushedAt": "2026-10-17T11:38:55Z",
+  "branch": "main",
+  "sizeKb": 433496,
+  "declared": [],
+  "use": "none"
+ },
+ {
+  "repo": "omnivore-app/omnivore",
+  "stars": 16282,
+  "archived": false,
+  "fork": false,
+  "pushedAt": "2026-10-17T16:34:56Z",
+  "branch": "main",
+  "sizeKb": 400597,
+  "declared": [
+   {
+    "path": "packages/discover/package.json",
+    "name": "@omnivore/discover",
+    "private": false,
+    "kinds": [
+     "dependencies"
+    ],
+    "range": "^3.4.0",
+    "auxiliary": false
+   }
+  ],
+  "use": "runtime"
+ },
+ {
+  "repo": "nextjs/saas-starter",
+  "stars": 16191,
+  "archived": false,
+  "fork": false,
+  "pushedAt": "2025-12-11T22:35:37Z",
+  "branch": "main",
+  "sizeKb": 403,
+  "declared": [
+   {
+    "path": "package.json",
+    "private": true,
+    "kinds": [
+     "dependencies"
+    ],
+    "range": "^3.4.5",
+    "auxiliary": false
+   }
+  ],
+  "use": "runtime"
+ },
+ {
+  "repo": "electric-sql/pglite",
+  "stars": 16158,
+  "archived": false,
+  "fork": false,
+  "pushedAt": "2026-10-14T14:36:24Z",
+  "branch": "main",
+  "sizeKb": 31936,
+  "declared": [
+   {
+    "path": "packages/pglite-socket/package.json",
+    "name": "@electric-sql/pglite-socket",
+    "private": false,
+    "kinds": [
+     "devDependencies"
+    ],
+    "range": "^3.4.5",
+    "auxiliary": false
+   }
+  ],
+  "use": "dev"
+ },
+ {
+  "repo": "TanStack/router",
+  "stars": 15213,
+  "archived": false,
+  "fork": false,
+  "pushedAt": "2026-10-17T15:10:03Z",
+  "branch": "main",
+  "sizeKb": 119835,
+  "declared": [],
+  "use": "none"
+ },
+ {
+  "repo": "corsairdev/corsair",
+  "stars": 15099,
+  "archived": false,
+  "fork": false,
+  "pushedAt": "2026-10-14T21:20:08Z",
+  "branch": "main",
+  "sizeKb": 122064,
+  "declared": [
+   {
+    "path": "packages/corsair/package.json",
+    "name": "corsair",
+    "private": false,
+    "kinds": [
+     "devDependencies"
+    ],
+    "range": "^3.4.7",
+    "auxiliary": false
+   }
+  ],
+  "use": "dev"
+ },
+ {
+  "repo": "coleam00/context-engineering-intro",
+  "stars": 13881,
+  "archived": false,
+  "fork": false,
+  "pushedAt": "2026-03-16T12:13:59Z",
+  "branch": "main",
+  "sizeKb": 1526,
+  "declared": [
+   {
+    "path": "use-cases/mcp-server/package.json",
+    "name": "remote-mcp-github-oauth",
+    "private": true,
+    "kinds": [
+     "dependencies"
+    ],
+    "range": "^3.4.5",
+    "auxiliary": false
+   }
+  ],
+  "use": "runtime"
+ },
+ {
+  "repo": "rybbit-io/rybbit",
+  "stars": 13128,
+  "archived": false,
+  "fork": false,
+  "pushedAt": "2026-10-16T03:40:14Z",
+  "branch": "master",
+  "sizeKb": 463885,
+  "declared": [
+   {
+    "path": "server/package.json",
+    "name": "rybbit-backend",
+    "private": true,
+    "kinds": [
+     "dependencies"
+    ],
+    "range": "3.4.5",
+    "auxiliary": false
+   }
+  ],
+  "use": "runtime"
+ },
+ {
+  "repo": "invertase/react-native-firebase",
+  "stars": 12316,
+  "archived": false,
+  "fork": false,
+  "pushedAt": "2026-10-16T22:49:27Z",
+  "branch": "main",
+  "sizeKb": 115318,
+  "declared": [],
+  "use": "none"
+ },
+ {
+  "repo": "cuixueshe/earthworm",
+  "stars": 11112,
+  "archived": false,
+  "fork": false,
+  "pushedAt": "2024-11-14T23:35:15Z",
+  "branch": "main",
+  "sizeKb": 224342,
+  "declared": [
+   {
+    "path": "apps/api/package.json",
+    "name": "api",
+    "private": true,
+    "kinds": [
+     "dependencies"
+    ],
+    "range": "^3.4.4",
+    "auxiliary": false
+   },
+   {
+    "path": "packages/db/package.json",
+    "name": "@earthworm/db",
+    "private": false,
+    "kinds": [
+     "dependencies"
+    ],
+    "range": "^3.4.4",
+    "auxiliary": false
+   },
+   {
+    "path": "packages/game-data-sdk/package.json",
+    "name": "@earthworm/game-data-sdk",
+    "private": false,
+    "kinds": [
+     "dependencies"
+    ],
+    "range": "^3.4.4",
+    "auxiliary": false
+   }
+  ],
+  "use": "runtime"
+ },
+ {
+  "repo": "Mail-0/Zero",
+  "stars": 10854,
+  "archived": false,
+  "fork": false,
+  "pushedAt": "2026-05-26T20:27:28Z",
+  "branch": "staging",
+  "sizeKb": 123101,
+  "declared": [
+   {
+    "path": "apps/server/package.json",
+    "name": "@zero/server",
+    "private": true,
+    "kinds": [
+     "dependencies"
+    ],
+    "range": "3.4.5",
+    "auxiliary": false
+   }
+  ],
+  "use": "runtime"
+ },
+ {
+  "repo": "electric-sql/electric",
+  "stars": 10400,
+  "archived": false,
+  "fork": false,
+  "pushedAt": "2026-10-06T16:09:45Z",
+  "branch": "main",
+  "sizeKb": 267763,
+  "declared": [
+   {
+    "path": "packages/agents-server/package.json",
+    "name": "@electric-ax/agents-server",
+    "private": false,
+    "kinds": [
+     "dependencies"
+    ],
+    "range": "^3.4.0",
+    "auxiliary": false
+   },
+   {
+    "path": "examples/tanstack-db-expo-starter/package.json",
+    "name": "expo-db-electric-starter",
+    "private": true,
+    "kinds": [
+     "dependencies"
+    ],
+    "range": "^3.4.7",
+    "auxiliary": true
+   },
+   {
+    "path": "examples/linearlite/package.json",
+    "name": "@electric-examples/linearlite",
+    "private": true,
+    "kinds": [
+     "dependencies"
+    ],
+    "range": "^3.4.3",
+    "auxiliary": true
+   }
+  ],
+  "use": "runtime"
+ },
+ {
+  "repo": "BoundaryML/baml",
+  "stars": 9419,
+  "archived": false,
+  "fork": false,
+  "pushedAt": "2026-10-17T19:00:20Z",
+  "branch": "canary",
+  "sizeKb": 706046,
+  "declared": [
+   {
+    "path": "typescript2/app-developer-docs/package.json",
+    "name": "app-developer-docs",
+    "private": true,
+    "kinds": [
+     "dependencies"
+    ],
+    "range": "3.4.9",
+    "auxiliary": false
+   }
+  ],
+  "use": "runtime"
+ },
+ {
+  "repo": "miurla/morphic",
+  "stars": 9177,
+  "archived": false,
+  "fork": false,
+  "pushedAt": "2026-10-17T00:10:39Z",
+  "branch": "main",
+  "sizeKb": 10965,
+  "declared": [
+   {
+    "path": "package.json",
+    "name": "morphic",
+    "private": true,
+    "kinds": [
+     "dependencies"
+    ],
+    "range": "^3.4.5",
+    "auxiliary": false
+   }
+  ],
+  "use": "runtime"
+ },
+ {
+  "repo": "getsentry/sentry-javascript",
+  "stars": 8762,
+  "archived": false,
+  "fork": false,
+  "pushedAt": "2026-10-17T03:42:21Z",
+  "branch": "develop",
+  "sizeKb": 279884,
+  "declared": [
+   {
+    "path": "dev-packages/node-integration-tests/package.json",
+    "name": "@sentry-internal/node-integration-tests",
+    "private": true,
+    "kinds": [
+     "dependencies"
+    ],
+    "range": "^3.4.7",
+    "auxiliary": false
+   }
+  ],
+  "use": "runtime"
+ },
+ {
+  "repo": "KKKKhazix/AIHOT",
+  "stars": 7939,
+  "archived": false,
+  "fork": false,
+  "pushedAt": "2026-10-17T18:00:31Z",
+  "branch": "main",
+  "sizeKb": 14017,
+  "declared": [
+   {
+    "path": "packages/backend/package.json",
+    "name": "@aihot/backend",
+    "private": true,
+    "kinds": [
+     "dependencies"
+    ],
+    "range": "3.4.9",
+    "auxiliary": false
+   }
+  ],
+  "use": "runtime"
+ },
+ {
+  "repo": "supabase/realtime",
+  "stars": 7657,
+  "archived": false,
+  "fork": false,
+  "pushedAt": "2026-10-16T15:25:18Z",
+  "branch": "main",
+  "sizeKb": 16345,
+  "declared": [
+   {
+    "path": "test/e2e/package.json",
+    "name": "realtime-check",
+    "private": false,
+    "kinds": [
+     "dependencies"
+    ],
+    "range": "^3.4.9",
+    "auxiliary": true
+   }
+  ],
+  "use": "auxiliary"
+ },
+ {
+  "repo": "leerob/next-mdx-blog",
+  "stars": 7571,
+  "archived": false,
+  "fork": false,
+  "pushedAt": "2026-09-16T14:44:16Z",
+  "branch": "main",
+  "sizeKb": 207550,
+  "declared": [
+   {
+    "path": "package.json",
+    "private": true,
+    "kinds": [
+     "dependencies"
+    ],
+    "range": "^3.4.7",
+    "auxiliary": false
+   }
+  ],
+  "use": "runtime"
+ },
+ {
+  "repo": "BuilderIO/agent-native",
+  "stars": 7402,
+  "archived": false,
+  "fork": false,
+  "pushedAt": "2026-10-17T19:07:34Z",
+  "branch": "main",
+  "sizeKb": 514742,
+  "declared": [
+   {
+    "path": "packages/core/src/templates/default/package.json",
+    "name": "{{APP_NAME}}",
+    "private": true,
+    "kinds": [
+     "dependencies"
+    ],
+    "range": "^3.4.9",
+    "auxiliary": true
+   },
+   {
+    "path": "packages/core/src/templates/headless/package.json",
+    "name": "{{APP_NAME}}",
+    "private": true,
+    "kinds": [
+     "dependencies"
+    ],
+    "range": "^3.4.9",
+    "auxiliary": true
+   },
+   {
+    "path": "templates/clips/package.json",
+    "name": "clips",
+    "private": true,
+    "kinds": [
+     "dependencies"
+    ],
+    "range": "^3.4.9",
+    "auxiliary": true
+   },
+   {
+    "path": "templates/factory/package.json",
+    "name": "factory",
+    "private": true,
+    "kinds": [
+     "dependencies"
+    ],
+    "range": "^3.4.9",
+    "auxiliary": true
+   },
+   {
+    "path": "templates/tasks/package.json",
+    "name": "tasks",
+    "private": true,
+    "kinds": [
+     "dependencies"
+    ],
+    "range": "^3.4.9",
+    "auxiliary": true
+   },
+   {
+    "path": "packages/core/src/templates/workspace-root/package.json",
+    "name": "{{APP_NAME}}",
+    "private": true,
+    "kinds": [
+     "dependencies"
+    ],
+    "range": "^3.4.9",
+    "auxiliary": true
+   },
+   {
+    "path": "templates/analytics/package.json",
+    "name": "analytics",
+    "private": true,
+    "kinds": [
+     "dependencies"
+    ],
+    "range": "^3.4.9",
+    "auxiliary": true
+   },
+   {
+    "path": "packages/core/package.json",
+    "name": "@agent-native/core",
+    "private": false,
+    "kinds": [
+     "dependencies"
+    ],
+    "range": "^3.4.9",
+    "auxiliary": false
+   }
+  ],
+  "use": "runtime"
+ },
+ {
+  "repo": "colyseus/colyseus",
+  "stars": 7368,
+  "archived": false,
+  "fork": false,
+  "pushedAt": "2026-10-16T17:43:30Z",
+  "branch": "master",
+  "sizeKb": 13980,
+  "declared": [
+   {
+    "path": "packages/database/package.json",
+    "name": "@colyseus/database",
+    "private": false,
+    "kinds": [
+     "devDependencies",
+     "peerDependencies"
+    ],
+    "range": "^3.4.7",
+    "auxiliary": false
+   },
+   {
+    "path": "packages/drivers/drizzle-driver/package.json",
+    "name": "@colyseus/drizzle-driver",
+    "private": false,
+    "kinds": [
+     "dependencies"
+    ],
+    "range": "^3.4.7",
+    "auxiliary": false
+   }
+  ],
+  "use": "runtime"
+ },
+ {
+  "repo": "CopilotKit/OpenBot",
+  "stars": 6575,
+  "archived": false,
+  "fork": false,
+  "pushedAt": "2026-10-17T18:02:10Z",
+  "branch": "main",
+  "sizeKb": 19249,
+  "declared": [
+   {
+    "path": "server/package.json",
+    "name": "server",
+    "private": true,
+    "kinds": [
+     "dependencies"
+    ],
+    "range": "^3.4.9",
+    "auxiliary": false
+   }
+  ],
+  "use": "runtime"
+ },
+ {
+  "repo": "sadmann7/tablecn",
+  "stars": 6335,
+  "archived": false,
+  "fork": false,
+  "pushedAt": "2026-10-16T01:29:50Z",
+  "branch": "main",
+  "sizeKb": 5448,
+  "declared": [
+   {
+    "path": "package.json",
+    "name": "tablecn",
+    "private": true,
+    "kinds": [
+     "dependencies"
+    ],
+    "range": "^3.4.9",
+    "auxiliary": false
+   }
+  ],
+  "use": "runtime"
+ },
+ {
+  "repo": "rivet-dev/rivet",
+  "stars": 6306,
+  "archived": false,
+  "fork": false,
+  "pushedAt": "2026-10-17T18:56:30Z",
+  "branch": "main",
+  "sizeKb": 420458,
+  "declared": [],
+  "use": "none"
+ },
+ {
+  "repo": "nickscamara/open-deep-research",
+  "stars": 6293,
+  "archived": false,
+  "fork": false,
+  "pushedAt": "2025-05-07T15:38:28Z",
+  "branch": "main",
+  "sizeKb": 810,
+  "declared": [
+   {
+    "path": "package.json",
+    "name": "ai-chatbot",
+    "private": true,
+    "kinds": [
+     "dependencies"
+    ],
+    "range": "^3.4.4",
+    "auxiliary": false
+   }
+  ],
+  "use": "runtime"
+ },
+ {
+  "repo": "skeletonlabs/skeleton",
+  "stars": 6076,
+  "archived": false,
+  "fork": false,
+  "pushedAt": "2026-10-17T14:16:13Z",
+  "branch": "main",
+  "sizeKb": 70924,
+  "declared": [
+   {
+    "path": "sites/plus.skeleton.dev/package.json",
+    "name": "@skeletonlabs/plus.skeleton.dev",
+    "private": true,
+    "kinds": [
+     "devDependencies"
+    ],
+    "range": "catalog:",
+    "auxiliary": false
+   }
+  ],
+  "use": "dev"
+ },
+ {
+  "repo": "riverqueue/river",
+  "stars": 5788,
+  "archived": false,
+  "fork": false,
+  "pushedAt": "2026-10-17T05:08:24Z",
+  "branch": "master",
+  "sizeKb": 8216,
+  "declared": [],
+  "use": "none"
+ }
+]

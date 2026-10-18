@@ -1,0 +1,7 @@
+{
+  "name": "yarn-lock",
+  "dependencies": {
+    "postgres": "^3.4.9",
+    "queue-lib": "^1.0.0"
+  }
+}

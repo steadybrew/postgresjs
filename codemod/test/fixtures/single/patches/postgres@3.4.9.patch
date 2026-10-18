@@ -1,0 +1,10 @@
+diff --git a/src/connection.js b/src/connection.js
+--- a/src/connection.js
++++ b/src/connection.js
+@@ -252,6 +252,10 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+   function nextWrite(fn) {
++    if (!socket) {
++      chunk = nextWriteTimer = null
++      return false
++    }
+     const x = socket.write(chunk, fn)

@@ -1,0 +1,122 @@
+[
+ {
+  "repo": "every-app/open-seo",
+  "stars": 23893,
+  "branch": "main",
+  "commit": "d7ea7852480601af9bc8870942af8311a410e567"
+ },
+ {
+  "repo": "kriasoft/react-starter-kit",
+  "stars": 23694,
+  "branch": "main",
+  "commit": "dbdb0d4991bbaae1671ff62180089f2733dd406a"
+ },
+ {
+  "repo": "corsairdev/corsair",
+  "stars": 15099,
+  "branch": "main",
+  "commit": "ecde40add47b24e1432859725f7e38074daf87b4"
+ },
+ {
+  "repo": "Mail-0/Zero",
+  "stars": 10854,
+  "branch": "staging",
+  "commit": "64c5480c341750578da0746f2db9ad84da686334"
+ },
+ {
+  "repo": "sadmann7/tablecn",
+  "stars": 6335,
+  "branch": "main",
+  "commit": "f93eb975d15733e7cb086d0282b76274089f44a6"
+ },
+ {
+  "repo": "antiwork/shortest",
+  "stars": 5691,
+  "branch": "main",
+  "commit": "45a8dcfe89992b37ed2dfb1f76618048cff0f45c"
+ },
+ {
+  "repo": "vercel/examples",
+  "stars": 5157,
+  "branch": "main",
+  "commit": "de867239d0a7dd55c9130f1e3f87fcf877db96e8"
+ },
+ {
+  "repo": "bknd-io/bknd",
+  "stars": 3773,
+  "branch": "main",
+  "commit": "8c596781ff83d4dde330b97a4721ae1d458ab715"
+ },
+ {
+  "repo": "samanhappy/mcphub",
+  "stars": 2543,
+  "branch": "main",
+  "commit": "cc22b8bda37b2bcf9a18c8548e0cbe0bbe4b4f05"
+ },
+ {
+  "repo": "cloudflare/templates",
+  "stars": 2153,
+  "branch": "main",
+  "commit": "dfdf14099a81a08cfe1ffc78f8463605670ae513"
+ },
+ {
+  "repo": "dahlia/logtape",
+  "stars": 2011,
+  "branch": "main",
+  "commit": "fab71172bf62fe4b5fbe35678e90eb0c7c37d662"
+ },
+ {
+  "repo": "ts-safeql/safeql",
+  "stars": 1569,
+  "branch": "main",
+  "commit": "7370d114e11b15f650c5b8a6d1b9586e7d66b201"
+ },
+ {
+  "repo": "yjl9903/AnimeGarden",
+  "stars": 1357,
+  "branch": "main",
+  "commit": "4d38e362ded613729adcdfd4dd7bf34a1d195ffd"
+ },
+ {
+  "repo": "nuxt-hub/core",
+  "stars": 1298,
+  "branch": "main",
+  "commit": "69b029660488b5bd2fabf8dee53fed246db041f1"
+ },
+ {
+  "repo": "outerbase/starbasedb",
+  "stars": 1167,
+  "branch": "main",
+  "commit": "bb227352135051a0dd50190d67c3e82b03f8e485"
+ },
+ {
+  "repo": "fedify-dev/fedify",
+  "stars": 1031,
+  "branch": "main",
+  "commit": "756933d07ed00530bfadf73e176563dcdeb4a7ed"
+ },
+ {
+  "repo": "abhinavkale-dev/fynt",
+  "stars": 466,
+  "branch": "master",
+  "commit": "1642577510695b2070692e669108c54c13e678fd"
+ },
+ {
+  "repo": "pgvector/pgvector-node",
+  "stars": 444,
+  "branch": "master",
+  "commit": "53847d3fbab3490321dbf5bc2c477372d3019d1e"
+ },
+ {
+  "repo": "plotwist-app/plotwist",
+  "stars": 443,
+  "branch": "main",
+  "commit": "5d15dc3e9702e3663d1e01d623430b938f849462"
+ },
+ {
+  "repo": "lokalise/node-service-template",
+  "stars": 379,
+  "branch": "main",
+  "commit": "ff7ec9ea3433358ac86c4faa7e31ba490c2292dc"
+ }
+]

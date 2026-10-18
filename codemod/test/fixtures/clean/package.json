@@ -1,0 +1,11 @@
+{
+  "name": "clean",
+  "private": true,
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "drizzle-orm": "^0.45.0",
+    "postgres": "^3.4.9"
+  }
+}

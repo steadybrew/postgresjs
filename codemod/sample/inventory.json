@@ -1,0 +1,2815 @@
+{
+ "Dokploy__dokploy": {
+  "handles": {
+   "apps/dokploy/migration.ts": [
+    "sql"
+   ],
+   "apps/dokploy/server/db/migration.ts": [
+    "sql"
+   ],
+   "apps/dokploy/server/db/reset.ts": [
+    "pg"
+   ]
+  },
+  "features": {
+   "option:max": [
+    "apps/dokploy/migration.ts",
+    "apps/dokploy/server/db/migration.ts",
+    "apps/dokploy/server/db/reset.ts"
+   ],
+   "handle:end": [
+    "apps/dokploy/migration.ts",
+    "apps/dokploy/server/db/migration.ts",
+    "apps/dokploy/server/db/reset.ts"
+   ],
+   "passed-to:drizzle": [
+    "apps/dokploy/migration.ts",
+    "apps/dokploy/server/db/migration.ts",
+    "apps/dokploy/server/db/reset.ts"
+   ]
+  }
+ },
+ "docmost__docmost": {
+  "handles": {},
+  "features": {
+   "option:max": [
+    "apps/server/src/database/database.module.ts"
+   ],
+   "option:onnotice": [
+    "apps/server/src/database/database.module.ts"
+   ],
+   "option:types": [
+    "apps/server/src/database/database.module.ts"
+   ],
+   "option:types.bigint": [
+    "apps/server/src/database/database.module.ts"
+   ]
+  }
+ },
+ "elizaOS__eliza": {
+  "handles": {
+   "packages/auth/src/server/__tests__/postgres-login.integration.test.ts": [
+    "admin",
+    "owner"
+   ],
+   "packages/auth/src/server/db/client.ts": [
+    "client"
+   ]
+  },
+  "features": {
+   "option:max": [
+    "packages/auth/src/server/__tests__/postgres-login.integration.test.ts",
+    "packages/auth/src/server/db/client.ts"
+   ],
+   "option:onnotice": [
+    "packages/auth/src/server/__tests__/postgres-login.integration.test.ts"
+   ],
+   "handle:unsafe": [
+    "packages/auth/src/server/__tests__/postgres-login.integration.test.ts"
+   ],
+   "handle:end": [
+    "packages/auth/src/server/__tests__/postgres-login.integration.test.ts",
+    "packages/auth/src/server/db/client.ts"
+   ],
+   "tagged-query": [
+    "packages/auth/src/server/__tests__/postgres-login.integration.test.ts"
+   ],
+   "helper:sql(...)": [
+    "packages/auth/src/server/__tests__/postgres-login.integration.test.ts"
+   ],
+   "option:prepare": [
+    "packages/auth/src/server/db/client.ts"
+   ],
+   "option:connect_timeout": [
+    "packages/auth/src/server/db/client.ts"
+   ],
+   "option:connection": [
+    "packages/auth/src/server/db/client.ts"
+   ]
+  }
+ },
+ "every-app__open-seo": {
+  "handles": {
+   "scripts/erase-user-data.ts": [
+    "client"
+   ],
+   "scripts/migrate-d1-to-postgres.ts": [
+    "pgClient"
+   ],
+   "scripts/repair-rank-tracking-locations.ts": [
+    "client"
+   ]
+  },
+  "features": {
+   "option:max": [
+    "scripts/erase-user-data.ts",
+    "scripts/migrate-d1-to-postgres.ts",
+    "scripts/repair-rank-tracking-locations.ts",
+    "src/db/pg/client.ts"
+   ],
+   "handle:end": [
+    "scripts/erase-user-data.ts",
+    "scripts/migrate-d1-to-postgres.ts",
+    "scripts/repair-rank-tracking-locations.ts"
+   ],
+   "passed-to:drizzle": [
+    "scripts/erase-user-data.ts",
+    "scripts/repair-rank-tracking-locations.ts"
+   ],
+   "option:fetch_types": [
+    "src/db/pg/client.ts"
+   ],
+   "option:connect_timeout": [
+    "src/db/pg/client.ts"
+   ]
+  }
+ },
+ "hcengineering__platform": {
+  "handles": {
+   "foundations/communication/packages/cockroach/src/connection.ts": [
+    "sql"
+   ],
+   "foundations/core/packages/postgres-base/src/index.ts": [
+    "sql"
+   ],
+   "services/billing/pod-billing/src/db/postgres.ts": [
+    "sql"
+   ],
+   "services/datalake/pod-datalake/src/datalake/db.ts": [
+    "sql"
+   ],
+   "services/telegram-bot/pod-telegram-bot/src/__tests__/postgres-real.test.ts": [
+    "adminClientCR",
+    "adminClientPG",
+    "crClient",
+    "pgClient"
+   ],
+   "services/telegram-bot/pod-telegram-bot/src/db.ts": [
+    "sql"
+   ],
+   "services/worker/src/db.ts": [
+    "client"
+   ]
+  },
+  "features": {
+   "error:.code": [
+    "dev/tool/src/db.ts"
+   ],
+   "option:database": [
+    "foundations/communication/packages/cockroach/src/connection.ts",
+    "foundations/core/packages/postgres-base/src/index.ts"
+   ],
+   "option:max": [
+    "foundations/communication/packages/cockroach/src/connection.ts",
+    "foundations/core/packages/postgres-base/src/index.ts",
+    "services/billing/pod-billing/src/db/postgres.ts",
+    "services/datalake/pod-datalake/src/datalake/db.ts"
+   ],
+   "option:min": [
+    "foundations/communication/packages/cockroach/src/connection.ts",
+    "foundations/core/packages/postgres-base/src/index.ts"
+   ],
+   "option:fetch_types": [
+    "foundations/communication/packages/cockroach/src/connection.ts",
+    "foundations/core/packages/postgres-base/src/index.ts",
+    "services/billing/pod-billing/src/db/postgres.ts",
+    "services/datalake/pod-datalake/src/datalake/db.ts",
+    "services/telegram-bot/pod-telegram-bot/src/__tests__/postgres-real.test.ts",
+    "services/telegram-bot/pod-telegram-bot/src/db.ts"
+   ],
+   "option:debug": [
+    "foundations/communication/packages/cockroach/src/connection.ts",
+    "foundations/core/packages/postgres-base/src/index.ts"
+   ],
+   "option:notice": [
+    "foundations/communication/packages/cockroach/src/connection.ts",
+    "foundations/core/packages/postgres-base/src/index.ts"
+   ],
+   "option:prepare": [
+    "foundations/communication/packages/cockroach/src/connection.ts",
+    "services/billing/pod-billing/src/db/postgres.ts",
+    "services/datalake/pod-datalake/src/datalake/db.ts",
+    "services/telegram-bot/pod-telegram-bot/src/__tests__/postgres-real.test.ts",
+    "services/telegram-bot/pod-telegram-bot/src/db.ts"
+   ],
+   "option:connection": [
+    "foundations/communication/packages/cockroach/src/connection.ts",
+    "foundations/core/packages/postgres-base/src/index.ts",
+    "services/billing/pod-billing/src/db/postgres.ts",
+    "services/datalake/pod-datalake/src/datalake/db.ts",
+    "services/telegram-bot/pod-telegram-bot/src/__tests__/postgres-real.test.ts",
+    "services/telegram-bot/pod-telegram-bot/src/db.ts",
+    "services/worker/src/db.ts"
+   ],
+   "option:connection.application_name": [
+    "foundations/communication/packages/cockroach/src/connection.ts",
+    "foundations/core/packages/postgres-base/src/index.ts",
+    "services/billing/pod-billing/src/db/postgres.ts",
+    "services/datalake/pod-datalake/src/datalake/db.ts",
+    "services/telegram-bot/pod-telegram-bot/src/__tests__/postgres-real.test.ts",
+    "services/telegram-bot/pod-telegram-bot/src/db.ts",
+    "services/worker/src/db.ts"
+   ],
+   "option:connect_timeout": [
+    "foundations/core/packages/postgres-base/src/index.ts"
+   ],
+   "option:idle_timeout": [
+    "foundations/core/packages/postgres-base/src/index.ts"
+   ],
+   "option:transform": [
+    "foundations/core/packages/postgres-base/src/index.ts"
+   ],
+   "option:transform.undefined": [
+    "foundations/core/packages/postgres-base/src/index.ts"
+   ],
+   "option:types": [
+    "services/billing/pod-billing/src/db/postgres.ts",
+    "services/datalake/pod-datalake/src/datalake/db.ts"
+   ],
+   "option:types.int8": [
+    "services/billing/pod-billing/src/db/postgres.ts",
+    "services/datalake/pod-datalake/src/datalake/db.ts"
+   ],
+   "handle:replaceAll": [
+    "services/billing/pod-billing/src/db/postgres.ts",
+    "services/datalake/pod-datalake/src/datalake/db.ts"
+   ],
+   "handle:end": [
+    "services/telegram-bot/pod-telegram-bot/src/__tests__/postgres-real.test.ts"
+   ],
+   "tagged-query": [
+    "services/telegram-bot/pod-telegram-bot/src/__tests__/postgres-real.test.ts"
+   ],
+   "helper:sql(...)": [
+    "services/telegram-bot/pod-telegram-bot/src/__tests__/postgres-real.test.ts"
+   ],
+   "handle:unsafe": [
+    "services/worker/src/db.ts"
+   ]
+  }
+ },
+ "immich-app__immich": {
+  "handles": {},
+  "features": {}
+ },
+ "justjavac__wechat-miniapp-radar": {
+  "handles": {
+   "db/client.ts": [
+    "client"
+   ],
+   "scripts/verify-db.ts": [
+    "client"
+   ]
+  },
+  "features": {
+   "option:max": [
+    "db/client.ts",
+    "scripts/verify-db.ts"
+   ],
+   "option:prepare": [
+    "db/client.ts",
+    "scripts/verify-db.ts"
+   ],
+   "passed-to:drizzle": [
+    "db/client.ts"
+   ],
+   "handle:end": [
+    "scripts/verify-db.ts"
+   ],
+   "helper:sql(...)": [
+    "scripts/verify-db.ts"
+   ]
+  }
+ },
+ "kortix-ai__suna": {
+  "handles": {
+   "apps/api/src/__tests__/integration-cli-e2e-token-isolation.test.ts": [
+    "admin",
+    "db"
+   ],
+   "apps/api/src/__tests__/integration-iam-cache-bust-notify.test.ts": [
+    "otherReplica"
+   ],
+   "apps/api/src/__tests__/integration-lifecycle-command-due-notify.test.ts": [
+    "listener"
+   ],
+   "apps/api/src/__tests__/integration-lifecycle-command-settle-wake.test.ts": [
+    "otherReplica"
+   ],
+   "apps/api/src/__tests__/integration-sandbox-ownership.test.ts": [
+    "admin"
+   ],
+   "apps/api/src/__tests__/integration-session-changed-notify.test.ts": [
+    "listener"
+   ],
+   "apps/api/src/__tests__/integration-session-prompts-changed-notify.test.ts": [
+    "listener"
+   ],
+   "apps/api/src/__tests__/integration-tunnel-forward-notify.test.ts": [
+    "peer"
+   ],
+   "apps/api/src/setup-links/integration-project-lifecycle.test.ts": [
+    "sql",
+    "control",
+    "observer",
+    "transaction"
+   ],
+   "apps/api/src/setup-links/integration-unset-revokes-intake-link.test.ts": [
+    "sql"
+   ],
+   "apps/api/src/shared/__tests__/integration-pg-broadcast.test.ts": [
+    "publisher"
+   ],
+   "apps/api/src/shared/leader-election.ts": [
+    "sql"
+   ],
+   "apps/api/src/shared/pg-broadcast.ts": [
+    "sql"
+   ],
+   "packages/db/scripts/consolidate-deletion-policies.integration.test.ts": [
+    "sql",
+    "tx",
+    "insertion"
+   ],
+   "packages/db/scripts/verify-pool-concurrency.ts": [
+    "sql"
+   ],
+   "packages/db/scripts/verify-statement-timeout.ts": [
+    "client"
+   ],
+   "packages/db/src/client.ts": [
+    "client"
+   ],
+   "packages/db/src/postgres-write-guard.test.ts": [
+    "sql",
+    "r1",
+    "r2"
+   ]
+  },
+  "features": {
+   "option:max": [
+    "apps/api/src/__tests__/helpers/pg-client.ts",
+    "apps/api/src/__tests__/integration-iam-cache-bust-notify.test.ts",
+    "apps/api/src/__tests__/integration-lifecycle-command-due-notify.test.ts",
+    "apps/api/src/__tests__/integration-lifecycle-command-settle-wake.test.ts",
+    "apps/api/src/__tests__/integration-sandbox-ownership.test.ts",
+    "apps/api/src/__tests__/integration-session-changed-notify.test.ts",
+    "apps/api/src/__tests__/integration-session-prompts-changed-notify.test.ts",
+    "apps/api/src/__tests__/integration-tunnel-forward-notify.test.ts",
+    "apps/api/src/setup-links/integration-project-lifecycle.test.ts",
+    "apps/api/src/setup-links/integration-unset-revokes-intake-link.test.ts",
+    "apps/api/src/shared/__tests__/integration-pg-broadcast.test.ts",
+    "apps/api/src/shared/leader-election.ts",
+    "apps/api/src/shared/pg-broadcast.ts",
+    "packages/db/scripts/consolidate-deletion-policies.integration.test.ts",
+    "packages/db/scripts/verify-pool-concurrency.ts",
+    "packages/db/scripts/verify-statement-timeout.ts",
+    "packages/db/src/client.ts",
+    "packages/db/src/postgres-write-guard.test.ts"
+   ],
+   "option:onnotice": [
+    "apps/api/src/__tests__/helpers/pg-client.ts",
+    "apps/api/src/__tests__/integration-iam-cache-bust-notify.test.ts",
+    "apps/api/src/__tests__/integration-lifecycle-command-due-notify.test.ts",
+    "apps/api/src/__tests__/integration-lifecycle-command-settle-wake.test.ts",
+    "apps/api/src/__tests__/integration-session-changed-notify.test.ts",
+    "apps/api/src/__tests__/integration-session-prompts-changed-notify.test.ts",
+    "apps/api/src/__tests__/integration-tunnel-forward-notify.test.ts",
+    "apps/api/src/shared/__tests__/integration-pg-broadcast.test.ts",
+    "apps/api/src/shared/leader-election.ts",
+    "apps/api/src/shared/pg-broadcast.ts"
+   ],
+   "option:types": [
+    "apps/api/src/__tests__/helpers/pg-client.ts"
+   ],
+   "option:types.json": [
+    "apps/api/src/__tests__/helpers/pg-client.ts"
+   ],
+   "option:types.jsonb": [
+    "apps/api/src/__tests__/helpers/pg-client.ts"
+   ],
+   "handle:unsafe": [
+    "apps/api/src/__tests__/integration-cli-e2e-token-isolation.test.ts",
+    "apps/api/src/__tests__/integration-sandbox-ownership.test.ts",
+    "apps/api/src/shared/leader-election.ts",
+    "packages/db/scripts/consolidate-deletion-policies.integration.test.ts"
+   ],
+   "handle:end": [
+    "apps/api/src/__tests__/integration-cli-e2e-token-isolation.test.ts",
+    "apps/api/src/__tests__/integration-iam-cache-bust-notify.test.ts",
+    "apps/api/src/__tests__/integration-lifecycle-command-due-notify.test.ts",
+    "apps/api/src/__tests__/integration-lifecycle-command-settle-wake.test.ts",
+    "apps/api/src/__tests__/integration-sandbox-ownership.test.ts",
+    "apps/api/src/__tests__/integration-session-changed-notify.test.ts",
+    "apps/api/src/__tests__/integration-session-prompts-changed-notify.test.ts",
+    "apps/api/src/__tests__/integration-tunnel-forward-notify.test.ts",
+    "apps/api/src/setup-links/integration-project-lifecycle.test.ts",
+    "apps/api/src/setup-links/integration-unset-revokes-intake-link.test.ts",
+    "apps/api/src/shared/__tests__/integration-pg-broadcast.test.ts",
+    "apps/api/src/shared/leader-election.ts",
+    "apps/api/src/shared/pg-broadcast.ts",
+    "packages/db/scripts/consolidate-deletion-policies.integration.test.ts",
+    "packages/db/scripts/verify-pool-concurrency.ts",
+    "packages/db/scripts/verify-statement-timeout.ts",
+    "packages/db/src/postgres-write-guard.test.ts"
+   ],
+   "tagged-query": [
+    "apps/api/src/__tests__/integration-cli-e2e-token-isolation.test.ts",
+    "apps/api/src/__tests__/integration-lifecycle-command-settle-wake.test.ts",
+    "apps/api/src/__tests__/integration-tunnel-forward-notify.test.ts",
+    "apps/api/src/setup-links/integration-project-lifecycle.test.ts",
+    "apps/api/src/shared/leader-election.ts",
+    "packages/db/scripts/consolidate-deletion-policies.integration.test.ts",
+    "packages/db/scripts/verify-pool-concurrency.ts",
+    "packages/db/scripts/verify-statement-timeout.ts",
+    "packages/db/src/postgres-write-guard.test.ts"
+   ],
+   "option:prepare": [
+    "apps/api/src/__tests__/integration-iam-cache-bust-notify.test.ts",
+    "apps/api/src/__tests__/integration-lifecycle-command-due-notify.test.ts",
+    "apps/api/src/__tests__/integration-lifecycle-command-settle-wake.test.ts",
+    "apps/api/src/__tests__/integration-session-changed-notify.test.ts",
+    "apps/api/src/__tests__/integration-session-prompts-changed-notify.test.ts",
+    "apps/api/src/__tests__/integration-tunnel-forward-notify.test.ts",
+    "apps/api/src/shared/__tests__/integration-pg-broadcast.test.ts",
+    "apps/api/src/shared/leader-election.ts",
+    "apps/api/src/shared/pg-broadcast.ts",
+    "packages/db/scripts/verify-pool-concurrency.ts",
+    "packages/db/scripts/verify-statement-timeout.ts",
+    "packages/db/src/client.ts"
+   ],
+   "handle:listen": [
+    "apps/api/src/__tests__/integration-iam-cache-bust-notify.test.ts",
+    "apps/api/src/__tests__/integration-lifecycle-command-due-notify.test.ts",
+    "apps/api/src/__tests__/integration-lifecycle-command-settle-wake.test.ts",
+    "apps/api/src/__tests__/integration-session-changed-notify.test.ts",
+    "apps/api/src/__tests__/integration-session-prompts-changed-notify.test.ts",
+    "apps/api/src/__tests__/integration-tunnel-forward-notify.test.ts",
+    "apps/api/src/shared/pg-broadcast.ts"
+   ],
+   "handle:notify": [
+    "apps/api/src/__tests__/integration-iam-cache-bust-notify.test.ts",
+    "apps/api/src/shared/__tests__/integration-pg-broadcast.test.ts",
+    "apps/api/src/shared/pg-broadcast.ts"
+   ],
+   "handle:json": [
+    "apps/api/src/__tests__/integration-tunnel-forward-notify.test.ts"
+   ],
+   "handle:begin": [
+    "apps/api/src/setup-links/integration-project-lifecycle.test.ts",
+    "packages/db/scripts/consolidate-deletion-policies.integration.test.ts"
+   ],
+   "query:.execute()": [
+    "apps/api/src/setup-links/integration-project-lifecycle.test.ts"
+   ],
+   "option:idle_timeout": [
+    "apps/api/src/shared/leader-election.ts",
+    "apps/api/src/shared/pg-broadcast.ts",
+    "packages/db/scripts/verify-pool-concurrency.ts",
+    "packages/db/scripts/verify-statement-timeout.ts",
+    "packages/db/src/client.ts"
+   ],
+   "option:connect_timeout": [
+    "apps/api/src/shared/leader-election.ts",
+    "apps/api/src/shared/pg-broadcast.ts",
+    "packages/db/scripts/verify-pool-concurrency.ts",
+    "packages/db/scripts/verify-statement-timeout.ts",
+    "packages/db/src/client.ts",
+    "packages/db/src/postgres-write-guard.test.ts"
+   ],
+   "handle:savepoint": [
+    "packages/db/scripts/consolidate-deletion-policies.integration.test.ts"
+   ],
+   "error:.code": [
+    "packages/db/scripts/consolidate-deletion-policies.integration.test.ts",
+    "packages/db/scripts/verify-statement-timeout.ts"
+   ],
+   "option:connection": [
+    "packages/db/scripts/verify-pool-concurrency.ts",
+    "packages/db/scripts/verify-statement-timeout.ts",
+    "packages/db/src/client.ts"
+   ],
+   "option:connection.statement_timeout": [
+    "packages/db/scripts/verify-pool-concurrency.ts",
+    "packages/db/scripts/verify-statement-timeout.ts",
+    "packages/db/src/client.ts"
+   ],
+   "query:.then()": [
+    "packages/db/scripts/verify-pool-concurrency.ts",
+    "packages/db/src/postgres-write-guard.test.ts"
+   ],
+   "option:max_lifetime": [
+    "packages/db/src/client.ts"
+   ],
+   "option:host": [
+    "packages/db/src/postgres-write-guard.test.ts"
+   ],
+   "option:port": [
+    "packages/db/src/postgres-write-guard.test.ts"
+   ],
+   "option:database": [
+    "packages/db/src/postgres-write-guard.test.ts"
+   ],
+   "option:username": [
+    "packages/db/src/postgres-write-guard.test.ts"
+   ],
+   "option:password": [
+    "packages/db/src/postgres-write-guard.test.ts"
+   ],
+   "handle:reserve": [
+    "packages/db/src/postgres-write-guard.test.ts"
+   ],
+   "handle:release": [
+    "packages/db/src/postgres-write-guard.test.ts"
+   ]
+  }
+ },
+ "kriasoft__react-starter-kit": {
+  "handles": {
+   "apps/api/lib/db.ts": [
+    "client"
+   ],
+   "db/scripts/seed.ts": [
+    "client"
+   ]
+  },
+  "features": {
+   "option:max": [
+    "apps/api/lib/db.ts",
+    "db/scripts/seed.ts"
+   ],
+   "option:connect_timeout": [
+    "apps/api/lib/db.ts"
+   ],
+   "option:idle_timeout": [
+    "apps/api/lib/db.ts"
+   ],
+   "option:max_lifetime": [
+    "apps/api/lib/db.ts"
+   ],
+   "option:transform": [
+    "apps/api/lib/db.ts"
+   ],
+   "option:transform.undefined": [
+    "apps/api/lib/db.ts"
+   ],
+   "option:onnotice": [
+    "apps/api/lib/db.ts"
+   ],
+   "passed-to:drizzle": [
+    "apps/api/lib/db.ts",
+    "db/scripts/seed.ts"
+   ],
+   "handle:end": [
+    "db/scripts/seed.ts"
+   ]
+  }
+ },
+ "manaflow-ai__cmux": {
+  "handles": {
+   "web/db/client.ts": [
+    "sql"
+   ],
+   "web/scripts/vm-publication-custom-domain-smoke.ts": [
+    "sql"
+   ],
+   "web/services/relay/allow.ts": [
+    "sql",
+    "tx",
+    "rows"
+   ],
+   "web/tests/apple-iap-db-behavior.test.ts": [
+    "sql"
+   ],
+   "web/tests/coderouter-api-key-scope-db-behavior.test.ts": [
+    "db"
+   ],
+   "web/tests/coderouter-claude-cooldown-db-behavior.test.ts": [
+    "sql"
+   ],
+   "web/tests/coderouter-handoff-db-behavior.test.ts": [
+    "sql"
+   ],
+   "web/tests/coderouter-owner-db-behavior.test.ts": [
+    "sql"
+   ],
+   "web/tests/coderouter-routing-db-behavior.test.ts": [
+    "sql"
+   ],
+   "web/tests/coderouter-transfer-db-behavior.test.ts": [
+    "db"
+   ],
+   "web/tests/coderouter-vm-scope-db-behavior.test.ts": [
+    "db"
+   ],
+   "web/tests/db-schema.test.ts": [
+    "sql"
+   ],
+   "web/tests/device-tokens-route.test.ts": [
+    "sql"
+   ],
+   "web/tests/devices-route.test.ts": [
+    "sql"
+   ],
+   "web/tests/drizzle-effect.test.ts": [
+    "sql"
+   ],
+   "web/tests/hexclave-mirror-db-behavior.test.ts": [
+    "sql"
+   ],
+   "web/tests/hexclave-webhook-inbox-db.test.ts": [
+    "sql"
+   ],
+   "web/tests/hive-runtime-db-behavior.test.ts": [
+    "db"
+   ],
+   "web/tests/iroh-db-behavior.test.ts": [
+    "sql"
+   ],
+   "web/tests/notification-rate-limit.test.ts": [
+    "sql"
+   ],
+   "web/tests/notifications-push-route.test.ts": [
+    "sql"
+   ],
+   "web/tests/plan-allowance-db-behavior.test.ts": [
+    "sql"
+   ],
+   "web/tests/relay-allow-db-behavior.test.ts": [
+    "sql"
+   ],
+   "web/tests/stack-session-revocation-store-db.test.ts": [
+    "sql"
+   ],
+   "web/tests/subscription-analytics-db-behavior.test.ts": [
+    "sql"
+   ],
+   "web/tests/team-seat-queue-db-behavior.test.ts": [
+    "sql"
+   ],
+   "web/tests/teams-invite-links-db-behavior.test.ts": [
+    "sql"
+   ],
+   "web/tests/vm-alerts.test.ts": [
+    "sql"
+   ],
+   "web/tests/vm-db-read-model.test.ts": [
+    "sql"
+   ],
+   "web/tests/vm-independent-limits.test.ts": [
+    "sql"
+   ],
+   "web/tests/vm-managed-publications-db-behavior.test.ts": [
+    "db"
+   ],
+   "web/tests/vm-publications-db-behavior.test.ts": [
+    "sql",
+    "tx"
+   ],
+   "web/tests/vm-resource-pool.test.ts": [
+    "sql"
+   ],
+   "web/tests/vm-resource-usage-db.test.ts": [
+    "sql"
+   ],
+   "web/tests/vm-review-regressions.test.ts": [
+    "sql"
+   ],
+   "web/tests/vm-slug-db.test.ts": [
+    "sql"
+   ],
+   "web/tests/vm-tunnel-reaper-db.test.ts": [
+    "sql"
+   ],
+   "web/tests/vm-workflows.test.ts": [
+    "sql",
+    "locker",
+    "observer",
+    "tx"
+   ],
+   "workers/iroh-v2/live/ownership-database.test.ts": [
+    "connection"
+   ],
+   "workers/iroh-v2/src/ownership/planetscale.ts": [
+    "connection"
+   ]
+  },
+  "features": {
+   "option:max": [
+    "web/db/client.ts",
+    "web/scripts/vm-publication-custom-domain-smoke.ts",
+    "web/services/relay/allow.ts",
+    "web/tests/apple-iap-db-behavior.test.ts",
+    "web/tests/coderouter-api-key-scope-db-behavior.test.ts",
+    "web/tests/coderouter-claude-cooldown-db-behavior.test.ts",
+    "web/tests/coderouter-handoff-db-behavior.test.ts",
+    "web/tests/coderouter-owner-db-behavior.test.ts",
+    "web/tests/coderouter-routing-db-behavior.test.ts",
+    "web/tests/coderouter-transfer-db-behavior.test.ts",
+    "web/tests/coderouter-vm-scope-db-behavior.test.ts",
+    "web/tests/db-schema.test.ts",
+    "web/tests/device-tokens-route.test.ts",
+    "web/tests/devices-route.test.ts",
+    "web/tests/drizzle-effect.test.ts",
+    "web/tests/hexclave-mirror-db-behavior.test.ts",
+    "web/tests/hexclave-webhook-inbox-db.test.ts",
+    "web/tests/hive-runtime-db-behavior.test.ts",
+    "web/tests/iroh-db-behavior.test.ts",
+    "web/tests/notification-rate-limit.test.ts",
+    "web/tests/notifications-push-route.test.ts",
+    "web/tests/plan-allowance-db-behavior.test.ts",
+    "web/tests/relay-allow-db-behavior.test.ts",
+    "web/tests/stack-session-revocation-store-db.test.ts",
+    "web/tests/subscription-analytics-db-behavior.test.ts",
+    "web/tests/team-seat-queue-db-behavior.test.ts",
+    "web/tests/teams-invite-links-db-behavior.test.ts",
+    "web/tests/vm-alerts.test.ts",
+    "web/tests/vm-db-read-model.test.ts",
+    "web/tests/vm-independent-limits.test.ts",
+    "web/tests/vm-managed-publications-db-behavior.test.ts",
+    "web/tests/vm-publications-db-behavior.test.ts",
+    "web/tests/vm-resource-pool.test.ts",
+    "web/tests/vm-resource-usage-db.test.ts",
+    "web/tests/vm-review-regressions.test.ts",
+    "web/tests/vm-slug-db.test.ts",
+    "web/tests/vm-tunnel-reaper-db.test.ts",
+    "web/tests/vm-workflows.test.ts",
+    "workers/iroh-v2/live/ownership-database.test.ts",
+    "workers/iroh-v2/src/ownership/planetscale.ts"
+   ],
+   "option:prepare": [
+    "web/db/client.ts",
+    "web/services/relay/allow.ts",
+    "workers/iroh-v2/live/ownership-database.test.ts",
+    "workers/iroh-v2/src/ownership/planetscale.ts"
+   ],
+   "option:connect_timeout": [
+    "web/db/client.ts",
+    "web/services/relay/allow.ts",
+    "workers/iroh-v2/live/ownership-database.test.ts",
+    "workers/iroh-v2/src/ownership/planetscale.ts"
+   ],
+   "option:idle_timeout": [
+    "web/db/client.ts",
+    "web/services/relay/allow.ts",
+    "workers/iroh-v2/src/ownership/planetscale.ts"
+   ],
+   "handle:unsafe": [
+    "web/db/client.ts",
+    "web/services/relay/allow.ts",
+    "web/tests/vm-resource-usage-db.test.ts"
+   ],
+   "handle:end": [
+    "web/db/client.ts",
+    "web/scripts/vm-publication-custom-domain-smoke.ts",
+    "web/services/relay/allow.ts",
+    "web/tests/apple-iap-db-behavior.test.ts",
+    "web/tests/coderouter-api-key-scope-db-behavior.test.ts",
+    "web/tests/coderouter-claude-cooldown-db-behavior.test.ts",
+    "web/tests/coderouter-handoff-db-behavior.test.ts",
+    "web/tests/coderouter-owner-db-behavior.test.ts",
+    "web/tests/coderouter-routing-db-behavior.test.ts",
+    "web/tests/coderouter-transfer-db-behavior.test.ts",
+    "web/tests/coderouter-vm-scope-db-behavior.test.ts",
+    "web/tests/db-schema.test.ts",
+    "web/tests/device-tokens-route.test.ts",
+    "web/tests/devices-route.test.ts",
+    "web/tests/drizzle-effect.test.ts",
+    "web/tests/hexclave-mirror-db-behavior.test.ts",
+    "web/tests/hexclave-webhook-inbox-db.test.ts",
+    "web/tests/hive-runtime-db-behavior.test.ts",
+    "web/tests/iroh-db-behavior.test.ts",
+    "web/tests/notification-rate-limit.test.ts",
+    "web/tests/notifications-push-route.test.ts",
+    "web/tests/plan-allowance-db-behavior.test.ts",
+    "web/tests/relay-allow-db-behavior.test.ts",
+    "web/tests/stack-session-revocation-store-db.test.ts",
+    "web/tests/subscription-analytics-db-behavior.test.ts",
+    "web/tests/team-seat-queue-db-behavior.test.ts",
+    "web/tests/teams-invite-links-db-behavior.test.ts",
+    "web/tests/vm-alerts.test.ts",
+    "web/tests/vm-db-read-model.test.ts",
+    "web/tests/vm-independent-limits.test.ts",
+    "web/tests/vm-managed-publications-db-behavior.test.ts",
+    "web/tests/vm-publications-db-behavior.test.ts",
+    "web/tests/vm-resource-pool.test.ts",
+    "web/tests/vm-resource-usage-db.test.ts",
+    "web/tests/vm-review-regressions.test.ts",
+    "web/tests/vm-slug-db.test.ts",
+    "web/tests/vm-tunnel-reaper-db.test.ts",
+    "web/tests/vm-workflows.test.ts",
+    "workers/iroh-v2/live/ownership-database.test.ts",
+    "workers/iroh-v2/src/ownership/planetscale.ts"
+   ],
+   "tagged-query": [
+    "web/db/client.ts",
+    "web/scripts/vm-publication-custom-domain-smoke.ts",
+    "web/tests/apple-iap-db-behavior.test.ts",
+    "web/tests/coderouter-api-key-scope-db-behavior.test.ts",
+    "web/tests/coderouter-claude-cooldown-db-behavior.test.ts",
+    "web/tests/coderouter-owner-db-behavior.test.ts",
+    "web/tests/coderouter-routing-db-behavior.test.ts",
+    "web/tests/coderouter-transfer-db-behavior.test.ts",
+    "web/tests/coderouter-vm-scope-db-behavior.test.ts",
+    "web/tests/db-schema.test.ts",
+    "web/tests/device-tokens-route.test.ts",
+    "web/tests/devices-route.test.ts",
+    "web/tests/drizzle-effect.test.ts",
+    "web/tests/hexclave-mirror-db-behavior.test.ts",
+    "web/tests/hexclave-webhook-inbox-db.test.ts",
+    "web/tests/hive-runtime-db-behavior.test.ts",
+    "web/tests/iroh-db-behavior.test.ts",
+    "web/tests/notification-rate-limit.test.ts",
+    "web/tests/notifications-push-route.test.ts",
+    "web/tests/plan-allowance-db-behavior.test.ts",
+    "web/tests/relay-allow-db-behavior.test.ts",
+    "web/tests/stack-session-revocation-store-db.test.ts",
+    "web/tests/subscription-analytics-db-behavior.test.ts",
+    "web/tests/team-seat-queue-db-behavior.test.ts",
+    "web/tests/teams-invite-links-db-behavior.test.ts",
+    "web/tests/vm-alerts.test.ts",
+    "web/tests/vm-db-read-model.test.ts",
+    "web/tests/vm-independent-limits.test.ts",
+    "web/tests/vm-managed-publications-db-behavior.test.ts",
+    "web/tests/vm-publications-db-behavior.test.ts",
+    "web/tests/vm-resource-pool.test.ts",
+    "web/tests/vm-resource-usage-db.test.ts",
+    "web/tests/vm-review-regressions.test.ts",
+    "web/tests/vm-workflows.test.ts",
+    "workers/iroh-v2/live/ownership-database.test.ts"
+   ],
+   "handle:begin": [
+    "web/services/relay/allow.ts",
+    "web/tests/vm-publications-db-behavior.test.ts",
+    "web/tests/vm-workflows.test.ts"
+   ],
+   "handle:json": [
+    "web/tests/db-schema.test.ts",
+    "web/tests/devices-route.test.ts",
+    "web/tests/vm-alerts.test.ts",
+    "web/tests/vm-resource-pool.test.ts",
+    "web/tests/vm-workflows.test.ts"
+   ],
+   "helper:sql(...)": [
+    "web/tests/plan-allowance-db-behavior.test.ts",
+    "web/tests/vm-publications-db-behavior.test.ts",
+    "web/tests/vm-resource-usage-db.test.ts",
+    "web/tests/vm-workflows.test.ts"
+   ],
+   "option:ssl": [
+    "workers/iroh-v2/live/ownership-database.test.ts",
+    "workers/iroh-v2/src/ownership/planetscale.ts"
+   ],
+   "passed-to:drizzle": [
+    "workers/iroh-v2/src/ownership/planetscale.ts"
+   ]
+  }
+ },
+ "moeru-ai__airi": {
+  "handles": {},
+  "features": {}
+ },
+ "omnivore-app__omnivore": {
+  "handles": {},
+  "features": {}
+ },
+ "onlook-dev__onlook": {
+  "handles": {
+   "packages/db/src/client.ts": [
+    "conn"
+   ]
+  },
+  "features": {
+   "option:prepare": [
+    "packages/db/src/client.ts"
+   ],
+   "passed-to:drizzle": [
+    "packages/db/src/client.ts"
+   ]
+  }
+ },
+ "paperclipai__paperclip": {
+  "handles": {
+   "packages/db/src/agent-chat-migration.test.ts": [
+    "sql",
+    "tx"
+   ],
+   "packages/db/src/agent-instruction-migration.test.ts": [
+    "sql"
+   ],
+   "packages/db/src/backup-lib.test.ts": [
+    "sourceSql",
+    "targetSql",
+    "restoreSql"
+   ],
+   "packages/db/src/backup-lib.ts": [
+    "sql",
+    "copySql"
+   ],
+   "packages/db/src/better-auth-account-issuer-migration.test.ts": [
+    "sql"
+   ],
+   "packages/db/src/built-in-agent-unique-marker-migration.test.ts": [
+    "sql"
+   ],
+   "packages/db/src/chat-github-migration.test.ts": [
+    "sql"
+   ],
+   "packages/db/src/chat-identity-migration-reconciliation.test.ts": [
+    "sql",
+    "source",
+    "legacy"
+   ],
+   "packages/db/src/chat-telegram-draft-ids-migration.test.ts": [
+    "sql",
+    "transaction"
+   ],
+   "packages/db/src/chat-tenant-foreign-keys.test.ts": [
+    "sql"
+   ],
+   "packages/db/src/client.test.ts": [
+    "observer",
+    "setupSql",
+    "verifySql",
+    "sql",
+    "reference",
+    "afterCleanReplay",
+    "afterRepair",
+    "afterSecondRun",
+    "replaySql",
+    "transaction"
+   ],
+   "packages/db/src/client.ts": [
+    "sql"
+   ],
+   "packages/db/src/company-secret-proposals-migration.test.ts": [
+    "sql"
+   ],
+   "packages/db/src/connection-grants-phase4-migration.test.ts": [
+    "sql"
+   ],
+   "packages/db/src/connections-v3-schema-core-migration.test.ts": [
+    "sql"
+   ],
+   "packages/db/src/decision-queue-migrations.test.ts": [
+    "sql"
+   ],
+   "packages/db/src/heartbeat-context-snapshot-index-migration.test.ts": [
+    "sql"
+   ],
+   "packages/db/src/heartbeat-run-issue-privacy-migration.test.ts": [
+    "sql"
+   ],
+   "packages/db/src/inbox-archive-agent-policies-migration.test.ts": [
+    "sql",
+    "verifySql"
+   ],
+   "packages/db/src/issue-comment-derived-attribution-migration.test.ts": [
+    "sql",
+    "verifySql"
+   ],
+   "packages/db/src/issue-comment-on-behalf-migration.test.ts": [
+    "sql",
+    "verify"
+   ],
+   "packages/db/src/issue-thread-interaction-resolver-policy-migration.test.ts": [
+    "sql"
+   ],
+   "packages/db/src/muse-migration-idempotence.test.ts": [
+    "sql"
+   ],
+   "packages/db/src/native-runner-recovery-migration.test.ts": [
+    "sql"
+   ],
+   "packages/db/src/nested-skill-folders-migration.test.ts": [
+    "sql"
+   ],
+   "packages/db/src/private-task-draft-assets-migration.test.ts": [
+    "sql"
+   ],
+   "packages/db/src/project-skill-sources-migration.test.ts": [
+    "sql"
+   ],
+   "packages/db/src/question-response-delivery-migration.test.ts": [
+    "sql"
+   ],
+   "packages/db/src/question-response-history-migration.test.ts": [
+    "sql"
+   ],
+   "packages/db/src/run-identity-migration.test.ts": [
+    "sql"
+   ],
+   "packages/db/src/session-goal-migration.test.ts": [
+    "sql"
+   ],
+   "packages/db/src/speko-voice-migration.test.ts": [
+    "sql"
+   ],
+   "packages/db/src/status-card-migrations.test.ts": [
+    "sql"
+   ],
+   "packages/db/src/test-embedded-postgres.test.ts": [
+    "sql"
+   ],
+   "packages/db/src/vercel-connect-credential-source-migration.test.ts": [
+    "sql"
+   ]
+  },
+  "features": {
+   "option:max": [
+    "packages/db/src/agent-chat-migration.test.ts",
+    "packages/db/src/agent-instruction-migration.test.ts",
+    "packages/db/src/backup-lib.test.ts",
+    "packages/db/src/backup-lib.ts",
+    "packages/db/src/better-auth-account-issuer-migration.test.ts",
+    "packages/db/src/built-in-agent-unique-marker-migration.test.ts",
+    "packages/db/src/chat-github-migration.test.ts",
+    "packages/db/src/chat-identity-migration-reconciliation.test.ts",
+    "packages/db/src/chat-telegram-draft-ids-migration.test.ts",
+    "packages/db/src/chat-tenant-foreign-keys.test.ts",
+    "packages/db/src/client.test.ts",
+    "packages/db/src/client.ts",
+    "packages/db/src/company-secret-proposals-migration.test.ts",
+    "packages/db/src/connection-grants-phase4-migration.test.ts",
+    "packages/db/src/connections-v3-schema-core-migration.test.ts",
+    "packages/db/src/decision-queue-migrations.test.ts",
+    "packages/db/src/heartbeat-context-snapshot-index-migration.test.ts",
+    "packages/db/src/heartbeat-run-issue-privacy-migration.test.ts",
+    "packages/db/src/inbox-archive-agent-policies-migration.test.ts",
+    "packages/db/src/issue-comment-derived-attribution-migration.test.ts",
+    "packages/db/src/issue-comment-on-behalf-migration.test.ts",
+    "packages/db/src/issue-thread-interaction-resolver-policy-migration.test.ts",
+    "packages/db/src/muse-migration-idempotence.test.ts",
+    "packages/db/src/native-runner-recovery-migration.test.ts",
+    "packages/db/src/nested-skill-folders-migration.test.ts",
+    "packages/db/src/private-task-draft-assets-migration.test.ts",
+    "packages/db/src/project-skill-sources-migration.test.ts",
+    "packages/db/src/question-response-delivery-migration.test.ts",
+    "packages/db/src/question-response-history-migration.test.ts",
+    "packages/db/src/run-identity-migration.test.ts",
+    "packages/db/src/session-goal-migration.test.ts",
+    "packages/db/src/speko-voice-migration.test.ts",
+    "packages/db/src/status-card-migrations.test.ts",
+    "packages/db/src/test-embedded-postgres.test.ts",
+    "packages/db/src/vercel-connect-credential-source-migration.test.ts"
+   ],
+   "option:onnotice": [
+    "packages/db/src/agent-chat-migration.test.ts",
+    "packages/db/src/agent-instruction-migration.test.ts",
+    "packages/db/src/backup-lib.test.ts",
+    "packages/db/src/chat-github-migration.test.ts",
+    "packages/db/src/chat-identity-migration-reconciliation.test.ts",
+    "packages/db/src/chat-telegram-draft-ids-migration.test.ts",
+    "packages/db/src/chat-tenant-foreign-keys.test.ts",
+    "packages/db/src/client.test.ts",
+    "packages/db/src/client.ts",
+    "packages/db/src/connection-grants-phase4-migration.test.ts",
+    "packages/db/src/decision-queue-migrations.test.ts",
+    "packages/db/src/heartbeat-run-issue-privacy-migration.test.ts",
+    "packages/db/src/inbox-archive-agent-policies-migration.test.ts",
+    "packages/db/src/issue-comment-derived-attribution-migration.test.ts",
+    "packages/db/src/issue-comment-on-behalf-migration.test.ts",
+    "packages/db/src/issue-thread-interaction-resolver-policy-migration.test.ts",
+    "packages/db/src/muse-migration-idempotence.test.ts",
+    "packages/db/src/native-runner-recovery-migration.test.ts",
+    "packages/db/src/private-task-draft-assets-migration.test.ts",
+    "packages/db/src/project-skill-sources-migration.test.ts",
+    "packages/db/src/question-response-delivery-migration.test.ts",
+    "packages/db/src/question-response-history-migration.test.ts",
+    "packages/db/src/run-identity-migration.test.ts",
+    "packages/db/src/session-goal-migration.test.ts",
+    "packages/db/src/vercel-connect-credential-source-migration.test.ts"
+   ],
+   "handle:end": [
+    "packages/db/src/agent-chat-migration.test.ts",
+    "packages/db/src/agent-instruction-migration.test.ts",
+    "packages/db/src/backup-lib.test.ts",
+    "packages/db/src/backup-lib.ts",
+    "packages/db/src/better-auth-account-issuer-migration.test.ts",
+    "packages/db/src/built-in-agent-unique-marker-migration.test.ts",
+    "packages/db/src/chat-github-migration.test.ts",
+    "packages/db/src/chat-identity-migration-reconciliation.test.ts",
+    "packages/db/src/chat-telegram-draft-ids-migration.test.ts",
+    "packages/db/src/chat-tenant-foreign-keys.test.ts",
+    "packages/db/src/client.test.ts",
+    "packages/db/src/client.ts",
+    "packages/db/src/company-secret-proposals-migration.test.ts",
+    "packages/db/src/connection-grants-phase4-migration.test.ts",
+    "packages/db/src/connections-v3-schema-core-migration.test.ts",
+    "packages/db/src/decision-queue-migrations.test.ts",
+    "packages/db/src/heartbeat-context-snapshot-index-migration.test.ts",
+    "packages/db/src/heartbeat-run-issue-privacy-migration.test.ts",
+    "packages/db/src/inbox-archive-agent-policies-migration.test.ts",
+    "packages/db/src/issue-comment-derived-attribution-migration.test.ts",
+    "packages/db/src/issue-comment-on-behalf-migration.test.ts",
+    "packages/db/src/issue-thread-interaction-resolver-policy-migration.test.ts",
+    "packages/db/src/muse-migration-idempotence.test.ts",
+    "packages/db/src/native-runner-recovery-migration.test.ts",
+    "packages/db/src/nested-skill-folders-migration.test.ts",
+    "packages/db/src/private-task-draft-assets-migration.test.ts",
+    "packages/db/src/project-skill-sources-migration.test.ts",
+    "packages/db/src/question-response-delivery-migration.test.ts",
+    "packages/db/src/question-response-history-migration.test.ts",
+    "packages/db/src/run-identity-migration.test.ts",
+    "packages/db/src/session-goal-migration.test.ts",
+    "packages/db/src/speko-voice-migration.test.ts",
+    "packages/db/src/status-card-migrations.test.ts",
+    "packages/db/src/test-embedded-postgres.test.ts",
+    "packages/db/src/vercel-connect-credential-source-migration.test.ts"
+   ],
+   "handle:unsafe": [
+    "packages/db/src/agent-chat-migration.test.ts",
+    "packages/db/src/agent-instruction-migration.test.ts",
+    "packages/db/src/backup-lib.test.ts",
+    "packages/db/src/backup-lib.ts",
+    "packages/db/src/chat-github-migration.test.ts",
+    "packages/db/src/chat-identity-migration-reconciliation.test.ts",
+    "packages/db/src/chat-tenant-foreign-keys.test.ts",
+    "packages/db/src/client.test.ts",
+    "packages/db/src/client.ts",
+    "packages/db/src/connections-v3-schema-core-migration.test.ts",
+    "packages/db/src/decision-queue-migrations.test.ts",
+    "packages/db/src/heartbeat-context-snapshot-index-migration.test.ts",
+    "packages/db/src/heartbeat-run-issue-privacy-migration.test.ts",
+    "packages/db/src/issue-thread-interaction-resolver-policy-migration.test.ts",
+    "packages/db/src/muse-migration-idempotence.test.ts",
+    "packages/db/src/native-runner-recovery-migration.test.ts",
+    "packages/db/src/project-skill-sources-migration.test.ts",
+    "packages/db/src/question-response-delivery-migration.test.ts",
+    "packages/db/src/question-response-history-migration.test.ts",
+    "packages/db/src/run-identity-migration.test.ts",
+    "packages/db/src/session-goal-migration.test.ts",
+    "packages/db/src/speko-voice-migration.test.ts",
+    "packages/db/src/status-card-migrations.test.ts"
+   ],
+   "handle:begin": [
+    "packages/db/src/agent-chat-migration.test.ts",
+    "packages/db/src/chat-telegram-draft-ids-migration.test.ts",
+    "packages/db/src/client.test.ts"
+   ],
+   "tagged-query": [
+    "packages/db/src/agent-chat-migration.test.ts",
+    "packages/db/src/agent-instruction-migration.test.ts",
+    "packages/db/src/backup-lib.test.ts",
+    "packages/db/src/backup-lib.ts",
+    "packages/db/src/better-auth-account-issuer-migration.test.ts",
+    "packages/db/src/built-in-agent-unique-marker-migration.test.ts",
+    "packages/db/src/chat-github-migration.test.ts",
+    "packages/db/src/chat-identity-migration-reconciliation.test.ts",
+    "packages/db/src/chat-telegram-draft-ids-migration.test.ts",
+    "packages/db/src/chat-tenant-foreign-keys.test.ts",
+    "packages/db/src/client.test.ts",
+    "packages/db/src/client.ts",
+    "packages/db/src/company-secret-proposals-migration.test.ts",
+    "packages/db/src/connection-grants-phase4-migration.test.ts",
+    "packages/db/src/connections-v3-schema-core-migration.test.ts",
+    "packages/db/src/decision-queue-migrations.test.ts",
+    "packages/db/src/heartbeat-context-snapshot-index-migration.test.ts",
+    "packages/db/src/heartbeat-run-issue-privacy-migration.test.ts",
+    "packages/db/src/inbox-archive-agent-policies-migration.test.ts",
+    "packages/db/src/issue-comment-derived-attribution-migration.test.ts",
+    "packages/db/src/issue-comment-on-behalf-migration.test.ts",
+    "packages/db/src/issue-thread-interaction-resolver-policy-migration.test.ts",
+    "packages/db/src/muse-migration-idempotence.test.ts",
+    "packages/db/src/native-runner-recovery-migration.test.ts",
+    "packages/db/src/nested-skill-folders-migration.test.ts",
+    "packages/db/src/private-task-draft-assets-migration.test.ts",
+    "packages/db/src/project-skill-sources-migration.test.ts",
+    "packages/db/src/question-response-history-migration.test.ts",
+    "packages/db/src/run-identity-migration.test.ts",
+    "packages/db/src/session-goal-migration.test.ts",
+    "packages/db/src/speko-voice-migration.test.ts",
+    "packages/db/src/test-embedded-postgres.test.ts",
+    "packages/db/src/vercel-connect-credential-source-migration.test.ts"
+   ],
+   "helper:sql(...)": [
+    "packages/db/src/agent-chat-migration.test.ts",
+    "packages/db/src/better-auth-account-issuer-migration.test.ts",
+    "packages/db/src/built-in-agent-unique-marker-migration.test.ts"
+   ],
+   "option:connect_timeout": [
+    "packages/db/src/backup-lib.ts"
+   ],
+   "handle:json": [
+    "packages/db/src/built-in-agent-unique-marker-migration.test.ts",
+    "packages/db/src/chat-identity-migration-reconciliation.test.ts",
+    "packages/db/src/connection-grants-phase4-migration.test.ts",
+    "packages/db/src/connections-v3-schema-core-migration.test.ts",
+    "packages/db/src/heartbeat-run-issue-privacy-migration.test.ts",
+    "packages/db/src/inbox-archive-agent-policies-migration.test.ts",
+    "packages/db/src/nested-skill-folders-migration.test.ts",
+    "packages/db/src/session-goal-migration.test.ts",
+    "packages/db/src/vercel-connect-credential-source-migration.test.ts"
+   ],
+   "passed-to:drizzle": [
+    "packages/db/src/chat-identity-migration-reconciliation.test.ts",
+    "packages/db/src/client.test.ts"
+   ],
+   "handle:release": [
+    "packages/db/src/client.ts"
+   ],
+   "handle:split": [
+    "packages/db/src/muse-migration-idempotence.test.ts"
+   ]
+  }
+ },
+ "simstudioai__sim": {
+  "handles": {
+   "apps/sim/app/api/billing/update-cost/replay.live.test.ts": [
+    "client"
+   ],
+   "apps/sim/app/api/billing/update-cost/worker.live.test.ts": [
+    "client"
+   ],
+   "apps/sim/background/cleanup-soft-deletes.integration.ts": [
+    "control",
+    "tx"
+   ],
+   "apps/sim/background/cleanup-table-row-ttl-predicate.integration.ts": [
+    "client"
+   ],
+   "apps/sim/background/cleanup-table-row-ttl.integration.ts": [
+    "control",
+    "tx",
+    "trx"
+   ],
+   "apps/sim/ee/access-requests/lib/application/flow.integration.ts": [
+    "connection"
+   ],
+   "apps/sim/ee/access-requests/lib/impact.integration.ts": [
+    "client"
+   ],
+   "apps/sim/ee/access-requests/lib/repository.integration.ts": [
+    "client"
+   ],
+   "apps/sim/ee/workspace-forking/application/revision.integration.ts": [
+    "client"
+   ],
+   "apps/sim/ee/workspace-forking/lib/lineage/fork-lock-order.integration.ts": [
+    "client",
+    "setup"
+   ],
+   "apps/sim/executor/handlers/agent/memory-harness.integration.ts": [
+    "connection"
+   ],
+   "apps/sim/lib/api-key/byok.integration.ts": [
+    "admin"
+   ],
+   "apps/sim/lib/auth/sim-auth-adapter.integration.ts": [
+    "client"
+   ],
+   "apps/sim/lib/benchmarks/repository.integration.ts": [
+    "connection"
+   ],
+   "apps/sim/lib/billing/application/organization-billing/get-organization-plan-seats.integration.ts": [
+    "connection"
+   ],
+   "apps/sim/lib/billing/core/ledger-read.integration.ts": [
+    "connection"
+   ],
+   "apps/sim/lib/billing/core/organization-activity.integration.ts": [
+    "connection"
+   ],
+   "apps/sim/lib/billing/core/organization-usage-pagination.integration.ts": [
+    "connection"
+   ],
+   "apps/sim/lib/billing/core/reporting-usage-cache.integration.ts": [
+    "connection"
+   ],
+   "apps/sim/lib/billing/core/subscription.integration.ts": [
+    "admin"
+   ],
+   "apps/sim/lib/billing/core/usage-analytics-queries.integration.ts": [
+    "connection"
+   ],
+   "apps/sim/lib/billing/core/usage-log.integration.ts": [
+    "connection",
+    "tx"
+   ],
+   "apps/sim/lib/billing/core/usage-threshold-email.integration.ts": [
+    "connection"
+   ],
+   "apps/sim/lib/billing/organizations/member-limits.integration.ts": [
+    "connection"
+   ],
+   "apps/sim/lib/billing/storage/project-accounting.integration.ts": [
+    "admin",
+    "sql",
+    "observer"
+   ],
+   "apps/sim/lib/billing/webhooks/enterprise-missing-organization.integration.ts": [
+    "connection"
+   ],
+   "apps/sim/lib/billing/webhooks/stripe-sync-convergence.integration.ts": [
+    "connection",
+    "traced",
+    "sql"
+   ],
+   "apps/sim/lib/changelog/repository.integration.ts": [
+    "control",
+    "tx"
+   ],
+   "apps/sim/lib/computer-use/repository.integration.ts": [
+    "connection"
+   ],
+   "apps/sim/lib/core/outbox/retention.integration.ts": [
+    "connection"
+   ],
+   "apps/sim/lib/core/outbox/service.integration.ts": [
+    "connection",
+    "transaction"
+   ],
+   "apps/sim/lib/dashboards/repository.integration.ts": [
+    "connection"
+   ],
+   "apps/sim/lib/db/advisory-locks.integration.ts": [
+    "connection"
+   ],
+   "apps/sim/lib/knowledge/__integration__/connector-lease-pages.integration.ts": [
+    "holder",
+    "tx"
+   ],
+   "apps/sim/lib/knowledge/__integration__/knowledge-projection.integration.ts": [
+    "projector",
+    "other"
+   ],
+   "apps/sim/lib/knowledge/__integration__/migration-fixture.ts": [
+    "client"
+   ],
+   "apps/sim/lib/knowledge/__integration__/processing-lock-scope.integration.ts": [
+    "gate",
+    "deleter",
+    "tx"
+   ],
+   "apps/sim/lib/knowledge/connectors/sync-content-pass.integration.ts": [
+    "admin",
+    "sql"
+   ],
+   "apps/sim/lib/knowledge/connectors/sync-persistence.integration.ts": [
+    "admin",
+    "sql"
+   ],
+   "apps/sim/lib/knowledge/tags/date-tag-condition.integration.ts": [
+    "connection"
+   ],
+   "apps/sim/lib/memory/conversation-store.integration.ts": [
+    "connection"
+   ],
+   "apps/sim/lib/memory/message-provenance.integration.ts": [
+    "connection"
+   ],
+   "apps/sim/lib/memory/summary-store.integration.ts": [
+    "connection"
+   ],
+   "apps/sim/lib/mothership/agent-cli/saved-run-read.live.test.ts": [
+    "client"
+   ],
+   "apps/sim/lib/mothership/async-runs/browser-download-claim.integration.ts": [
+    "connection"
+   ],
+   "apps/sim/lib/mothership/async-runs/tool-identity.integration.ts": [
+    "connection"
+   ],
+   "apps/sim/lib/mothership/billing/service-store.integration.ts": [
+    "client"
+   ],
+   "apps/sim/lib/projects/__integration__/backfill-repair.integration.ts": [
+    "admin",
+    "client",
+    "holder",
+    "tx"
+   ],
+   "apps/sim/lib/projects/__integration__/foundation.integration.ts": [
+    "admin",
+    "client"
+   ],
+   "apps/sim/lib/projects/files/__integration__/retention.integration.ts": [
+    "control"
+   ],
+   "apps/sim/lib/table/analytics/postgres.integration.ts": [
+    "client"
+   ],
+   "apps/sim/lib/table/dispatcher.integration.ts": [
+    "control",
+    "tx"
+   ],
+   "apps/sim/lib/table/row-changes.integration.ts": [
+    "control",
+    "holder"
+   ],
+   "apps/sim/lib/table/rows/secret-provenance.integration.ts": [
+    "connection",
+    "writer"
+   ],
+   "apps/sim/lib/table/rows/writes.integration.ts": [
+    "control",
+    "holder",
+    "tx",
+    "first",
+    "second"
+   ],
+   "apps/sim/lib/uploads/upload-session/workspace-file-provenance.integration.ts": [
+    "client"
+   ],
+   "apps/sim/lib/workspace-files/search/chunks.integration.ts": [
+    "connection",
+    "searchConnection",
+    "writer",
+    "session",
+    "held"
+   ],
+   "apps/sim/lib/workspace-files/search/dispatcher.integration.ts": [
+    "connection",
+    "session",
+    "tx",
+    "holder",
+    "plan"
+   ],
+   "apps/sim/lib/workspace-files/search/index-plan.integration.ts": [
+    "connection"
+   ],
+   "apps/sim/lib/workspaces/organization-workspaces.integration.ts": [
+    "connection"
+   ],
+   "apps/sim/scripts/backfill-projects.ts": [
+    "sql"
+   ],
+   "apps/sim/scripts/create-oauth-client.ts": [
+    "postgresClient"
+   ],
+   "apps/sim/scripts/prewarm-search-projection.ts": [
+    "sql"
+   ],
+   "apps/sim/scripts/repair-table-order-key-collation.ts": [
+    "client"
+   ],
+   "apps/sim/scripts/test-cli-run-latency-e2e.ts": [
+    "sql",
+    "tx"
+   ],
+   "apps/sim/scripts/test-desktop-inbox-e2e.ts": [
+    "sql",
+    "tx"
+   ],
+   "apps/sim/scripts/test-mobile-e2e.ts": [
+    "sql",
+    "tx"
+   ],
+   "apps/sim/scripts/test-project-file-public-e2e.ts": [
+    "sql"
+   ],
+   "apps/sim/scripts/test-project-files-e2e.ts": [
+    "admin",
+    "sql",
+    "tx"
+   ],
+   "apps/sim/scripts/test-scim-e2e.ts": [
+    "sql",
+    "tx"
+   ],
+   "apps/sim/scripts/test-shared-resource-lifecycle-e2e.ts": [
+    "sql",
+    "tx"
+   ],
+   "apps/sim/scripts/test-workflow-stop-after-e2e.ts": [
+    "sql",
+    "tx"
+   ],
+   "apps/sim/scripts/test-workflow-version-compare-e2e.ts": [
+    "sql",
+    "tx"
+   ],
+   "packages/db/embedding-width-migration.integration.ts": [
+    "admin",
+    "sql",
+    "writer",
+    "tx",
+    "plan"
+   ],
+   "packages/db/file-creator-lifetime.integration.ts": [
+    "admin",
+    "sql"
+   ],
+   "packages/db/file-entity-ownership.integration.ts": [
+    "admin",
+    "sql",
+    "tx"
+   ],
+   "packages/db/file-folder-version-ownership.integration.ts": [
+    "admin",
+    "sql",
+    "tx"
+   ],
+   "packages/db/large-table-vacuum-throttle-migration.integration.ts": [
+    "admin"
+   ],
+   "packages/db/maintenance/search-retirement.integration.ts": [
+    "source",
+    "control",
+    "setup",
+    "admin",
+    "sql",
+    "writer",
+    "barrier",
+    "tx"
+   ],
+   "packages/db/member-sync-status-migration.integration.ts": [
+    "admin",
+    "sql"
+   ],
+   "packages/db/organization-search-migration.integration.ts": [
+    "client",
+    "sql"
+   ],
+   "packages/db/permission-access-requests-migration.integration.ts": [
+    "client",
+    "sql"
+   ],
+   "packages/db/public-share-ownership.integration.ts": [
+    "admin",
+    "sql",
+    "worker",
+    "tx"
+   ],
+   "packages/db/script-migrations/0013_backfill_legacy_knowledge_base_workspaces.integration.ts": [
+    "admin",
+    "sql",
+    "tx"
+   ],
+   "packages/db/script-migrations/0014_require_knowledge_base_owner.integration.ts": [
+    "admin",
+    "sql",
+    "tx"
+   ],
+   "packages/db/script-migrations/0015_backfill_embedding_search.ts": [
+    "sql",
+    "tx",
+    "[page]"
+   ],
+   "packages/db/script-migrations/0016_backfill_search_vectors.integration.ts": [
+    "admin",
+    "sql",
+    "writer",
+    "tx"
+   ],
+   "packages/db/script-migrations/0016_backfill_search_vectors.ts": [
+    "sql",
+    "tx",
+    "[page]"
+   ],
+   "packages/db/script-migrations/0018_repair_workspace_file_content_revision.integration.ts": [
+    "admin",
+    "sql"
+   ],
+   "packages/db/script-migrations/0021_embedding_search_connector.integration.ts": [
+    "admin",
+    "sql",
+    "tx"
+   ],
+   "packages/db/script-migrations/0021_embedding_search_connector.ts": [
+    "sql",
+    "tx"
+   ],
+   "packages/db/script-migrations/0024_knowledge_projection_async.ts": [
+    "sql",
+    "tx"
+   ],
+   "packages/db/script-migrations/0026_user_table_schema_for_write.ts": [
+    "sql"
+   ],
+   "packages/db/script-migrations/0030_retire_keyword_writers.integration.ts": [
+    "admin",
+    "sql",
+    "writer"
+   ],
+   "packages/db/script-migrations/0030_retire_keyword_writers.ts": [
+    "sql",
+    "tx"
+   ],
+   "packages/db/script-migrations/0031_drop_keyword_tin.ts": [
+    "sql",
+    "tx"
+   ],
+   "packages/db/scripts/apply-dev-table-triggers.ts": [
+    "sql",
+    "tx",
+    "reconciled"
+   ],
+   "packages/db/scripts/backfill-api-key-hash.ts": [
+    "postgresClient"
+   ],
+   "packages/db/scripts/database-failure-classification.integration.ts": [
+    "admin",
+    "client"
+   ],
+   "packages/db/scripts/deregister-sso-provider.ts": [
+    "postgresClient"
+   ],
+   "packages/db/scripts/file-ownership-reconciliation.integration.ts": [
+    "admin",
+    "sql"
+   ],
+   "packages/db/scripts/migrate-block-api-keys-to-byok.ts": [
+    "postgresClient"
+   ],
+   "packages/db/scripts/migrate-deployment-versions.ts": [
+    "postgresClient"
+   ],
+   "packages/db/scripts/migrate-slack-custom-bots.ts": [
+    "postgresClient",
+    "lockClient",
+    "connection"
+   ],
+   "packages/db/scripts/migrate.ts": [
+    "client"
+   ],
+   "packages/db/scripts/migration-fixture.ts": [
+    "sql"
+   ],
+   "packages/db/scripts/prepare-push.ts": [
+    "sql",
+    "tx"
+   ],
+   "packages/db/scripts/project-authority.integration.ts": [
+    "admin",
+    "sql",
+    "runner",
+    "tx"
+   ],
+   "packages/db/scripts/project-contract-required.ts": [
+    "sql"
+   ],
+   "packages/db/scripts/project-contract.integration.ts": [
+    "admin",
+    "sql",
+    "runner",
+    "scoped",
+    "reserved",
+    "tx",
+    "competing",
+    "connection",
+    "move"
+   ],
+   "packages/db/scripts/push.integration.ts": [
+    "admin",
+    "sql",
+    "scoped",
+    "tx"
+   ],
+   "packages/db/scripts/push.ts": [
+    "sql",
+    "tx"
+   ],
+   "packages/db/scripts/reconcile-credential-group-resource-policies.ts": [
+    "sql"
+   ],
+   "packages/db/scripts/reconcile-file-ownership.ts": [
+    "sql",
+    "tx"
+   ],
+   "packages/db/scripts/reconcile-fork-kb-file-ownership.ts": [
+    "sql"
+   ],
+   "packages/db/scripts/reconcile-oauth-provider.ts": [
+    "sql"
+   ],
+   "packages/db/scripts/reconcile-project-membership.ts": [
+    "sql"
+   ],
+   "packages/db/scripts/reconcile-workspace-storage.ts": [
+    "sql"
+   ],
+   "packages/db/scripts/register-sso-provider.ts": [
+    "postgresClient"
+   ],
+   "packages/db/scripts/retire-indexed-search.ts": [
+    "sql"
+   ],
+   "packages/db/scripts/workspace-project-column.integration.ts": [
+    "writer"
+   ],
+   "packages/db/timestamps.test.ts": [
+    "client"
+   ],
+   "packages/sim-setup/src/probes.ts": [
+    "sql"
+   ]
+  },
+  "features": {
+   "option:max": [
+    "apps/desktop/e2e/fixtures/live-sim.ts",
+    "apps/sim/app/api/billing/update-cost/replay.live.test.ts",
+    "apps/sim/app/api/billing/update-cost/worker.live.test.ts",
+    "apps/sim/background/cleanup-soft-deletes.integration.ts",
+    "apps/sim/background/cleanup-table-row-ttl-predicate.integration.ts",
+    "apps/sim/background/cleanup-table-row-ttl.integration.ts",
+    "apps/sim/ee/access-requests/lib/application/flow.integration.ts",
+    "apps/sim/ee/access-requests/lib/impact.integration.ts",
+    "apps/sim/ee/access-requests/lib/repository.integration.ts",
+    "apps/sim/ee/workspace-forking/application/revision.integration.ts",
+    "apps/sim/ee/workspace-forking/lib/lineage/fork-lock-order.integration.ts",
+    "apps/sim/executor/handlers/agent/memory-harness.integration.ts",
+    "apps/sim/lib/api-key/byok.integration.ts",
+    "apps/sim/lib/billing/application/organization-billing/get-organization-plan-seats.integration.ts",
+    "apps/sim/lib/billing/core/ledger-read.integration.ts",
+    "apps/sim/lib/billing/core/organization-activity.integration.ts",
+    "apps/sim/lib/billing/core/organization-usage-pagination.integration.ts",
+    "apps/sim/lib/billing/core/reporting-usage-cache.integration.ts",
+    "apps/sim/lib/billing/core/subscription.integration.ts",
+    "apps/sim/lib/billing/core/usage-analytics-queries.integration.ts",
+    "apps/sim/lib/billing/core/usage-log.integration.ts",
+    "apps/sim/lib/billing/core/usage-threshold-email.integration.ts",
+    "apps/sim/lib/billing/organizations/member-limits.integration.ts",
+    "apps/sim/lib/billing/storage/project-accounting.integration.ts",
+    "apps/sim/lib/changelog/repository.integration.ts",
+    "apps/sim/lib/computer-use/repository.integration.ts",
+    "apps/sim/lib/db/advisory-locks.integration.ts",
+    "apps/sim/lib/internal/postgresql/client.ts",
+    "apps/sim/lib/knowledge/__integration__/connector-lease-pages.integration.ts",
+    "apps/sim/lib/knowledge/__integration__/knowledge-projection.integration.ts",
+    "apps/sim/lib/knowledge/__integration__/migration-fixture.ts",
+    "apps/sim/lib/knowledge/__integration__/processing-lock-scope.integration.ts",
+    "apps/sim/lib/knowledge/connectors/sync-content-pass.integration.ts",
+    "apps/sim/lib/knowledge/connectors/sync-persistence.integration.ts",
+    "apps/sim/lib/memory/conversation-store.integration.ts",
+    "apps/sim/lib/memory/message-provenance.integration.ts",
+    "apps/sim/lib/memory/summary-store.integration.ts",
+    "apps/sim/lib/mothership/agent-cli/saved-run-read.live.test.ts",
+    "apps/sim/lib/mothership/async-runs/browser-download-claim.integration.ts",
+    "apps/sim/lib/mothership/async-runs/tool-identity.integration.ts",
+    "apps/sim/lib/mothership/billing/service-store.integration.ts",
+    "apps/sim/lib/projects/__integration__/backfill-repair.integration.ts",
+    "apps/sim/lib/projects/__integration__/foundation.integration.ts",
+    "apps/sim/lib/projects/files/__integration__/retention.integration.ts",
+    "apps/sim/lib/table/analytics/postgres.integration.ts",
+    "apps/sim/lib/table/dispatcher.integration.ts",
+    "apps/sim/lib/table/row-changes.integration.ts",
+    "apps/sim/lib/table/rows/writes.integration.ts",
+    "apps/sim/lib/uploads/upload-session/workspace-file-provenance.integration.ts",
+    "apps/sim/lib/workspace-files/search/chunks.integration.ts",
+    "apps/sim/lib/workspace-files/search/index-plan.integration.ts",
+    "apps/sim/lib/workspaces/organization-workspaces.integration.ts",
+    "apps/sim/scripts/create-oauth-client.ts",
+    "apps/sim/scripts/prewarm-search-projection.ts",
+    "apps/sim/scripts/repair-table-order-key-collation.ts",
+    "apps/sim/scripts/test-cli-run-latency-e2e.ts",
+    "apps/sim/scripts/test-desktop-inbox-e2e.ts",
+    "apps/sim/scripts/test-mobile-e2e.ts",
+    "apps/sim/scripts/test-project-file-public-e2e.ts",
+    "apps/sim/scripts/test-project-files-e2e.ts",
+    "apps/sim/scripts/test-scim-e2e.ts",
+    "apps/sim/scripts/test-shared-resource-lifecycle-e2e.ts",
+    "apps/sim/scripts/test-workflow-stop-after-e2e.ts",
+    "apps/sim/scripts/test-workflow-version-compare-e2e.ts",
+    "packages/db/db.ts",
+    "packages/db/embedding-width-migration.integration.ts",
+    "packages/db/file-creator-lifetime.integration.ts",
+    "packages/db/file-entity-ownership.integration.ts",
+    "packages/db/file-folder-version-ownership.integration.ts",
+    "packages/db/large-table-vacuum-throttle-migration.integration.ts",
+    "packages/db/maintenance/search-retirement.integration.ts",
+    "packages/db/member-sync-status-migration.integration.ts",
+    "packages/db/organization-search-migration.integration.ts",
+    "packages/db/permission-access-requests-migration.integration.ts",
+    "packages/db/public-share-ownership.integration.ts",
+    "packages/db/script-migrations/0013_backfill_legacy_knowledge_base_workspaces.integration.ts",
+    "packages/db/script-migrations/0014_require_knowledge_base_owner.integration.ts",
+    "packages/db/script-migrations/0015_backfill_embedding_search.ts",
+    "packages/db/script-migrations/0016_backfill_search_vectors.integration.ts",
+    "packages/db/script-migrations/0016_backfill_search_vectors.ts",
+    "packages/db/script-migrations/0018_repair_workspace_file_content_revision.integration.ts",
+    "packages/db/script-migrations/0021_embedding_search_connector.integration.ts",
+    "packages/db/script-migrations/0021_embedding_search_connector.ts",
+    "packages/db/script-migrations/0024_knowledge_projection_async.ts",
+    "packages/db/script-migrations/0026_user_table_schema_for_write.ts",
+    "packages/db/script-migrations/0030_retire_keyword_writers.integration.ts",
+    "packages/db/script-migrations/0030_retire_keyword_writers.ts",
+    "packages/db/script-migrations/0031_drop_keyword_tin.ts",
+    "packages/db/scripts/apply-dev-table-triggers.ts",
+    "packages/db/scripts/backfill-api-key-hash.ts",
+    "packages/db/scripts/database-failure-classification.integration.ts",
+    "packages/db/scripts/deregister-sso-provider.ts",
+    "packages/db/scripts/file-ownership-reconciliation.integration.ts",
+    "packages/db/scripts/migrate-block-api-keys-to-byok.ts",
+    "packages/db/scripts/migrate-deployment-versions.ts",
+    "packages/db/scripts/migrate-slack-custom-bots.ts",
+    "packages/db/scripts/migrate.ts",
+    "packages/db/scripts/migration-fixture.ts",
+    "packages/db/scripts/prepare-push.ts",
+    "packages/db/scripts/project-authority.integration.ts",
+    "packages/db/scripts/project-contract-required.ts",
+    "packages/db/scripts/project-contract.integration.ts",
+    "packages/db/scripts/push.integration.ts",
+    "packages/db/scripts/push.ts",
+    "packages/db/scripts/reconcile-credential-group-resource-policies.ts",
+    "packages/db/scripts/reconcile-file-ownership.ts",
+    "packages/db/scripts/reconcile-fork-kb-file-ownership.ts",
+    "packages/db/scripts/reconcile-oauth-provider.ts",
+    "packages/db/scripts/reconcile-project-membership.ts",
+    "packages/db/scripts/reconcile-workspace-storage.ts",
+    "packages/db/scripts/register-sso-provider.ts",
+    "packages/db/scripts/retire-indexed-search.ts",
+    "packages/db/scripts/workspace-project-column.integration.ts",
+    "packages/sim-setup/src/probes.ts"
+   ],
+   "option:onnotice": [
+    "apps/desktop/e2e/fixtures/live-sim.ts",
+    "apps/sim/app/api/billing/update-cost/replay.live.test.ts",
+    "apps/sim/app/api/billing/update-cost/worker.live.test.ts",
+    "apps/sim/background/cleanup-soft-deletes.integration.ts",
+    "apps/sim/background/cleanup-table-row-ttl.integration.ts",
+    "apps/sim/ee/access-requests/lib/application/flow.integration.ts",
+    "apps/sim/ee/access-requests/lib/impact.integration.ts",
+    "apps/sim/ee/access-requests/lib/repository.integration.ts",
+    "apps/sim/ee/workspace-forking/lib/lineage/fork-lock-order.integration.ts",
+    "apps/sim/executor/handlers/agent/memory-harness.integration.ts",
+    "apps/sim/lib/api-key/byok.integration.ts",
+    "apps/sim/lib/billing/application/organization-billing/get-organization-plan-seats.integration.ts",
+    "apps/sim/lib/billing/core/ledger-read.integration.ts",
+    "apps/sim/lib/billing/core/organization-activity.integration.ts",
+    "apps/sim/lib/billing/core/organization-usage-pagination.integration.ts",
+    "apps/sim/lib/billing/core/reporting-usage-cache.integration.ts",
+    "apps/sim/lib/billing/core/subscription.integration.ts",
+    "apps/sim/lib/billing/core/usage-analytics-queries.integration.ts",
+    "apps/sim/lib/billing/core/usage-log.integration.ts",
+    "apps/sim/lib/billing/core/usage-threshold-email.integration.ts",
+    "apps/sim/lib/billing/organizations/member-limits.integration.ts",
+    "apps/sim/lib/billing/storage/project-accounting.integration.ts",
+    "apps/sim/lib/changelog/repository.integration.ts",
+    "apps/sim/lib/db/advisory-locks.integration.ts",
+    "apps/sim/lib/knowledge/__integration__/connector-lease-pages.integration.ts",
+    "apps/sim/lib/knowledge/__integration__/knowledge-projection.integration.ts",
+    "apps/sim/lib/knowledge/__integration__/processing-lock-scope.integration.ts",
+    "apps/sim/lib/knowledge/connectors/sync-content-pass.integration.ts",
+    "apps/sim/lib/knowledge/connectors/sync-persistence.integration.ts",
+    "apps/sim/lib/memory/conversation-store.integration.ts",
+    "apps/sim/lib/memory/message-provenance.integration.ts",
+    "apps/sim/lib/memory/summary-store.integration.ts",
+    "apps/sim/lib/mothership/agent-cli/saved-run-read.live.test.ts",
+    "apps/sim/lib/mothership/billing/service-store.integration.ts",
+    "apps/sim/lib/projects/__integration__/backfill-repair.integration.ts",
+    "apps/sim/lib/projects/__integration__/foundation.integration.ts",
+    "apps/sim/lib/projects/files/__integration__/retention.integration.ts",
+    "apps/sim/lib/table/dispatcher.integration.ts",
+    "apps/sim/lib/table/row-changes.integration.ts",
+    "apps/sim/lib/table/rows/writes.integration.ts",
+    "apps/sim/lib/workspace-files/search/index-plan.integration.ts",
+    "apps/sim/lib/workspaces/organization-workspaces.integration.ts",
+    "apps/sim/scripts/create-oauth-client.ts",
+    "apps/sim/scripts/prewarm-search-projection.ts",
+    "apps/sim/scripts/repair-table-order-key-collation.ts",
+    "packages/db/embedding-width-migration.integration.ts",
+    "packages/db/file-creator-lifetime.integration.ts",
+    "packages/db/file-entity-ownership.integration.ts",
+    "packages/db/file-folder-version-ownership.integration.ts",
+    "packages/db/large-table-vacuum-throttle-migration.integration.ts",
+    "packages/db/maintenance/search-retirement.integration.ts",
+    "packages/db/member-sync-status-migration.integration.ts",
+    "packages/db/organization-search-migration.integration.ts",
+    "packages/db/permission-access-requests-migration.integration.ts",
+    "packages/db/public-share-ownership.integration.ts",
+    "packages/db/script-migrations/0013_backfill_legacy_knowledge_base_workspaces.integration.ts",
+    "packages/db/script-migrations/0014_require_knowledge_base_owner.integration.ts",
+    "packages/db/script-migrations/0015_backfill_embedding_search.ts",
+    "packages/db/script-migrations/0016_backfill_search_vectors.integration.ts",
+    "packages/db/script-migrations/0016_backfill_search_vectors.ts",
+    "packages/db/script-migrations/0018_repair_workspace_file_content_revision.integration.ts",
+    "packages/db/script-migrations/0021_embedding_search_connector.integration.ts",
+    "packages/db/script-migrations/0021_embedding_search_connector.ts",
+    "packages/db/script-migrations/0024_knowledge_projection_async.ts",
+    "packages/db/script-migrations/0026_user_table_schema_for_write.ts",
+    "packages/db/script-migrations/0030_retire_keyword_writers.integration.ts",
+    "packages/db/script-migrations/0030_retire_keyword_writers.ts",
+    "packages/db/script-migrations/0031_drop_keyword_tin.ts",
+    "packages/db/scripts/backfill-api-key-hash.ts",
+    "packages/db/scripts/deregister-sso-provider.ts",
+    "packages/db/scripts/file-ownership-reconciliation.integration.ts",
+    "packages/db/scripts/migrate-block-api-keys-to-byok.ts",
+    "packages/db/scripts/migrate-deployment-versions.ts",
+    "packages/db/scripts/migrate-slack-custom-bots.ts",
+    "packages/db/scripts/migration-fixture.ts",
+    "packages/db/scripts/project-authority.integration.ts",
+    "packages/db/scripts/project-contract.integration.ts",
+    "packages/db/scripts/push.integration.ts",
+    "packages/db/scripts/push.ts",
+    "packages/db/scripts/register-sso-provider.ts",
+    "packages/db/scripts/retire-indexed-search.ts",
+    "packages/sim-setup/src/probes.ts"
+   ],
+   "option:connection": [
+    "apps/sim/app/api/billing/update-cost/replay.live.test.ts",
+    "apps/sim/app/api/billing/update-cost/worker.live.test.ts",
+    "apps/sim/ee/access-requests/lib/application/flow.integration.ts",
+    "apps/sim/ee/workspace-forking/application/revision.integration.ts",
+    "apps/sim/ee/workspace-forking/lib/lineage/fork-lock-order.integration.ts",
+    "apps/sim/executor/handlers/agent/memory-harness.integration.ts",
+    "apps/sim/lib/api-key/byok.integration.ts",
+    "apps/sim/lib/billing/application/organization-billing/get-organization-plan-seats.integration.ts",
+    "apps/sim/lib/billing/core/ledger-read.integration.ts",
+    "apps/sim/lib/billing/core/organization-activity.integration.ts",
+    "apps/sim/lib/billing/core/organization-usage-pagination.integration.ts",
+    "apps/sim/lib/billing/core/reporting-usage-cache.integration.ts",
+    "apps/sim/lib/billing/core/subscription.integration.ts",
+    "apps/sim/lib/billing/core/usage-analytics-queries.integration.ts",
+    "apps/sim/lib/billing/core/usage-log.integration.ts",
+    "apps/sim/lib/billing/core/usage-threshold-email.integration.ts",
+    "apps/sim/lib/billing/organizations/member-limits.integration.ts",
+    "apps/sim/lib/billing/storage/project-accounting.integration.ts",
+    "apps/sim/lib/computer-use/repository.integration.ts",
+    "apps/sim/lib/knowledge/connectors/sync-content-pass.integration.ts",
+    "apps/sim/lib/knowledge/connectors/sync-persistence.integration.ts",
+    "apps/sim/lib/memory/conversation-store.integration.ts",
+    "apps/sim/lib/memory/message-provenance.integration.ts",
+    "apps/sim/lib/memory/summary-store.integration.ts",
+    "apps/sim/lib/mothership/agent-cli/saved-run-read.live.test.ts",
+    "apps/sim/lib/mothership/async-runs/browser-download-claim.integration.ts",
+    "apps/sim/lib/mothership/billing/service-store.integration.ts",
+    "apps/sim/lib/workspace-files/search/chunks.integration.ts",
+    "apps/sim/lib/workspaces/organization-workspaces.integration.ts",
+    "packages/db/embedding-width-migration.integration.ts",
+    "packages/db/file-creator-lifetime.integration.ts",
+    "packages/db/file-entity-ownership.integration.ts",
+    "packages/db/file-folder-version-ownership.integration.ts",
+    "packages/db/large-table-vacuum-throttle-migration.integration.ts",
+    "packages/db/member-sync-status-migration.integration.ts",
+    "packages/db/public-share-ownership.integration.ts",
+    "packages/db/script-migrations/0013_backfill_legacy_knowledge_base_workspaces.integration.ts",
+    "packages/db/script-migrations/0014_require_knowledge_base_owner.integration.ts",
+    "packages/db/script-migrations/0016_backfill_search_vectors.integration.ts",
+    "packages/db/script-migrations/0018_repair_workspace_file_content_revision.integration.ts",
+    "packages/db/script-migrations/0021_embedding_search_connector.integration.ts",
+    "packages/db/scripts/apply-dev-table-triggers.ts",
+    "packages/db/scripts/migrate-slack-custom-bots.ts",
+    "packages/db/scripts/migrate.ts",
+    "packages/db/scripts/project-contract-required.ts",
+    "packages/db/scripts/project-contract.integration.ts",
+    "packages/db/scripts/push.integration.ts",
+    "packages/db/scripts/push.ts",
+    "packages/db/scripts/reconcile-credential-group-resource-policies.ts",
+    "packages/db/scripts/reconcile-fork-kb-file-ownership.ts",
+    "packages/db/scripts/reconcile-oauth-provider.ts",
+    "packages/db/scripts/reconcile-workspace-storage.ts",
+    "packages/db/scripts/retire-indexed-search.ts"
+   ],
+   "option:connection.search_path": [
+    "apps/sim/app/api/billing/update-cost/replay.live.test.ts",
+    "apps/sim/app/api/billing/update-cost/worker.live.test.ts",
+    "apps/sim/ee/access-requests/lib/application/flow.integration.ts",
+    "apps/sim/ee/workspace-forking/application/revision.integration.ts",
+    "apps/sim/ee/workspace-forking/lib/lineage/fork-lock-order.integration.ts",
+    "apps/sim/executor/handlers/agent/memory-harness.integration.ts",
+    "apps/sim/lib/api-key/byok.integration.ts",
+    "apps/sim/lib/billing/application/organization-billing/get-organization-plan-seats.integration.ts",
+    "apps/sim/lib/billing/core/ledger-read.integration.ts",
+    "apps/sim/lib/billing/core/organization-activity.integration.ts",
+    "apps/sim/lib/billing/core/organization-usage-pagination.integration.ts",
+    "apps/sim/lib/billing/core/reporting-usage-cache.integration.ts",
+    "apps/sim/lib/billing/core/subscription.integration.ts",
+    "apps/sim/lib/billing/core/usage-analytics-queries.integration.ts",
+    "apps/sim/lib/billing/core/usage-log.integration.ts",
+    "apps/sim/lib/billing/core/usage-threshold-email.integration.ts",
+    "apps/sim/lib/billing/organizations/member-limits.integration.ts",
+    "apps/sim/lib/billing/storage/project-accounting.integration.ts",
+    "apps/sim/lib/computer-use/repository.integration.ts",
+    "apps/sim/lib/knowledge/connectors/sync-content-pass.integration.ts",
+    "apps/sim/lib/knowledge/connectors/sync-persistence.integration.ts",
+    "apps/sim/lib/memory/conversation-store.integration.ts",
+    "apps/sim/lib/memory/message-provenance.integration.ts",
+    "apps/sim/lib/memory/summary-store.integration.ts",
+    "apps/sim/lib/mothership/agent-cli/saved-run-read.live.test.ts",
+    "apps/sim/lib/mothership/async-runs/browser-download-claim.integration.ts",
+    "apps/sim/lib/mothership/billing/service-store.integration.ts",
+    "apps/sim/lib/workspace-files/search/chunks.integration.ts",
+    "apps/sim/lib/workspaces/organization-workspaces.integration.ts",
+    "packages/db/embedding-width-migration.integration.ts",
+    "packages/db/file-creator-lifetime.integration.ts",
+    "packages/db/file-entity-ownership.integration.ts",
+    "packages/db/file-folder-version-ownership.integration.ts",
+    "packages/db/large-table-vacuum-throttle-migration.integration.ts",
+    "packages/db/member-sync-status-migration.integration.ts",
+    "packages/db/public-share-ownership.integration.ts",
+    "packages/db/script-migrations/0013_backfill_legacy_knowledge_base_workspaces.integration.ts",
+    "packages/db/script-migrations/0014_require_knowledge_base_owner.integration.ts",
+    "packages/db/script-migrations/0016_backfill_search_vectors.integration.ts",
+    "packages/db/script-migrations/0018_repair_workspace_file_content_revision.integration.ts",
+    "packages/db/script-migrations/0021_embedding_search_connector.integration.ts",
+    "packages/db/scripts/project-contract.integration.ts",
+    "packages/db/scripts/push.integration.ts"
+   ],
+   "handle:unsafe": [
+    "apps/sim/app/api/billing/update-cost/replay.live.test.ts",
+    "apps/sim/app/api/billing/update-cost/worker.live.test.ts",
+    "apps/sim/background/cleanup-table-row-ttl-predicate.integration.ts",
+    "apps/sim/background/cleanup-table-row-ttl.integration.ts",
+    "apps/sim/ee/access-requests/lib/application/flow.integration.ts",
+    "apps/sim/ee/access-requests/lib/impact.integration.ts",
+    "apps/sim/ee/access-requests/lib/repository.integration.ts",
+    "apps/sim/ee/workspace-forking/application/revision.integration.ts",
+    "apps/sim/ee/workspace-forking/lib/lineage/fork-lock-order.integration.ts",
+    "apps/sim/executor/handlers/agent/memory-harness.integration.ts",
+    "apps/sim/lib/api-key/byok.integration.ts",
+    "apps/sim/lib/billing/application/organization-billing/get-organization-plan-seats.integration.ts",
+    "apps/sim/lib/billing/core/ledger-read.integration.ts",
+    "apps/sim/lib/billing/core/organization-activity.integration.ts",
+    "apps/sim/lib/billing/core/organization-usage-pagination.integration.ts",
+    "apps/sim/lib/billing/core/reporting-usage-cache.integration.ts",
+    "apps/sim/lib/billing/core/usage-analytics-queries.integration.ts",
+    "apps/sim/lib/billing/core/usage-log.integration.ts",
+    "apps/sim/lib/billing/core/usage-threshold-email.integration.ts",
+    "apps/sim/lib/billing/organizations/member-limits.integration.ts",
+    "apps/sim/lib/billing/storage/project-accounting.integration.ts",
+    "apps/sim/lib/billing/webhooks/enterprise-missing-organization.integration.ts",
+    "apps/sim/lib/billing/webhooks/stripe-sync-convergence.integration.ts",
+    "apps/sim/lib/computer-use/repository.integration.ts",
+    "apps/sim/lib/knowledge/__integration__/migration-fixture.ts",
+    "apps/sim/lib/knowledge/__integration__/processing-lock-scope.integration.ts",
+    "apps/sim/lib/knowledge/connectors/sync-content-pass.integration.ts",
+    "apps/sim/lib/knowledge/connectors/sync-persistence.integration.ts",
+    "apps/sim/lib/knowledge/tags/date-tag-condition.integration.ts",
+    "apps/sim/lib/memory/conversation-store.integration.ts",
+    "apps/sim/lib/memory/message-provenance.integration.ts",
+    "apps/sim/lib/memory/summary-store.integration.ts",
+    "apps/sim/lib/mothership/async-runs/browser-download-claim.integration.ts",
+    "apps/sim/lib/mothership/async-runs/tool-identity.integration.ts",
+    "apps/sim/lib/mothership/billing/service-store.integration.ts",
+    "apps/sim/lib/projects/__integration__/backfill-repair.integration.ts",
+    "apps/sim/lib/projects/__integration__/foundation.integration.ts",
+    "apps/sim/lib/table/analytics/postgres.integration.ts",
+    "apps/sim/lib/table/rows/secret-provenance.integration.ts",
+    "apps/sim/lib/workspace-files/search/chunks.integration.ts",
+    "apps/sim/lib/workspace-files/search/dispatcher.integration.ts",
+    "apps/sim/lib/workspaces/organization-workspaces.integration.ts",
+    "apps/sim/scripts/test-project-files-e2e.ts",
+    "packages/db/embedding-width-migration.integration.ts",
+    "packages/db/file-creator-lifetime.integration.ts",
+    "packages/db/file-entity-ownership.integration.ts",
+    "packages/db/file-folder-version-ownership.integration.ts",
+    "packages/db/large-table-vacuum-throttle-migration.integration.ts",
+    "packages/db/maintenance/search-retirement.integration.ts",
+    "packages/db/member-sync-status-migration.integration.ts",
+    "packages/db/organization-search-migration.integration.ts",
+    "packages/db/permission-access-requests-migration.integration.ts",
+    "packages/db/public-share-ownership.integration.ts",
+    "packages/db/script-migrations/0013_backfill_legacy_knowledge_base_workspaces.integration.ts",
+    "packages/db/script-migrations/0014_require_knowledge_base_owner.integration.ts",
+    "packages/db/script-migrations/0015_backfill_embedding_search.ts",
+    "packages/db/script-migrations/0016_backfill_search_vectors.integration.ts",
+    "packages/db/script-migrations/0016_backfill_search_vectors.ts",
+    "packages/db/script-migrations/0018_repair_workspace_file_content_revision.integration.ts",
+    "packages/db/script-migrations/0021_embedding_search_connector.integration.ts",
+    "packages/db/script-migrations/0021_embedding_search_connector.ts",
+    "packages/db/script-migrations/0024_knowledge_projection_async.ts",
+    "packages/db/script-migrations/0026_user_table_schema_for_write.ts",
+    "packages/db/script-migrations/0030_retire_keyword_writers.integration.ts",
+    "packages/db/script-migrations/0030_retire_keyword_writers.ts",
+    "packages/db/script-migrations/0031_drop_keyword_tin.ts",
+    "packages/db/scripts/apply-dev-table-triggers.ts",
+    "packages/db/scripts/migrate.ts",
+    "packages/db/scripts/migration-fixture.ts",
+    "packages/db/scripts/prepare-push.ts",
+    "packages/db/scripts/project-authority.integration.ts",
+    "packages/db/scripts/project-contract.integration.ts",
+    "packages/db/scripts/push.integration.ts",
+    "packages/db/scripts/reconcile-file-ownership.ts",
+    "packages/db/scripts/workspace-project-column.integration.ts"
+   ],
+   "tagged-query": [
+    "apps/sim/app/api/billing/update-cost/replay.live.test.ts",
+    "apps/sim/app/api/billing/update-cost/worker.live.test.ts",
+    "apps/sim/background/cleanup-soft-deletes.integration.ts",
+    "apps/sim/background/cleanup-table-row-ttl-predicate.integration.ts",
+    "apps/sim/background/cleanup-table-row-ttl.integration.ts",
+    "apps/sim/ee/access-requests/lib/application/flow.integration.ts",
+    "apps/sim/ee/workspace-forking/application/revision.integration.ts",
+    "apps/sim/ee/workspace-forking/lib/lineage/fork-lock-order.integration.ts",
+    "apps/sim/executor/handlers/agent/memory-harness.integration.ts",
+    "apps/sim/lib/api-key/byok.integration.ts",
+    "apps/sim/lib/auth/sim-auth-adapter.integration.ts",
+    "apps/sim/lib/benchmarks/repository.integration.ts",
+    "apps/sim/lib/billing/application/organization-billing/get-organization-plan-seats.integration.ts",
+    "apps/sim/lib/billing/core/ledger-read.integration.ts",
+    "apps/sim/lib/billing/core/organization-activity.integration.ts",
+    "apps/sim/lib/billing/core/organization-usage-pagination.integration.ts",
+    "apps/sim/lib/billing/core/reporting-usage-cache.integration.ts",
+    "apps/sim/lib/billing/core/subscription.integration.ts",
+    "apps/sim/lib/billing/core/usage-log.integration.ts",
+    "apps/sim/lib/billing/core/usage-threshold-email.integration.ts",
+    "apps/sim/lib/billing/organizations/member-limits.integration.ts",
+    "apps/sim/lib/billing/storage/project-accounting.integration.ts",
+    "apps/sim/lib/billing/webhooks/enterprise-missing-organization.integration.ts",
+    "apps/sim/lib/billing/webhooks/stripe-sync-convergence.integration.ts",
+    "apps/sim/lib/changelog/repository.integration.ts",
+    "apps/sim/lib/computer-use/repository.integration.ts",
+    "apps/sim/lib/core/outbox/retention.integration.ts",
+    "apps/sim/lib/core/outbox/service.integration.ts",
+    "apps/sim/lib/dashboards/repository.integration.ts",
+    "apps/sim/lib/knowledge/__integration__/connector-lease-pages.integration.ts",
+    "apps/sim/lib/knowledge/__integration__/knowledge-projection.integration.ts",
+    "apps/sim/lib/knowledge/__integration__/processing-lock-scope.integration.ts",
+    "apps/sim/lib/knowledge/connectors/sync-content-pass.integration.ts",
+    "apps/sim/lib/knowledge/connectors/sync-persistence.integration.ts",
+    "apps/sim/lib/knowledge/tags/date-tag-condition.integration.ts",
+    "apps/sim/lib/memory/conversation-store.integration.ts",
+    "apps/sim/lib/memory/message-provenance.integration.ts",
+    "apps/sim/lib/memory/summary-store.integration.ts",
+    "apps/sim/lib/mothership/async-runs/browser-download-claim.integration.ts",
+    "apps/sim/lib/mothership/async-runs/tool-identity.integration.ts",
+    "apps/sim/lib/mothership/billing/service-store.integration.ts",
+    "apps/sim/lib/projects/__integration__/backfill-repair.integration.ts",
+    "apps/sim/lib/projects/files/__integration__/retention.integration.ts",
+    "apps/sim/lib/table/analytics/postgres.integration.ts",
+    "apps/sim/lib/table/dispatcher.integration.ts",
+    "apps/sim/lib/table/row-changes.integration.ts",
+    "apps/sim/lib/table/rows/secret-provenance.integration.ts",
+    "apps/sim/lib/table/rows/writes.integration.ts",
+    "apps/sim/lib/workspace-files/search/chunks.integration.ts",
+    "apps/sim/lib/workspace-files/search/dispatcher.integration.ts",
+    "apps/sim/lib/workspace-files/search/index-plan.integration.ts",
+    "apps/sim/lib/workspaces/organization-workspaces.integration.ts",
+    "apps/sim/scripts/backfill-projects.ts",
+    "apps/sim/scripts/test-cli-run-latency-e2e.ts",
+    "apps/sim/scripts/test-desktop-inbox-e2e.ts",
+    "apps/sim/scripts/test-mobile-e2e.ts",
+    "apps/sim/scripts/test-project-file-public-e2e.ts",
+    "apps/sim/scripts/test-project-files-e2e.ts",
+    "apps/sim/scripts/test-scim-e2e.ts",
+    "apps/sim/scripts/test-shared-resource-lifecycle-e2e.ts",
+    "apps/sim/scripts/test-workflow-stop-after-e2e.ts",
+    "apps/sim/scripts/test-workflow-version-compare-e2e.ts",
+    "packages/db/embedding-width-migration.integration.ts",
+    "packages/db/file-creator-lifetime.integration.ts",
+    "packages/db/file-entity-ownership.integration.ts",
+    "packages/db/file-folder-version-ownership.integration.ts",
+    "packages/db/maintenance/search-retirement.integration.ts",
+    "packages/db/member-sync-status-migration.integration.ts",
+    "packages/db/organization-search-migration.integration.ts",
+    "packages/db/permission-access-requests-migration.integration.ts",
+    "packages/db/public-share-ownership.integration.ts",
+    "packages/db/script-migrations/0013_backfill_legacy_knowledge_base_workspaces.integration.ts",
+    "packages/db/script-migrations/0014_require_knowledge_base_owner.integration.ts",
+    "packages/db/script-migrations/0016_backfill_search_vectors.integration.ts",
+    "packages/db/script-migrations/0016_backfill_search_vectors.ts",
+    "packages/db/script-migrations/0018_repair_workspace_file_content_revision.integration.ts",
+    "packages/db/script-migrations/0021_embedding_search_connector.integration.ts",
+    "packages/db/script-migrations/0021_embedding_search_connector.ts",
+    "packages/db/script-migrations/0030_retire_keyword_writers.integration.ts",
+    "packages/db/scripts/apply-dev-table-triggers.ts",
+    "packages/db/scripts/database-failure-classification.integration.ts",
+    "packages/db/scripts/file-ownership-reconciliation.integration.ts",
+    "packages/db/scripts/migrate.ts",
+    "packages/db/scripts/migration-fixture.ts",
+    "packages/db/scripts/prepare-push.ts",
+    "packages/db/scripts/project-authority.integration.ts",
+    "packages/db/scripts/project-contract-required.ts",
+    "packages/db/scripts/project-contract.integration.ts",
+    "packages/db/scripts/push.integration.ts",
+    "packages/db/scripts/reconcile-workspace-storage.ts",
+    "packages/db/scripts/workspace-project-column.integration.ts",
+    "packages/sim-setup/src/probes.ts"
+   ],
+   "passed-to:drizzle": [
+    "apps/sim/app/api/billing/update-cost/replay.live.test.ts",
+    "apps/sim/app/api/billing/update-cost/worker.live.test.ts",
+    "apps/sim/ee/access-requests/lib/application/flow.integration.ts",
+    "apps/sim/ee/access-requests/lib/impact.integration.ts",
+    "apps/sim/ee/access-requests/lib/repository.integration.ts",
+    "apps/sim/ee/workspace-forking/application/revision.integration.ts",
+    "apps/sim/ee/workspace-forking/lib/lineage/fork-lock-order.integration.ts",
+    "apps/sim/executor/handlers/agent/memory-harness.integration.ts",
+    "apps/sim/lib/auth/sim-auth-adapter.integration.ts",
+    "apps/sim/lib/benchmarks/repository.integration.ts",
+    "apps/sim/lib/billing/application/organization-billing/get-organization-plan-seats.integration.ts",
+    "apps/sim/lib/billing/core/ledger-read.integration.ts",
+    "apps/sim/lib/billing/core/organization-activity.integration.ts",
+    "apps/sim/lib/billing/core/organization-usage-pagination.integration.ts",
+    "apps/sim/lib/billing/core/reporting-usage-cache.integration.ts",
+    "apps/sim/lib/billing/core/usage-analytics-queries.integration.ts",
+    "apps/sim/lib/billing/core/usage-log.integration.ts",
+    "apps/sim/lib/billing/core/usage-threshold-email.integration.ts",
+    "apps/sim/lib/billing/organizations/member-limits.integration.ts",
+    "apps/sim/lib/billing/storage/project-accounting.integration.ts",
+    "apps/sim/lib/billing/webhooks/enterprise-missing-organization.integration.ts",
+    "apps/sim/lib/billing/webhooks/stripe-sync-convergence.integration.ts",
+    "apps/sim/lib/computer-use/repository.integration.ts",
+    "apps/sim/lib/core/outbox/retention.integration.ts",
+    "apps/sim/lib/core/outbox/service.integration.ts",
+    "apps/sim/lib/dashboards/repository.integration.ts",
+    "apps/sim/lib/db/advisory-locks.integration.ts",
+    "apps/sim/lib/knowledge/connectors/sync-content-pass.integration.ts",
+    "apps/sim/lib/knowledge/connectors/sync-persistence.integration.ts",
+    "apps/sim/lib/knowledge/tags/date-tag-condition.integration.ts",
+    "apps/sim/lib/memory/conversation-store.integration.ts",
+    "apps/sim/lib/memory/message-provenance.integration.ts",
+    "apps/sim/lib/memory/summary-store.integration.ts",
+    "apps/sim/lib/mothership/agent-cli/saved-run-read.live.test.ts",
+    "apps/sim/lib/mothership/async-runs/browser-download-claim.integration.ts",
+    "apps/sim/lib/mothership/async-runs/tool-identity.integration.ts",
+    "apps/sim/lib/mothership/billing/service-store.integration.ts",
+    "apps/sim/lib/table/analytics/postgres.integration.ts",
+    "apps/sim/lib/table/rows/secret-provenance.integration.ts",
+    "apps/sim/lib/uploads/upload-session/workspace-file-provenance.integration.ts",
+    "apps/sim/lib/workspace-files/search/chunks.integration.ts",
+    "apps/sim/lib/workspace-files/search/dispatcher.integration.ts",
+    "apps/sim/lib/workspaces/organization-workspaces.integration.ts",
+    "apps/sim/scripts/create-oauth-client.ts",
+    "apps/sim/scripts/repair-table-order-key-collation.ts",
+    "packages/db/scripts/backfill-api-key-hash.ts",
+    "packages/db/scripts/database-failure-classification.integration.ts",
+    "packages/db/scripts/deregister-sso-provider.ts",
+    "packages/db/scripts/file-ownership-reconciliation.integration.ts",
+    "packages/db/scripts/migrate-block-api-keys-to-byok.ts",
+    "packages/db/scripts/migrate-deployment-versions.ts",
+    "packages/db/scripts/migrate-slack-custom-bots.ts",
+    "packages/db/scripts/migrate.ts",
+    "packages/db/scripts/project-contract.integration.ts",
+    "packages/db/scripts/register-sso-provider.ts",
+    "packages/db/timestamps.test.ts"
+   ],
+   "handle:json": [
+    "apps/sim/background/cleanup-soft-deletes.integration.ts",
+    "apps/sim/background/cleanup-table-row-ttl-predicate.integration.ts",
+    "apps/sim/background/cleanup-table-row-ttl.integration.ts",
+    "apps/sim/lib/changelog/repository.integration.ts",
+    "apps/sim/lib/table/analytics/postgres.integration.ts",
+    "apps/sim/lib/table/rows/writes.integration.ts",
+    "apps/sim/scripts/test-mobile-e2e.ts",
+    "apps/sim/scripts/test-project-file-public-e2e.ts",
+    "apps/sim/scripts/test-scim-e2e.ts",
+    "packages/db/script-migrations/0013_backfill_legacy_knowledge_base_workspaces.integration.ts"
+   ],
+   "handle:begin": [
+    "apps/sim/background/cleanup-soft-deletes.integration.ts",
+    "apps/sim/background/cleanup-table-row-ttl.integration.ts",
+    "apps/sim/lib/billing/core/ledger-read.integration.ts",
+    "apps/sim/lib/billing/core/usage-log.integration.ts",
+    "apps/sim/lib/billing/webhooks/stripe-sync-convergence.integration.ts",
+    "apps/sim/lib/changelog/repository.integration.ts",
+    "apps/sim/lib/core/outbox/service.integration.ts",
+    "apps/sim/lib/knowledge/__integration__/connector-lease-pages.integration.ts",
+    "apps/sim/lib/knowledge/__integration__/processing-lock-scope.integration.ts",
+    "apps/sim/lib/projects/__integration__/backfill-repair.integration.ts",
+    "apps/sim/lib/table/dispatcher.integration.ts",
+    "apps/sim/lib/table/row-changes.integration.ts",
+    "apps/sim/lib/table/rows/writes.integration.ts",
+    "apps/sim/lib/workspace-files/search/dispatcher.integration.ts",
+    "apps/sim/scripts/test-cli-run-latency-e2e.ts",
+    "apps/sim/scripts/test-desktop-inbox-e2e.ts",
+    "apps/sim/scripts/test-mobile-e2e.ts",
+    "apps/sim/scripts/test-project-files-e2e.ts",
+    "apps/sim/scripts/test-scim-e2e.ts",
+    "apps/sim/scripts/test-shared-resource-lifecycle-e2e.ts",
+    "apps/sim/scripts/test-workflow-stop-after-e2e.ts",
+    "apps/sim/scripts/test-workflow-version-compare-e2e.ts",
+    "packages/db/embedding-width-migration.integration.ts",
+    "packages/db/file-entity-ownership.integration.ts",
+    "packages/db/file-folder-version-ownership.integration.ts",
+    "packages/db/maintenance/search-retirement.integration.ts",
+    "packages/db/public-share-ownership.integration.ts",
+    "packages/db/script-migrations/0013_backfill_legacy_knowledge_base_workspaces.integration.ts",
+    "packages/db/script-migrations/0014_require_knowledge_base_owner.integration.ts",
+    "packages/db/script-migrations/0015_backfill_embedding_search.ts",
+    "packages/db/script-migrations/0016_backfill_search_vectors.integration.ts",
+    "packages/db/script-migrations/0016_backfill_search_vectors.ts",
+    "packages/db/script-migrations/0021_embedding_search_connector.integration.ts",
+    "packages/db/script-migrations/0021_embedding_search_connector.ts",
+    "packages/db/script-migrations/0024_knowledge_projection_async.ts",
+    "packages/db/script-migrations/0030_retire_keyword_writers.ts",
+    "packages/db/script-migrations/0031_drop_keyword_tin.ts",
+    "packages/db/scripts/apply-dev-table-triggers.ts",
+    "packages/db/scripts/prepare-push.ts",
+    "packages/db/scripts/project-authority.integration.ts",
+    "packages/db/scripts/project-contract.integration.ts",
+    "packages/db/scripts/push.integration.ts",
+    "packages/db/scripts/push.ts",
+    "packages/db/scripts/reconcile-file-ownership.ts"
+   ],
+   "handle:end": [
+    "apps/sim/background/cleanup-soft-deletes.integration.ts",
+    "apps/sim/background/cleanup-table-row-ttl-predicate.integration.ts",
+    "apps/sim/background/cleanup-table-row-ttl.integration.ts",
+    "apps/sim/ee/access-requests/lib/application/flow.integration.ts",
+    "apps/sim/ee/access-requests/lib/impact.integration.ts",
+    "apps/sim/ee/access-requests/lib/repository.integration.ts",
+    "apps/sim/ee/workspace-forking/application/revision.integration.ts",
+    "apps/sim/ee/workspace-forking/lib/lineage/fork-lock-order.integration.ts",
+    "apps/sim/executor/handlers/agent/memory-harness.integration.ts",
+    "apps/sim/lib/api-key/byok.integration.ts",
+    "apps/sim/lib/auth/sim-auth-adapter.integration.ts",
+    "apps/sim/lib/benchmarks/repository.integration.ts",
+    "apps/sim/lib/billing/application/organization-billing/get-organization-plan-seats.integration.ts",
+    "apps/sim/lib/billing/core/ledger-read.integration.ts",
+    "apps/sim/lib/billing/core/organization-activity.integration.ts",
+    "apps/sim/lib/billing/core/organization-usage-pagination.integration.ts",
+    "apps/sim/lib/billing/core/reporting-usage-cache.integration.ts",
+    "apps/sim/lib/billing/core/subscription.integration.ts",
+    "apps/sim/lib/billing/core/usage-analytics-queries.integration.ts",
+    "apps/sim/lib/billing/core/usage-log.integration.ts",
+    "apps/sim/lib/billing/core/usage-threshold-email.integration.ts",
+    "apps/sim/lib/billing/organizations/member-limits.integration.ts",
+    "apps/sim/lib/billing/storage/project-accounting.integration.ts",
+    "apps/sim/lib/billing/webhooks/enterprise-missing-organization.integration.ts",
+    "apps/sim/lib/billing/webhooks/stripe-sync-convergence.integration.ts",
+    "apps/sim/lib/changelog/repository.integration.ts",
+    "apps/sim/lib/computer-use/repository.integration.ts",
+    "apps/sim/lib/core/outbox/retention.integration.ts",
+    "apps/sim/lib/core/outbox/service.integration.ts",
+    "apps/sim/lib/dashboards/repository.integration.ts",
+    "apps/sim/lib/db/advisory-locks.integration.ts",
+    "apps/sim/lib/knowledge/__integration__/connector-lease-pages.integration.ts",
+    "apps/sim/lib/knowledge/__integration__/knowledge-projection.integration.ts",
+    "apps/sim/lib/knowledge/__integration__/migration-fixture.ts",
+    "apps/sim/lib/knowledge/__integration__/processing-lock-scope.integration.ts",
+    "apps/sim/lib/knowledge/connectors/sync-content-pass.integration.ts",
+    "apps/sim/lib/knowledge/connectors/sync-persistence.integration.ts",
+    "apps/sim/lib/knowledge/tags/date-tag-condition.integration.ts",
+    "apps/sim/lib/memory/conversation-store.integration.ts",
+    "apps/sim/lib/memory/message-provenance.integration.ts",
+    "apps/sim/lib/memory/summary-store.integration.ts",
+    "apps/sim/lib/mothership/agent-cli/saved-run-read.live.test.ts",
+    "apps/sim/lib/mothership/async-runs/browser-download-claim.integration.ts",
+    "apps/sim/lib/mothership/async-runs/tool-identity.integration.ts",
+    "apps/sim/lib/projects/__integration__/backfill-repair.integration.ts",
+    "apps/sim/lib/projects/__integration__/foundation.integration.ts",
+    "apps/sim/lib/projects/files/__integration__/retention.integration.ts",
+    "apps/sim/lib/table/analytics/postgres.integration.ts",
+    "apps/sim/lib/table/dispatcher.integration.ts",
+    "apps/sim/lib/table/row-changes.integration.ts",
+    "apps/sim/lib/table/rows/secret-provenance.integration.ts",
+    "apps/sim/lib/table/rows/writes.integration.ts",
+    "apps/sim/lib/uploads/upload-session/workspace-file-provenance.integration.ts",
+    "apps/sim/lib/workspace-files/search/chunks.integration.ts",
+    "apps/sim/lib/workspace-files/search/dispatcher.integration.ts",
+    "apps/sim/lib/workspace-files/search/index-plan.integration.ts",
+    "apps/sim/lib/workspaces/organization-workspaces.integration.ts",
+    "apps/sim/scripts/backfill-projects.ts",
+    "apps/sim/scripts/create-oauth-client.ts",
+    "apps/sim/scripts/prewarm-search-projection.ts",
+    "apps/sim/scripts/repair-table-order-key-collation.ts",
+    "apps/sim/scripts/test-cli-run-latency-e2e.ts",
+    "apps/sim/scripts/test-desktop-inbox-e2e.ts",
+    "apps/sim/scripts/test-mobile-e2e.ts",
+    "apps/sim/scripts/test-project-file-public-e2e.ts",
+    "apps/sim/scripts/test-project-files-e2e.ts",
+    "apps/sim/scripts/test-scim-e2e.ts",
+    "apps/sim/scripts/test-shared-resource-lifecycle-e2e.ts",
+    "apps/sim/scripts/test-workflow-stop-after-e2e.ts",
+    "apps/sim/scripts/test-workflow-version-compare-e2e.ts",
+    "packages/db/embedding-width-migration.integration.ts",
+    "packages/db/file-creator-lifetime.integration.ts",
+    "packages/db/file-entity-ownership.integration.ts",
+    "packages/db/file-folder-version-ownership.integration.ts",
+    "packages/db/large-table-vacuum-throttle-migration.integration.ts",
+    "packages/db/maintenance/search-retirement.integration.ts",
+    "packages/db/member-sync-status-migration.integration.ts",
+    "packages/db/organization-search-migration.integration.ts",
+    "packages/db/permission-access-requests-migration.integration.ts",
+    "packages/db/public-share-ownership.integration.ts",
+    "packages/db/script-migrations/0013_backfill_legacy_knowledge_base_workspaces.integration.ts",
+    "packages/db/script-migrations/0014_require_knowledge_base_owner.integration.ts",
+    "packages/db/script-migrations/0015_backfill_embedding_search.ts",
+    "packages/db/script-migrations/0016_backfill_search_vectors.integration.ts",
+    "packages/db/script-migrations/0016_backfill_search_vectors.ts",
+    "packages/db/script-migrations/0018_repair_workspace_file_content_revision.integration.ts",
+    "packages/db/script-migrations/0021_embedding_search_connector.integration.ts",
+    "packages/db/script-migrations/0021_embedding_search_connector.ts",
+    "packages/db/script-migrations/0024_knowledge_projection_async.ts",
+    "packages/db/script-migrations/0026_user_table_schema_for_write.ts",
+    "packages/db/script-migrations/0030_retire_keyword_writers.integration.ts",
+    "packages/db/script-migrations/0030_retire_keyword_writers.ts",
+    "packages/db/script-migrations/0031_drop_keyword_tin.ts",
+    "packages/db/scripts/apply-dev-table-triggers.ts",
+    "packages/db/scripts/backfill-api-key-hash.ts",
+    "packages/db/scripts/database-failure-classification.integration.ts",
+    "packages/db/scripts/deregister-sso-provider.ts",
+    "packages/db/scripts/file-ownership-reconciliation.integration.ts",
+    "packages/db/scripts/migrate-block-api-keys-to-byok.ts",
+    "packages/db/scripts/migrate-deployment-versions.ts",
+    "packages/db/scripts/migrate-slack-custom-bots.ts",
+    "packages/db/scripts/migrate.ts",
+    "packages/db/scripts/migration-fixture.ts",
+    "packages/db/scripts/prepare-push.ts",
+    "packages/db/scripts/project-authority.integration.ts",
+    "packages/db/scripts/project-contract-required.ts",
+    "packages/db/scripts/project-contract.integration.ts",
+    "packages/db/scripts/push.integration.ts",
+    "packages/db/scripts/push.ts",
+    "packages/db/scripts/reconcile-credential-group-resource-policies.ts",
+    "packages/db/scripts/reconcile-file-ownership.ts",
+    "packages/db/scripts/reconcile-fork-kb-file-ownership.ts",
+    "packages/db/scripts/reconcile-oauth-provider.ts",
+    "packages/db/scripts/reconcile-project-membership.ts",
+    "packages/db/scripts/reconcile-workspace-storage.ts",
+    "packages/db/scripts/register-sso-provider.ts",
+    "packages/db/scripts/retire-indexed-search.ts",
+    "packages/db/scripts/workspace-project-column.integration.ts",
+    "packages/sim-setup/src/probes.ts"
+   ],
+   "option:prepare": [
+    "apps/sim/ee/access-requests/lib/application/flow.integration.ts",
+    "apps/sim/lib/api-key/byok.integration.ts",
+    "apps/sim/lib/billing/application/organization-billing/get-organization-plan-seats.integration.ts",
+    "apps/sim/lib/billing/core/ledger-read.integration.ts",
+    "apps/sim/lib/billing/core/organization-activity.integration.ts",
+    "apps/sim/lib/billing/core/organization-usage-pagination.integration.ts",
+    "apps/sim/lib/billing/core/reporting-usage-cache.integration.ts",
+    "apps/sim/lib/billing/core/subscription.integration.ts",
+    "apps/sim/lib/billing/core/usage-analytics-queries.integration.ts",
+    "apps/sim/lib/billing/core/usage-log.integration.ts",
+    "apps/sim/lib/billing/core/usage-threshold-email.integration.ts",
+    "apps/sim/lib/billing/organizations/member-limits.integration.ts",
+    "apps/sim/lib/db/advisory-locks.integration.ts",
+    "apps/sim/lib/workspace-files/search/chunks.integration.ts",
+    "apps/sim/lib/workspaces/organization-workspaces.integration.ts",
+    "apps/sim/scripts/create-oauth-client.ts",
+    "apps/sim/scripts/repair-table-order-key-collation.ts",
+    "packages/db/maintenance/search-retirement.integration.ts",
+    "packages/db/scripts/backfill-api-key-hash.ts",
+    "packages/db/scripts/deregister-sso-provider.ts",
+    "packages/db/scripts/migrate-block-api-keys-to-byok.ts",
+    "packages/db/scripts/migrate-deployment-versions.ts",
+    "packages/db/scripts/migrate-slack-custom-bots.ts",
+    "packages/db/scripts/push.ts",
+    "packages/db/scripts/reconcile-project-membership.ts",
+    "packages/db/scripts/register-sso-provider.ts",
+    "packages/db/scripts/retire-indexed-search.ts"
+   ],
+   "option:connection.application_name": [
+    "apps/sim/ee/access-requests/lib/application/flow.integration.ts",
+    "apps/sim/lib/billing/organizations/member-limits.integration.ts",
+    "apps/sim/lib/mothership/agent-cli/saved-run-read.live.test.ts",
+    "apps/sim/lib/workspaces/organization-workspaces.integration.ts",
+    "packages/db/scripts/apply-dev-table-triggers.ts",
+    "packages/db/scripts/migrate-slack-custom-bots.ts",
+    "packages/db/scripts/migrate.ts",
+    "packages/db/scripts/push.ts",
+    "packages/db/scripts/reconcile-credential-group-resource-policies.ts",
+    "packages/db/scripts/reconcile-fork-kb-file-ownership.ts",
+    "packages/db/scripts/reconcile-oauth-provider.ts",
+    "packages/db/scripts/reconcile-workspace-storage.ts",
+    "packages/db/scripts/retire-indexed-search.ts"
+   ],
+   "option:connection.statement_timeout": [
+    "apps/sim/ee/access-requests/lib/application/flow.integration.ts",
+    "packages/db/scripts/project-contract-required.ts",
+    "packages/db/scripts/push.ts",
+    "packages/db/scripts/retire-indexed-search.ts"
+   ],
+   "helper:sql(...)": [
+    "apps/sim/executor/handlers/agent/memory-harness.integration.ts",
+    "apps/sim/lib/api-key/byok.integration.ts",
+    "apps/sim/lib/benchmarks/repository.integration.ts",
+    "apps/sim/lib/billing/core/subscription.integration.ts",
+    "apps/sim/lib/billing/webhooks/enterprise-missing-organization.integration.ts",
+    "apps/sim/lib/billing/webhooks/stripe-sync-convergence.integration.ts",
+    "apps/sim/lib/core/outbox/retention.integration.ts",
+    "apps/sim/lib/core/outbox/service.integration.ts",
+    "apps/sim/lib/dashboards/repository.integration.ts",
+    "apps/sim/lib/knowledge/connectors/sync-content-pass.integration.ts",
+    "apps/sim/lib/knowledge/connectors/sync-persistence.integration.ts",
+    "apps/sim/lib/knowledge/tags/date-tag-condition.integration.ts",
+    "apps/sim/lib/memory/conversation-store.integration.ts",
+    "apps/sim/lib/memory/message-provenance.integration.ts",
+    "apps/sim/lib/memory/summary-store.integration.ts",
+    "apps/sim/lib/mothership/billing/service-store.integration.ts",
+    "apps/sim/lib/table/analytics/postgres.integration.ts",
+    "apps/sim/lib/table/rows/secret-provenance.integration.ts",
+    "apps/sim/lib/workspace-files/search/chunks.integration.ts",
+    "apps/sim/lib/workspace-files/search/dispatcher.integration.ts",
+    "apps/sim/scripts/test-scim-e2e.ts",
+    "apps/sim/scripts/test-workflow-stop-after-e2e.ts",
+    "packages/db/embedding-width-migration.integration.ts",
+    "packages/db/maintenance/search-retirement.integration.ts",
+    "packages/db/script-migrations/0021_embedding_search_connector.integration.ts",
+    "packages/db/scripts/file-ownership-reconciliation.integration.ts",
+    "packages/db/scripts/migration-fixture.ts",
+    "packages/db/scripts/project-authority.integration.ts",
+    "packages/db/scripts/project-contract.integration.ts",
+    "packages/db/scripts/push.integration.ts",
+    "packages/db/scripts/workspace-project-column.integration.ts"
+   ],
+   "option:fetch_types": [
+    "apps/sim/lib/billing/core/organization-activity.integration.ts",
+    "apps/sim/lib/billing/core/usage-log.integration.ts",
+    "apps/sim/lib/knowledge/__integration__/migration-fixture.ts"
+   ],
+   "option:connection.timezone": [
+    "apps/sim/lib/billing/core/organization-activity.integration.ts",
+    "apps/sim/lib/billing/core/usage-analytics-queries.integration.ts"
+   ],
+   "handle:execute": [
+    "apps/sim/lib/billing/core/usage-log.integration.ts",
+    "apps/sim/lib/knowledge/__integration__/connector-lease-pages.integration.ts"
+   ],
+   "option:debug": [
+    "apps/sim/lib/billing/core/usage-threshold-email.integration.ts",
+    "packages/db/public-share-ownership.integration.ts",
+    "packages/db/scripts/project-contract.integration.ts"
+   ],
+   "option:host": [
+    "apps/sim/lib/internal/postgresql/client.ts"
+   ],
+   "option:port": [
+    "apps/sim/lib/internal/postgresql/client.ts",
+    "packages/db/scripts/retire-indexed-search.ts"
+   ],
+   "option:database": [
+    "apps/sim/lib/internal/postgresql/client.ts"
+   ],
+   "option:username": [
+    "apps/sim/lib/internal/postgresql/client.ts"
+   ],
+   "option:password": [
+    "apps/sim/lib/internal/postgresql/client.ts"
+   ],
+   "option:ssl": [
+    "apps/sim/lib/internal/postgresql/client.ts",
+    "packages/db/scripts/retire-indexed-search.ts"
+   ],
+   "option:connect_timeout": [
+    "apps/sim/lib/internal/postgresql/client.ts",
+    "apps/sim/scripts/create-oauth-client.ts",
+    "apps/sim/scripts/repair-table-order-key-collation.ts",
+    "packages/db/scripts/apply-dev-table-triggers.ts",
+    "packages/db/scripts/backfill-api-key-hash.ts",
+    "packages/db/scripts/database-failure-classification.integration.ts",
+    "packages/db/scripts/deregister-sso-provider.ts",
+    "packages/db/scripts/migrate-block-api-keys-to-byok.ts",
+    "packages/db/scripts/migrate-deployment-versions.ts",
+    "packages/db/scripts/migrate-slack-custom-bots.ts",
+    "packages/db/scripts/migrate.ts",
+    "packages/db/scripts/prepare-push.ts",
+    "packages/db/scripts/project-contract-required.ts",
+    "packages/db/scripts/push.ts",
+    "packages/db/scripts/reconcile-credential-group-resource-policies.ts",
+    "packages/db/scripts/reconcile-file-ownership.ts",
+    "packages/db/scripts/reconcile-fork-kb-file-ownership.ts",
+    "packages/db/scripts/reconcile-oauth-provider.ts",
+    "packages/db/scripts/reconcile-project-membership.ts",
+    "packages/db/scripts/reconcile-workspace-storage.ts",
+    "packages/db/scripts/register-sso-provider.ts",
+    "packages/db/scripts/retire-indexed-search.ts",
+    "packages/sim-setup/src/probes.ts"
+   ],
+   "option:idle_timeout": [
+    "apps/sim/lib/internal/postgresql/client.ts",
+    "apps/sim/scripts/create-oauth-client.ts",
+    "apps/sim/scripts/repair-table-order-key-collation.ts",
+    "packages/db/scripts/backfill-api-key-hash.ts",
+    "packages/db/scripts/deregister-sso-provider.ts",
+    "packages/db/scripts/migrate-block-api-keys-to-byok.ts",
+    "packages/db/scripts/migrate-deployment-versions.ts",
+    "packages/db/scripts/migrate-slack-custom-bots.ts",
+    "packages/db/scripts/register-sso-provider.ts"
+   ],
+   "option:max_lifetime": [
+    "apps/sim/lib/internal/postgresql/client.ts",
+    "apps/sim/scripts/prewarm-search-projection.ts",
+    "packages/db/script-migrations/0015_backfill_embedding_search.ts",
+    "packages/db/script-migrations/0016_backfill_search_vectors.ts",
+    "packages/db/script-migrations/0021_embedding_search_connector.ts",
+    "packages/db/script-migrations/0024_knowledge_projection_async.ts",
+    "packages/db/script-migrations/0026_user_table_schema_for_write.ts",
+    "packages/db/script-migrations/0030_retire_keyword_writers.ts",
+    "packages/db/script-migrations/0031_drop_keyword_tin.ts",
+    "packages/db/scripts/apply-dev-table-triggers.ts",
+    "packages/db/scripts/migrate-slack-custom-bots.ts",
+    "packages/db/scripts/migrate.ts",
+    "packages/db/scripts/project-authority.integration.ts",
+    "packages/db/scripts/project-contract.integration.ts",
+    "packages/db/scripts/push.ts",
+    "packages/db/scripts/reconcile-credential-group-resource-policies.ts",
+    "packages/db/scripts/reconcile-fork-kb-file-ownership.ts",
+    "packages/db/scripts/reconcile-project-membership.ts",
+    "packages/db/scripts/reconcile-workspace-storage.ts",
+    "packages/db/scripts/retire-indexed-search.ts"
+   ],
+   "handle:select": [
+    "apps/sim/lib/knowledge/__integration__/connector-lease-pages.integration.ts",
+    "apps/sim/lib/table/rows/writes.integration.ts"
+   ],
+   "handle:waitForPendingWrites": [
+    "apps/sim/lib/table/rows/secret-provenance.integration.ts"
+   ],
+   "handle:onBlockComplete": [
+    "apps/sim/lib/table/rows/secret-provenance.integration.ts"
+   ],
+   "handle:finish": [
+    "apps/sim/lib/table/rows/secret-provenance.integration.ts"
+   ],
+   "handle:reserve": [
+    "apps/sim/lib/table/rows/writes.integration.ts",
+    "apps/sim/lib/workspace-files/search/chunks.integration.ts",
+    "apps/sim/lib/workspace-files/search/dispatcher.integration.ts",
+    "packages/db/organization-search-migration.integration.ts",
+    "packages/db/permission-access-requests-migration.integration.ts",
+    "packages/db/scripts/migrate-slack-custom-bots.ts",
+    "packages/db/scripts/project-contract.integration.ts"
+   ],
+   "handle:release": [
+    "apps/sim/lib/table/rows/writes.integration.ts",
+    "apps/sim/lib/workspace-files/search/chunks.integration.ts",
+    "apps/sim/lib/workspace-files/search/dispatcher.integration.ts",
+    "packages/db/organization-search-migration.integration.ts",
+    "packages/db/permission-access-requests-migration.integration.ts",
+    "packages/db/script-migrations/0021_embedding_search_connector.ts",
+    "packages/db/scripts/migrate-slack-custom-bots.ts",
+    "packages/db/scripts/project-contract.integration.ts"
+   ],
+   "query:.catch()": [
+    "apps/sim/lib/table/rows/writes.integration.ts"
+   ],
+   "handle:id": [
+    "apps/sim/lib/table/rows/writes.integration.ts"
+   ],
+   "handle:Plans": [
+    "apps/sim/lib/workspace-files/search/dispatcher.integration.ts"
+   ],
+   "error:.code": [
+    "apps/sim/scripts/backfill-projects.ts",
+    "apps/sim/scripts/test-workflow-stop-after-e2e.ts"
+   ],
+   "option:connection.TimeZone": [
+    "packages/db/file-creator-lifetime.integration.ts",
+    "packages/db/file-entity-ownership.integration.ts",
+    "packages/db/file-folder-version-ownership.integration.ts",
+    "packages/db/public-share-ownership.integration.ts",
+    "packages/db/script-migrations/0018_repair_workspace_file_content_revision.integration.ts"
+   ],
+   "query:.then()": [
+    "packages/db/script-migrations/0030_retire_keyword_writers.integration.ts"
+   ],
+   "handle:length": [
+    "packages/db/scripts/apply-dev-table-triggers.ts"
+   ],
+   "option:connection.lock_timeout": [
+    "packages/db/scripts/push.ts",
+    "packages/db/scripts/retire-indexed-search.ts"
+   ],
+   "option:onclose": [
+    "packages/db/scripts/push.ts",
+    "packages/db/scripts/retire-indexed-search.ts"
+   ],
+   "option:connection.idle_in_transaction_session_timeout": [
+    "packages/db/scripts/retire-indexed-search.ts"
+   ],
+   "handle:options": [
+    "packages/db/timestamps.test.ts"
+   ]
+  }
+ },
+ "supermemoryai__supermemory": {
+  "handles": {},
+  "features": {}
+ },
+ "teableio__teable": {
+  "handles": {
+   "packages/v2/adapter-db-postgres-postgresjs/src/createDb.ts": [
+    "sql"
+   ]
+  },
+  "features": {
+   "option:onnotice": [
+    "packages/v2/adapter-db-postgres-postgresjs/src/createDb.ts"
+   ]
+  }
+ },
+ "thedotmack__claude-mem": {
+  "handles": {
+   "services/sync-api/src/index.ts": [
+    "sql"
+   ],
+   "services/sync-api/test/health.test.ts": [
+    "observer"
+   ],
+   "services/sync-api/test/lock-hold.test.ts": [
+    "holder",
+    "observer"
+   ],
+   "services/sync-api/test/protocol.test.ts": [
+    "lockHolder"
+   ],
+   "services/sync-api/test/query-plan.test.ts": [
+    "admin",
+    "traced",
+    "tx"
+   ]
+  },
+  "features": {
+   "option:max": [
+    "services/sync-api/src/index.ts",
+    "services/sync-api/test/health.test.ts",
+    "services/sync-api/test/lock-hold.test.ts",
+    "services/sync-api/test/protocol.test.ts",
+    "services/sync-api/test/query-plan.test.ts"
+   ],
+   "option:idle_timeout": [
+    "services/sync-api/src/index.ts"
+   ],
+   "option:connect_timeout": [
+    "services/sync-api/src/index.ts"
+   ],
+   "option:connection": [
+    "services/sync-api/src/index.ts"
+   ],
+   "option:connection.application_name": [
+    "services/sync-api/src/index.ts"
+   ],
+   "option:connection.options": [
+    "services/sync-api/src/index.ts"
+   ],
+   "handle:end": [
+    "services/sync-api/src/index.ts",
+    "services/sync-api/test/health.test.ts",
+    "services/sync-api/test/lock-hold.test.ts",
+    "services/sync-api/test/protocol.test.ts",
+    "services/sync-api/test/query-plan.test.ts"
+   ],
+   "tagged-query": [
+    "services/sync-api/test/lock-hold.test.ts",
+    "services/sync-api/test/protocol.test.ts",
+    "services/sync-api/test/query-plan.test.ts"
+   ],
+   "option:debug": [
+    "services/sync-api/test/query-plan.test.ts"
+   ],
+   "handle:begin": [
+    "services/sync-api/test/query-plan.test.ts"
+   ],
+   "handle:unsafe": [
+    "services/sync-api/test/query-plan.test.ts"
+   ]
+  }
+ },
+ "triggerdotdev__trigger.dev": {
+  "handles": {
+   "internal-packages/dashboard-agent-db/migrate-status.mjs": [
+    "sql"
+   ],
+   "internal-packages/dashboard-agent-db/migrate.mjs": [
+    "sql"
+   ],
+   "internal-packages/dashboard-agent-db/src/client.ts": [
+    "sql"
+   ]
+  },
+  "features": {
+   "option:max": [
+    "internal-packages/dashboard-agent-db/migrate-status.mjs",
+    "internal-packages/dashboard-agent-db/migrate.mjs",
+    "internal-packages/dashboard-agent-db/src/client.ts"
+   ],
+   "option:prepare": [
+    "internal-packages/dashboard-agent-db/migrate-status.mjs",
+    "internal-packages/dashboard-agent-db/migrate.mjs",
+    "internal-packages/dashboard-agent-db/src/client.ts"
+   ],
+   "option:onnotice": [
+    "internal-packages/dashboard-agent-db/migrate-status.mjs",
+    "internal-packages/dashboard-agent-db/migrate.mjs"
+   ],
+   "handle:end": [
+    "internal-packages/dashboard-agent-db/migrate-status.mjs",
+    "internal-packages/dashboard-agent-db/migrate.mjs",
+    "internal-packages/dashboard-agent-db/src/client.ts"
+   ],
+   "tagged-query": [
+    "internal-packages/dashboard-agent-db/migrate-status.mjs"
+   ],
+   "helper:sql(...)": [
+    "internal-packages/dashboard-agent-db/migrate-status.mjs"
+   ],
+   "error:.code": [
+    "internal-packages/dashboard-agent-db/migrate-status.mjs"
+   ],
+   "passed-to:drizzle": [
+    "internal-packages/dashboard-agent-db/migrate.mjs",
+    "internal-packages/dashboard-agent-db/src/client.ts"
+   ],
+   "option:idle_timeout": [
+    "internal-packages/dashboard-agent-db/src/client.ts"
+   ],
+   "option:connect_timeout": [
+    "internal-packages/dashboard-agent-db/src/client.ts"
+   ]
+  }
+ },
+ "vercel__chatbot": {
+  "handles": {
+   "lib/db/migrate.ts": [
+    "connection"
+   ],
+   "lib/db/queries.ts": [
+    "client"
+   ]
+  },
+  "features": {
+   "option:max": [
+    "lib/db/migrate.ts"
+   ],
+   "passed-to:drizzle": [
+    "lib/db/migrate.ts",
+    "lib/db/queries.ts"
+   ]
+  }
+ }
+}

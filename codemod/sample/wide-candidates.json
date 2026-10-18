@@ -1,0 +1,242 @@
+[
+ {
+  "repo": "vercel/next.js",
+  "stars": 143053
+ },
+ {
+  "repo": "immich-app/immich",
+  "stars": 116432
+ },
+ {
+  "repo": "paperclipai/paperclip",
+  "stars": 103277
+ },
+ {
+  "repo": "thedotmack/claude-mem",
+  "stars": 101377
+ },
+ {
+  "repo": "oven-sh/bun",
+  "stars": 96276
+ },
+ {
+  "repo": "justjavac/wechat-miniapp-radar",
+  "stars": 51178
+ },
+ {
+  "repo": "moeru-ai/airi",
+  "stars": 50450
+ },
+ {
+  "repo": "trpc/trpc",
+  "stars": 40711
+ },
+ {
+  "repo": "CopilotKit/CopilotKit",
+  "stars": 38067
+ },
+ {
+  "repo": "Dokploy/dokploy",
+  "stars": 37829
+ },
+ {
+  "repo": "drizzle-team/drizzle-orm",
+  "stars": 36067
+ },
+ {
+  "repo": "supermemoryai/supermemory",
+  "stars": 31260
+ },
+ {
+  "repo": "better-auth/better-auth",
+  "stars": 30332
+ },
+ {
+  "repo": "simstudioai/sim",
+  "stars": 29834
+ },
+ {
+  "repo": "t3-oss/create-t3-app",
+  "stars": 29161
+ },
+ {
+  "repo": "nextauthjs/next-auth",
+  "stars": 28364
+ },
+ {
+  "repo": "manaflow-ai/cmux",
+  "stars": 28225
+ },
+ {
+  "repo": "pingdotgg/t3code",
+  "stars": 28091
+ },
+ {
+  "repo": "hcengineering/platform",
+  "stars": 27932
+ },
+ {
+  "repo": "onlook-dev/onlook",
+  "stars": 26928
+ },
+ {
+  "repo": "anomalyco/sst",
+  "stars": 26356
+ },
+ {
+  "repo": "clockworklabs/SpacetimeDB",
+  "stars": 25309
+ },
+ {
+  "repo": "every-app/open-seo",
+  "stars": 23893
+ },
+ {
+  "repo": "kriasoft/react-starter-kit",
+  "stars": 23694
+ },
+ {
+  "repo": "docmost/docmost",
+  "stars": 22004
+ },
+ {
+  "repo": "teableio/teable",
+  "stars": 21894
+ },
+ {
+  "repo": "vercel/chatbot",
+  "stars": 20995
+ },
+ {
+  "repo": "kortix-ai/suna",
+  "stars": 20278
+ },
+ {
+  "repo": "elizaOS/eliza",
+  "stars": 19612
+ },
+ {
+  "repo": "vercel-labs/json-render",
+  "stars": 18701
+ },
+ {
+  "repo": "questdb/questdb",
+  "stars": 17447
+ },
+ {
+  "repo": "Effect-TS/effect",
+  "stars": 17315
+ },
+ {
+  "repo": "suitenumerique/docs",
+  "stars": 16926
+ },
+ {
+  "repo": "triggerdotdev/trigger.dev",
+  "stars": 16559
+ },
+ {
+  "repo": "MODSetter/SurfSense",
+  "stars": 16494
+ },
+ {
+  "repo": "omnivore-app/omnivore",
+  "stars": 16282
+ },
+ {
+  "repo": "nextjs/saas-starter",
+  "stars": 16191
+ },
+ {
+  "repo": "electric-sql/pglite",
+  "stars": 16158
+ },
+ {
+  "repo": "TanStack/router",
+  "stars": 15213
+ },
+ {
+  "repo": "corsairdev/corsair",
+  "stars": 15099
+ },
+ {
+  "repo": "coleam00/context-engineering-intro",
+  "stars": 13881
+ },
+ {
+  "repo": "rybbit-io/rybbit",
+  "stars": 13128
+ },
+ {
+  "repo": "invertase/react-native-firebase",
+  "stars": 12316
+ },
+ {
+  "repo": "cuixueshe/earthworm",
+  "stars": 11112
+ },
+ {
+  "repo": "Mail-0/Zero",
+  "stars": 10854
+ },
+ {
+  "repo": "electric-sql/electric",
+  "stars": 10400
+ },
+ {
+  "repo": "BoundaryML/baml",
+  "stars": 9419
+ },
+ {
+  "repo": "miurla/morphic",
+  "stars": 9177
+ },
+ {
+  "repo": "getsentry/sentry-javascript",
+  "stars": 8762
+ },
+ {
+  "repo": "KKKKhazix/AIHOT",
+  "stars": 7939
+ },
+ {
+  "repo": "supabase/realtime",
+  "stars": 7657
+ },
+ {
+  "repo": "leerob/next-mdx-blog",
+  "stars": 7571
+ },
+ {
+  "repo": "BuilderIO/agent-native",
+  "stars": 7402
+ },
+ {
+  "repo": "colyseus/colyseus",
+  "stars": 7368
+ },
+ {
+  "repo": "CopilotKit/OpenBot",
+  "stars": 6575
+ },
+ {
+  "repo": "sadmann7/tablecn",
+  "stars": 6335
+ },
+ {
+  "repo": "rivet-dev/rivet",
+  "stars": 6306
+ },
+ {
+  "repo": "nickscamara/open-deep-research",
+  "stars": 6293
+ },
+ {
+  "repo": "skeletonlabs/skeleton",
+  "stars": 6076
+ },
+ {
+  "repo": "riverqueue/river",
+  "stars": 5788
+ }
+]
