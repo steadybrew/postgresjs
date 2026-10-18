@@ -4,9 +4,9 @@ on:
   push:
     branches: [main]
     tags: ['migrate-v*']
-    paths: ['codemod/**', '.github/workflows/codemod.yml']
+    paths: ['codemod/**', '.github/workflows/codemod.yml', '!**/*.md']
   pull_request:
-    paths: ['codemod/**', '.github/workflows/codemod.yml']
+    paths: ['codemod/**', '.github/workflows/codemod.yml', '!**/*.md']
 
 permissions:
   contents: read

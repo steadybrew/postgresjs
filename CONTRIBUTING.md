@@ -18,7 +18,7 @@ Check the [roadmap](ROADMAP.md) and [the list of fixed upstream issues](README.m
 
 ## Running the tests
 
-CI runs every suite on each pull request: Node.js 22, 24 and 26 against PostgreSQL 15 to 18, plus Deno and Cloudflare workerd. See [the test workflow](.github/workflows/test.yml).
+CI skips Markdown-only changes. Client changes run the Node.js, Deno and Cloudflare workerd suites; codemod changes run the separate migration checks. Release tags always run their full test matrix. See [the client workflow](.github/workflows/test.yml) and [codemod workflow](.github/workflows/codemod.yml).
 
 Locally:
 

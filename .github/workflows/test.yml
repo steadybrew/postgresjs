@@ -4,9 +4,9 @@ on:
   push:
     branches: [main]
     tags: ['v*']
-    paths-ignore: ['codemod/**', '.github/workflows/codemod.yml']
+    paths-ignore: ['**/*.md', 'codemod/**', '.github/workflows/codemod.yml']
   pull_request:
-    paths-ignore: ['codemod/**', '.github/workflows/codemod.yml']
+    paths-ignore: ['**/*.md', 'codemod/**', '.github/workflows/codemod.yml']
 
 env:
   NODE_OPTIONS: --unhandled-rejections=strict
