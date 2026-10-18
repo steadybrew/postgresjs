@@ -1,0 +1,2884 @@
+diff --git a/src/connection.js b/src/connection.js
+index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..8e068dfbd2c31216bd1394f363647bee425a2df1 100644
+--- a/src/connection.js
++++ b/src/connection.js
+@@ -4,24 +4,30 @@ import crypto from 'crypto'
+ import Stream from 'stream'
+ import { performance } from 'perf_hooks'
+ 
+-import { stringify, handleValue, arrayParser, arraySerializer } from './types.js'
+-import { Errors } from './errors.js'
++import { stringify, handleValue, addArrayType, clientSerialize } from './types.js'
++import { Errors, callback } from './errors.js'
+ import Result from './result.js'
+ import Queue from './queue.js'
++import clampedTimeout from './timeout.js'
++import { SSLRequest, tlsConfig, cancelRequest } from './transport.js'
+ import { Query, CLOSE } from './query.js'
+ import b from './bytes.js'
+ 
+-export default Connection
++export { Connection }
+ 
+ let uid = 1
+ 
+ const Sync = b().S().end()
+     , Flush = b().H().end()
+-    , SSLRequest = b().i32(8).i32(80877103).end(8)
+     , ExecuteUnnamed = Buffer.concat([b().E().str(b.N).i32(0).end(), Sync])
+     , DescribeUnnamed = b().D().str('S').str(b.N).end()
+     , noop = () => { /* noop */ }
+ 
++const Phase = { Closed: 0, Backoff: 1, Connecting: 2, Initializing: 3, Ready: 4, Draining: 5, Closing: 6 }
++const phaseNames = Object.keys(Phase)
++
++const endsAbortedState = /^\s*(rollback|abort)\b/i
++
+ const retryRoutines = new Set([
+   'FetchPreparedStatement',
+   'RevalidateCachedQuery',
+@@ -49,7 +55,7 @@ const errorFields = {
+   82  : 'routine'            // R
+ }
+ 
+-function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose = noop } = {}) {
++function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose = noop, ondrain = noop } = {}) {
+   const {
+     sslnegotiation,
+     ssl,
+@@ -72,12 +78,20 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+   const sent = Queue()
+       , id = uid++
+       , backend = { pid: null, secret: null }
+-      , idleTimer = timer(end, options.idle_timeout)
+-      , lifeTimer = timer(end, options.max_lifetime)
+-      , connectTimer = timer(connectTimedOut, options.connect_timeout)
++      , idleTimer = timer(() => dispatch('end'), options.idle_timeout)
++      , lifeTimer = timer(() => dispatch('end'), options.max_lifetime)
+ 
+   let socket = null
+-    , cancelMessage
++    , phase = Phase.Closed
++    , generation = 0
++    , acquisition = null
++    , endWaiters = []
++    , inheritedBackoff = null
++    , backoffTimer = null
++    , backoffUntil = 0
++    , attemptTimer = null
++    , deadlineTimer = null
++    , closeTimer = null
+     , errorResponse = null
+     , result = new Result()
+     , incoming = Buffer.alloc(0)
+@@ -86,82 +100,440 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+     , statements = {}
+     , statementId = Math.random().toString(36).slice(2)
+     , statementCount = 1
+-    , closedTime = 0
+     , remaining = 0
+     , hostIndex = 0
+-    , retries = 0
+     , length = 0
+-    , delay = 0
+     , rows = 0
++    , copyPaused = false
+     , serverSignature = null
+     , nextWriteTimer = null
+-    , terminated = false
+     , incomings = null
+     , results = null
+-    , initial = null
+-    , ending = null
+     , stream = null
+     , chunk = null
+-    , ended = null
+     , nonce = null
+     , query = null
++    , barrier = null
+     , final = null
+ 
++  const check = globalThis[Symbol.for('postgres.js:check')]
++  let depth = 0
++
++  const starting = {
++    acquire: refuse,
++    deadline: expire,
++    attemptTimeout: () => afterFailure(Errors.connection('CONNECT_TIMEOUT', options, socket), 'timeout'),
++    socketError: err => afterFailure(err, 'socket'),
++    socketClose: () => afterFailure(errorResponse || Errors.connection('CONNECTION_CLOSED', options, socket), 'dropped'),
++    protocolError: err => afterFailure(err, 'protocol'),
++    authFailed: enterClosed,
++    writable: noop,
++    end: () => endAcquisition(null),
++    terminate: () => enterClosed(Errors.connection('CONNECTION_DESTROYED', options, socket))
++  }
++
++  const on = {
++    [Phase.Closed]: {
++      acquire,
++      execute: refuse,
++      end: () => endWaiters.splice(0).forEach(resolve => resolve()),
++      terminate: noop
++    },
++    [Phase.Backoff]: {
++      acquire: refuse,
++      execute: refuse,
++      backoffElapsed: enterConnecting,
++      deadline: expire,
++      end: () => (inheritedBackoff = { at: performance.now(), delay: backoffUntil - performance.now() }, endAcquisition(acquisition.lastError)),
++      terminate: () => enterClosed(Errors.connection('CONNECTION_DESTROYED', options, socket))
++    },
++    [Phase.Connecting]: {
++      ...starting,
++      execute: refuse,
++      socketCreated: attach,
++      factoryFailed: err => afterFailure(err, 'factory'),
++      socketReady: () => ssl ? negotiate() : authenticate(),
++      sslReply: x => x[0] === 83
++        ? upgrade()
++        : ssl === 'prefer'
++          ? authenticate()
++          : afterFailure(Errors.generic('SSL_NOT_SUPPORTED', 'The server does not support SSL connections'), 'protocol'),
++      secure: authenticate,
++      serverError: err => afterFailure(err, 'rejected'),
++      ready: () => (transition(Phase.Initializing), initialized())
++    },
++    [Phase.Initializing]: {
++      ...starting,
++      execute: q => q.initialization ? submit(q) : refuse(q),
++      serverError: err => afterFailure(err, 'dropped'),
++      initFailed: enterClosed,
++      ready: initialized
++    },
++    [Phase.Ready]: {
++      acquire: refuse,
++      execute: submit,
++      ready: () => pipelined() || (connection.owner ? connection.owner.next() : onopen(connection)),
++      serverError: lost,
++      socketError: lost,
++      socketClose: hadError => lost(closedBy(errorResponse), hadError),
++      protocolError: errored,
++      writable: () => !query && !connection.owner && onopen(connection),
++      end: () => idle() && !connection.owner
++        ? closing()
++        : (transition(Phase.Draining), connection.owner || onend(connection)),
++      terminate: () => idle() ? enterClosed() : enterClosed(Errors.connection('CONNECTION_DESTROYED', options, socket)),
++      release: () => onopen(connection)
++    },
++    [Phase.Draining]: {
++      acquire: refuse,
++      execute: submit,
++      ready: () => pipelined() || (connection.owner ? connection.owner.next() : drained()),
++      serverError: lost,
++      socketError: lost,
++      socketClose: hadError => lost(closedBy(errorResponse), hadError),
++      protocolError: errored,
++      writable: noop,
++      end: noop,
++      terminate: () => idle() ? enterClosed() : enterClosed(Errors.connection('CONNECTION_DESTROYED', options, socket)),
++      release: () => idle() ? drained() : onend(connection)
++    },
++    [Phase.Closing]: {
++      acquire: refuse,
++      execute: refuse,
++      ready: noop,
++      serverError: noop,
++      socketError: noop,
++      socketClose: hadError => hadError ? lost(Errors.connection('CONNECTION_CLOSED', options, socket)) : enterClosed(),
++      closeTimeout: () => enterClosed(),
++      protocolError: errored,
++      writable: noop,
++      end: noop,
++      terminate: () => enterClosed()
++    }
++  }
++
+   const connection = {
+     queue: queues.closed,
+     idleTimer,
+-    connect(query) {
+-      initial = query
+-      reconnect()
++    // Sentry's hook wraps connect and reads the connection from this, so it must stay a method
++    connect(request) {
++      dispatch('acquire', request)
+     },
+-    terminate,
++    terminate: () => dispatch('terminate'),
+     execute,
+-    cancel,
+-    end,
++    release: () => dispatch('release'),
++    end: () => {
++      const done = new Promise(resolve => endWaiters.push(resolve))
++      dispatch('end')
++      return done
++    },
++    expired: () => idleTimer.expired() || lifeTimer.expired(),
++    owner: null,
++    get active() { return query ? 1 : 0 },
++    get pipelined() { return sent.length },
++    get accepting() { return accepting() },
++    get copying() { return stream !== null },
++    get copyHeld() { return stream !== null && !stream.writableEnded },
++    get acquiring() { return acquisition && !acquisition.owner.cancelled ? 1 : 0 },
+     count: 0,
+     id
+   }
+ 
++  check && Object.defineProperty(connection, Symbol.for('postgres.js:phase'), { get: () => phaseNames[phase] })
++  check && check('created', connection, queues)
++
+   queues.closed && queues.closed.push(connection)
+ 
+   return connection
+ 
+-  async function createSocket() {
+-    let x
+-    try {
+-      x = options.socket
+-        ? (await Promise.resolve(options.socket(options)))
+-        : new net.Socket()
+-    } catch (e) {
+-      error(e)
+-      return
+-    }
+-    x.on('error', error)
+-    x.on('close', closed)
+-    x.on('drain', drain)
+-    return x
++  function transition(next) {
++    check && check('edge', connection, phaseNames[phase], phaseNames[next])
++    generation++
++    phase = next
+   }
+ 
+-  async function cancel({ pid, secret }, resolve, reject) {
++  function dispatch(event, arg) {
++    const handler = on[phase][event]
++    if (!handler)
++      return check && check('unhandled', connection, phaseNames[phase], event)
++
++    depth++
+     try {
+-      cancelMessage = b().i32(16).i32(80877102).i32(pid).i32(secret).end(16)
+-      await connect()
+-      socket.once('error', reject)
+-      socket.once('close', resolve)
+-    } catch (error) {
+-      reject(error)
++      return handler(arg)
++    } finally {
++      depth--
++      check && depth === 0 && check('settled', connection, queues)
+     }
+   }
+ 
++  function refuse(request) {
++    queryError(request, Errors.connection('CONNECTION_CLOSED', options))
++  }
++
++  function drained() {
++    ondrain(connection) || closing()
++  }
++
++  function idle() {
++    return !query && sent.length === 0
++  }
++
++  function accepting() {
++    return !query || (!barrier && sent.length < max_pipeline)
++  }
++
++  function backoffMs() {
++    return backoffSeconds(backoff, options.shared.retries) * 1000
++  }
++
++  function standbyPass() {
++    return target_session_attrs === 'prefer-standby' && host.length > 1 && acquisition.pass === 'standby'
++  }
++
++  function acquire(owner) {
++    acquisition = { owner, ending: false, pass: 'standby', hostsTried: 0, attempting: null, mismatches: [], lastError: null }
++    const wait = inheritedBackoff ? inheritedBackoff.at + inheritedBackoff.delay - performance.now() : 0
++    inheritedBackoff = null
++    wait > 0 ? enterBackoff(wait) : enterConnecting()
++  }
++
++  function enterBackoff(ms) {
++    transition(Phase.Backoff)
++    backoffUntil = performance.now() + ms
++    backoffTimer = clampedTimeout(() => (backoffTimer = null, dispatch('backoffElapsed')), ms)
++  }
++
++  function enterConnecting() {
++    transition(Phase.Connecting)
++    const a = acquisition
++    const attempt = generation
++    const ms = options.connect_timeout * 1000
++    if (ms) {
++      deadlineTimer === null && (deadlineTimer = clampedTimeout(() => (deadlineTimer = null, dispatch('deadline')), ms * host.length))
++      host.length > 1 && (attemptTimer = clampedTimeout(() => (attemptTimer = null, dispatch('attemptTimeout')), ms))
++    }
++    a.hostsTried++
++    backendParameters = {}
++    Promise.resolve()
++      .then(() => options.socket ? options.socket(options) : new net.Socket())
++      .then(created => attempt === generation ? dispatch('socketCreated', created) : dispose(created))
++      .catch(err => attempt === generation && dispatch('factoryFailed', err))
++  }
++
++  function dispose(created) {
++    created.on('error', noop)
++    created.destroy()
++  }
++
++  function listen(s) {
++    s.on('error', err => dispatch('socketError', err))
++    s.on('close', hadError => dispatch('socketClose', hadError))
++    s.on('drain', () => dispatch('writable'))
++  }
++
++  function attach(created) {
++    listen(created)
++    socket = created
++    acquisition.attempting = options.socket ? 'custom socket' : options.path || host[hostIndex] + ':' + port[hostIndex]
++
++    if (options.socket)
++      return dispatch('socketReady')
++
++    created.on('connect', () => dispatch('socketReady'))
++
++    if (options.path)
++      return created.connect(options.path)
++
++    created.ssl = ssl
++    created.connect(port[hostIndex], host[hostIndex])
++    created.host = host[hostIndex]
++    created.port = port[hostIndex]
++
++    hostIndex = (hostIndex + 1) % port.length
++  }
++
++  function negotiate() {
++    if (sslnegotiation === 'direct')
++      return upgrade()
++
++    socket.once('data', x => dispatch('sslReply', x))
++    write(SSLRequest)
++  }
++
++  function upgrade() {
++    try {
++      const raw = socket
++      const config = tlsConfig(options, raw)
++      raw.removeAllListeners()
++      socket = tls.connect(config)
++      socket.on('secureConnect', () => dispatch('secure'))
++      listen(socket)
++    } catch (err) {
++      afterFailure(err, 'protocol')
++    }
++  }
++
++  function authenticate() {
++    try {
++      statements = {}
++      needsTypes = options.fetch_types
++      statementId = Math.random().toString(36).slice(2)
++      statementCount = 1
++      socket.on('data', data)
++      keep_alive && socket.setKeepAlive && socket.setKeepAlive(true, 1000 * keep_alive)
++      write(StartupMessage())
++    } catch (err) {
++      afterFailure(err, 'protocol')
++    }
++  }
++
++  function expire() {
++    enterClosed(acquisition.lastError || Errors.connection('CONNECT_TIMEOUT', options, socket))
++  }
++
++  function mismatched(reason) {
++    const a = acquisition
++    a.mismatches.push(a.attempting + ' ' + reason)
++    afterFailure(closedBy(Errors.generic('TARGET_SESSION_ATTRS',
++      'No host matched target_session_attrs=' + target_session_attrs + ': ' + a.mismatches.join(', '))), 'mismatch')
++  }
++
++  function afterFailure(err, cause) {
++    const a = acquisition
++    a.lastError = cause === 'timeout' && a.lastError ? a.lastError : err
++
++    if (a.ending) {
++      inheritedBackoff = { at: performance.now(), delay: backoffMs() }
++      return enterClosed(err)
++    }
++
++    let delay = 0
++    if (a.hostsTried === host.length) {
++      a.hostsTried = 0
++      const mismatches = a.mismatches
++      a.mismatches = []
++      if (standbyPass()) {
++        a.pass = 'any'
++      } else {
++        a.pass = 'standby'
++        options.shared.retries++
++        if (host.length > 1 && mismatches.length === host.length) {
++          inheritedBackoff = { at: performance.now(), delay: backoffMs() }
++          return enterClosed(err)
++        }
++
++        // A single endpoint that is read-only now is often mid-failover behind one DNS name, so retry until the deadline.
++        if (host.length === 1 && cause !== 'dropped' && cause !== 'mismatch') {
++          inheritedBackoff = { at: performance.now(), delay: backoffMs() }
++          return enterClosed(err)
++        }
++
++        delay = backoffMs()
++      }
++    }
++
++    clearTimeout(attemptTimer)
++    attemptTimer = null
++    endSession(err)
++    enterBackoff(delay)
++  }
++
++  function endSession(err) {
++    lifeTimer.cancel()
++    clearTimeout(closeTimer)
++    closeTimer = null
++    clearImmediate(nextWriteTimer)
++    incoming = Buffer.alloc(0)
++    remaining = 0
++    incomings = null
++    if (socket) {
++      socket.removeAllListeners()
++      socket.on('error', noop)
++      socket.destroy()
++      socket = null
++    }
++    stream && (stream.destroy(err), stream = null)
++    final && (final(err), final = null)
++    query && queryError(query, err)
++    while (sent.length) {
++      const pending = sent.shift()
++      queryError(pending, err)
++      pending.cancelled && pending.cancelled.resolve()
++    }
++    query = results = errorResponse = chunk = nextWriteTimer = barrier = null
++    result = new Result()
++    rows = 0
++    copyPaused = false
++    nonce = serverSignature = null
++  }
++
++  function enterClosed(err = Errors.connection('CONNECTION_CLOSED', options, socket), reported = err) {
++    const a = acquisition
++    const waiters = endWaiters
++    clearAcquisitionTimers()
++    endSession(err)
++    acquisition = null
++    endWaiters = []
++    transition(Phase.Closed)
++    a && queryError(a.owner, err)
++    waiters.forEach(resolve => resolve())
++    onclose(connection, reported)
++  }
++
++  function clearAcquisitionTimers() {
++    clearTimeout(attemptTimer)
++    attemptTimer = null
++    clearTimeout(deadlineTimer)
++    deadlineTimer = null
++    clearTimeout(backoffTimer)
++    backoffTimer = null
++  }
++
++  function closing() {
++    transition(Phase.Closing)
++    onend(connection)
++    lifeTimer.cancel()
++    if (socket.readyState === 'open') {
++      socket.end(b().X().end())
++      const ms = options.connect_timeout * 1000
++      ms && (closeTimer = clampedTimeout(() => (closeTimer = null, dispatch('closeTimeout')), ms))
++    } else {
++      socket.destroy()
++    }
++  }
++
++  function handoff() {
++    const { owner, ending } = acquisition
++    transition(Phase.Ready)
++    clearAcquisitionTimers()
++    acquisition = null
++    options.shared.retries = 0
++    lifeTimer.start()
++
++    if (ending) {
++      if (owner.cancelled)
++        return closing()
++      transition(Phase.Draining)
++      return execute(owner)
++    }
++
++    onopen(connection, owner.cancelled ? undefined : owner)
++  }
++
+   function execute(q) {
+-    if (terminated)
+-      return queryError(q, Errors.connection('CONNECTION_DESTROYED', options))
++    return dispatch('execute', q)
++  }
+ 
+-    if (stream)
+-      return queryError(q, Errors.generic('COPY_IN_PROGRESS', 'You cannot execute queries during copy'))
++  function submit(q) {
++    if (stream) {
++      queryError(q, Errors.generic('COPY_IN_PROGRESS', 'You cannot execute queries during copy'))
++      return true
++    }
+ 
+     if (q.cancelled)
+-      return
++      return true
++
++    q.owner === undefined && (q.owner = connection.owner)
+ 
+     try {
+       q.state = backend
+@@ -170,18 +542,21 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+         : (query = q, query.active = true)
+ 
+       build(q)
+-      return write(toBuffer(q))
+-        && !q.describeFirst
+-        && !q.cursorFn
+-        && sent.length < max_pipeline
+-        && (!q.options.onexecute || q.options.onexecute(connection))
++      const written = write(toBuffer(q))
++      if (q.describeFirst || q.cursorFn || mayCopy(q) || (q.prepare && !q.prepared && !q.options.simple && q.parameters.length))
++        barrier = q
++      return written && accepting()
+     } catch (error) {
+-      sent.length === 0 && write(Sync)
+-      errored(error)
+-      return true
++      sent.remove(q) || write(Sync)
++      queryError(q, error)
++      return accepting()
+     }
+   }
+ 
++  function mayCopy(q) {
++    return q.options.simple && /\bcopy\b/i.test(q.string)
++  }
++
+   function toBuffer(q) {
+     if (q.parameters.length >= 65534)
+       throw Errors.generic('MAX_PARAMETERS_EXCEEDED', 'Max number of parameters (65534) exceeded')
+@@ -206,7 +581,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+ 
+   function prepared(q) {
+     return Buffer.concat([
+-      Bind(q.parameters, q.statement.types, q.statement.name, q.cursorName),
++      Bind(q),
+       q.cursorFn
+         ? Execute('', q.cursorRows)
+         : ExecuteUnnamed
+@@ -234,13 +609,16 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+     q.signature = q.prepare && types + string
+     q.onlyDescribe && (delete statements[q.signature])
+     q.parameters = q.parameters || parameters
++    q.inferred = options.parameter_types === 'server' ? null : types.slice()
+     q.prepared = q.prepare && q.signature in statements
+-    q.describeFirst = q.onlyDescribe || (parameters.length && !q.prepared)
++    q.describeFirst = q.onlyDescribe || (!q.prepared && types.some((x, i) =>
++      !x && (options.parameter_types !== 'client' || Array.isArray(q.parameters[i]))
++    ))
+     q.statement = q.prepared
+       ? statements[q.signature]
+       : { string, types, name: q.prepare ? statementId + statementCount++ : '' }
+ 
+-    typeof options.debug === 'function' && options.debug(id, string, parameters, types)
++    typeof options.debug === 'function' && callback(options.debug, id, string, parameters, types)
+   }
+ 
+   function write(x, fn) {
+@@ -252,52 +630,12 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+   }
+ 
+   function nextWrite(fn) {
+-    const x = socket.write(chunk, fn)
++    const x = socket ? socket.write(chunk, fn) : false
+     nextWriteTimer !== null && clearImmediate(nextWriteTimer)
+     chunk = nextWriteTimer = null
+     return x
+   }
+ 
+-  function connectTimedOut() {
+-    errored(Errors.connection('CONNECT_TIMEOUT', options, socket))
+-    socket.destroy()
+-  }
+-
+-  async function secure() {
+-    if (sslnegotiation !== 'direct') {
+-      write(SSLRequest)
+-      const canSSL = await new Promise(r => socket.once('data', x => r(x[0] === 83))) // S
+-
+-      if (!canSSL && ssl === 'prefer')
+-        return connected()
+-    }
+-
+-    const options = {
+-      socket,
+-      servername: net.isIP(socket.host) ? undefined : socket.host
+-    }
+-
+-    if (sslnegotiation === 'direct')
+-      options.ALPNProtocols = ['postgresql']
+-
+-    if (ssl === 'require' || ssl === 'allow' || ssl === 'prefer')
+-      options.rejectUnauthorized = false
+-    else if (typeof ssl === 'object')
+-      Object.assign(options, ssl)
+-
+-    socket.removeAllListeners()
+-    socket = tls.connect(options)
+-    socket.on('secureConnect', connected)
+-    socket.on('error', error)
+-    socket.on('close', closed)
+-    socket.on('drain', drain)
+-  }
+-
+-  /* c8 ignore next 3 */
+-  function drain() {
+-    !query && onopen(connection)
+-  }
+-
+   function data(x) {
+     if (incomings) {
+       incomings.push(x)
+@@ -312,6 +650,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+         ? x
+         : Buffer.concat([incoming, x], incoming.length + x.length)
+ 
++    const source = socket
+     while (incoming.length > 4) {
+       length = incoming.readUInt32BE(1)
+       if (length >= incoming.length) {
+@@ -324,73 +663,31 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+         handle(incoming.subarray(0, length + 1))
+       } catch (e) {
+         query && (query.cursorFn || query.describeFirst) && write(Sync)
+-        errored(e)
++        dispatch('protocolError', e)
+       }
++      if (socket !== source)
++        return
+       incoming = incoming.subarray(length + 1)
+       remaining = 0
+       incomings = null
+     }
+   }
+ 
+-  async function connect() {
+-    terminated = false
+-    backendParameters = {}
+-    socket || (socket = await createSocket())
+-
+-    if (!socket)
+-      return
+-
+-    connectTimer.start()
+-
+-    if (options.socket)
+-      return ssl ? secure() : connected()
+-
+-    socket.on('connect', ssl ? secure : connected)
+-
+-    if (options.path)
+-      return socket.connect(options.path)
+-
+-    socket.ssl = ssl
+-    socket.connect(port[hostIndex], host[hostIndex])
+-    socket.host = host[hostIndex]
+-    socket.port = port[hostIndex]
+-
+-    hostIndex = (hostIndex + 1) % port.length
++  function lost(err, counted = true) {
++    counted && options.shared.retries++
++    inheritedBackoff = { at: performance.now(), delay: backoffMs() }
++    enterClosed(err, err.code === 'CONNECTION_CLOSED' ? err : closedBy(err))
+   }
+ 
+-  function reconnect() {
+-    setTimeout(connect, closedTime ? Math.max(0, closedTime + delay - performance.now()) : 0)
+-  }
+-
+-  function connected() {
+-    try {
+-      statements = {}
+-      needsTypes = options.fetch_types
+-      statementId = Math.random().toString(36).slice(2)
+-      statementCount = 1
+-      lifeTimer.start()
+-      socket.on('data', data)
+-      keep_alive && socket.setKeepAlive && socket.setKeepAlive(true, 1000 * keep_alive)
+-      const s = StartupMessage()
+-      write(s)
+-    } catch (err) {
+-      error(err)
+-    }
+-  }
+-
+-  function error(err) {
+-    if (connection.queue === queues.connecting && options.host[retries + 1])
+-      return
+-
+-    errored(err)
+-    while (sent.length)
+-      queryError(sent.shift(), err)
++  // CONNECTION_CLOSED stays the code callers retry on; the FATAL, socket error or target_session_attrs mismatch is its cause.
++  function closedBy(cause) {
++    return Errors.connection('CONNECTION_CLOSED', options, socket, cause)
+   }
+ 
+   function errored(err) {
+     stream && (stream.destroy(err), stream = null)
++    resumeCopy()
+     query && queryError(query, err)
+-    initial && (queryError(initial, err), initial = null)
+   }
+ 
+   function queryError(query, err) {
+@@ -401,7 +698,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+       err = new Error(err)
+ 
+     'query' in err || 'parameters' in err || Object.defineProperties(err, {
+-      stack: { value: err.stack + query.origin.replace(/.*\n/, '\n'), enumerable: options.debug },
++      stack: { value: err.stack + query.origin.replace(/.*\n/, '\n'), enumerable: options.debug, writable: true, configurable: true },
+       query: { value: query.string, enumerable: options.debug },
+       parameters: { value: query.parameters, enumerable: options.debug },
+       args: { value: query.args, enumerable: options.debug },
+@@ -410,51 +707,14 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+     query.reject(err)
+   }
+ 
+-  function end() {
+-    return ending || (
+-      !connection.reserved && onend(connection),
+-      !connection.reserved && !initial && !query && sent.length === 0
+-        ? (terminate(), new Promise(r => socket && socket.readyState !== 'closed' ? socket.once('close', r) : r()))
+-        : ending = new Promise(r => ended = r)
+-    )
+-  }
+-
+-  function terminate() {
+-    terminated = true
+-    if (stream || query || initial || sent.length)
+-      error(Errors.connection('CONNECTION_DESTROYED', options))
+-
+-    clearImmediate(nextWriteTimer)
+-    if (socket) {
+-      socket.removeListener('data', data)
+-      socket.removeListener('connect', connected)
+-      socket.readyState === 'open' && socket.end(b().X().end())
+-    }
+-    ended && (ended(), ending = ended = null)
+-  }
+-
+-  async function closed(hadError) {
+-    incoming = Buffer.alloc(0)
+-    remaining = 0
+-    incomings = null
+-    clearImmediate(nextWriteTimer)
+-    socket.removeListener('data', data)
+-    socket.removeListener('connect', connected)
+-    idleTimer.cancel()
+-    lifeTimer.cancel()
+-    connectTimer.cancel()
+-
+-    socket.removeAllListeners()
+-    socket = null
+-
+-    if (initial)
+-      return reconnect()
+-
+-    !hadError && (query || sent.length) && error(Errors.connection('CONNECTION_CLOSED', options, socket))
+-    closedTime = performance.now()
+-    hadError && options.shared.retries++
+-    delay = (typeof backoff === 'function' ? backoff(options.shared.retries) : backoff) * 1000
+-    onclose(connection, Errors.connection('CONNECTION_CLOSED', options, socket))
++  function endAcquisition(err) {
++    const a = acquisition
++    if (a.owner.reserve)
++      enterClosed(Errors.connection('CONNECTION_ENDED', options))
++    else if (err)
++      enterClosed(err)
++    else if (!a.ending)
++      (a.ending = true, onend(connection))
+   }
+ 
+   /* Handlers */
+@@ -495,6 +755,8 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+     let column
+     let value
+ 
++    const valueFrom = !query.initialization && transform.value.from
++    const rowFrom = !query.initialization && transform.row.from
+     const row = query.isRaw ? new Array(query.statement.columns.length) : {}
+     for (let i = 0; i < query.statement.columns.length; i++) {
+       column = query.statement.columns[i]
+@@ -514,13 +776,13 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+       query.isRaw
+         ? (row[i] = query.isRaw === true
+           ? value
+-          : transform.value.from ? transform.value.from(value, column) : value)
+-        : (row[column.name] = transform.value.from ? transform.value.from(value, column) : value)
++          : valueFrom ? transform.value.from(value, column) : value)
++        : (row[column.name] = valueFrom ? transform.value.from(value, column) : value)
+     }
+ 
+     query.forEachFn
+-      ? query.forEachFn(transform.row.from ? transform.row.from(row) : row, result)
+-      : (result[rows++] = transform.row.from ? transform.row.from(row) : row)
++      ? query.forEachFn(rowFrom ? transform.row.from(row) : row, result)
++      : (result[rows++] = rowFrom ? transform.row.from(row) : row)
+   }
+ 
+   function ParameterStatus(x) {
+@@ -528,19 +790,25 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+     backendParameters[k] = v
+     if (options.parameters[k] !== v) {
+       options.parameters[k] = v
+-      onparameter && onparameter(k, v)
++      callback(onparameter, k, v)
+     }
+   }
+ 
+   function ReadyForQuery(x) {
++    query === barrier && (barrier = null)
+     if (query) {
+       if (errorResponse) {
++        if (query.initialization)
++          return dispatch('initFailed', errorResponse)
++        query.prepared && retryRoutines.has(errorResponse.routine) && delete statements[query.signature]
+         query.retried
+           ? errored(query.retried)
+-          : query.prepared && retryRoutines.has(errorResponse.routine)
++          : query.prepared && retryRoutines.has(errorResponse.routine) && query.owner === connection.owner && !barrier && !query.cancelled
++            && (x[5] !== 69 || endsAbortedState.test(query.string))
+             ? retry(query, errorResponse)
+             : errored(errorResponse)
+       } else {
++        query.initialization && query.initialization(results || result)
+         query.resolve(results || result)
+       }
+     } else if (errorResponse) {
+@@ -549,42 +817,34 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+ 
+     query = results = errorResponse = null
+     result = new Result()
+-    connectTimer.cancel()
++    rows = 0
+ 
+-    if (initial) {
+-      if (target_session_attrs) {
+-        if (!backendParameters.in_hot_standby || !backendParameters.default_transaction_read_only)
+-          return fetchState()
+-        else if (tryNext(target_session_attrs, backendParameters))
+-          return terminate()
+-      }
++    dispatch('ready')
++  }
+ 
+-      if (needsTypes) {
+-        initial.reserve && (initial = null)
+-        return fetchArrayTypes()
+-      }
+-
+-      initial && !initial.reserve && execute(initial)
+-      options.shared.retries = retries = 0
+-      initial = null
+-      return
++  function pipelined() {
++    query = sent.length ? sent.shift() : null
++    if (query) {
++      query.active = true
++      query.cancelled && cancelRequest(options, query.state).then(query.cancelled.resolve, query.cancelled.reject)
+     }
+ 
+-    while (sent.length && (query = sent.shift()) && (query.active = true, query.cancelled))
+-      Connection(options).cancel(query.state, query.cancelled.resolve, query.cancelled.reject)
++    return query
++  }
+ 
+-    if (query)
+-      return // Consider opening if able and sent.length < 50
++  function initialized() {
++    if (target_session_attrs) {
++      if (!backendParameters.in_hot_standby || !backendParameters.default_transaction_read_only)
++        return fetchState()
++      const reason = mismatchReason(target_session_attrs, backendParameters)
++      if (reason)
++        return mismatched(reason)
++    }
+ 
+-    connection.reserved
+-      ? !connection.reserved.release && x[5] === 73 // I
+-        ? ending
+-          ? terminate()
+-          : (connection.reserved = null, onopen(connection))
+-        : connection.reserved()
+-      : ending
+-        ? terminate()
+-        : onopen(connection)
++    if (needsTypes)
++      return fetchArrayTypes()
++
++    handoff()
+   }
+ 
+   function CommandComplete(x) {
+@@ -602,7 +862,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+ 
+     final && (final(), final = null)
+ 
+-    if (result.command === 'BEGIN' && max !== 1 && !connection.reserved)
++    if (result.command === 'BEGIN' && max !== 1 && !query.owner)
+       return errored(Errors.generic('UNSAFE_TRANSACTION', 'Only use sql.begin, sql.reserved or max: 1'))
+ 
+     if (query.options.simple)
+@@ -654,7 +914,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+       const number = x.readUInt16BE(index + 4)
+       const type = x.readUInt32BE(index + 6)
+       query.statement.columns[i] = {
+-        name: transform.column.from
++        name: !query.initialization && transform.column.from
+           ? transform.column.from(x.toString('utf8', start, index - 1))
+           : x.toString('utf8', start, index - 1),
+         parser: parsers[type],
+@@ -670,8 +930,9 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+       return (query.resolve(query.statement), write(Sync))
+   }
+ 
+-  async function Authentication(x, type = x.readUInt32BE(5)) {
+-    (
++  function Authentication(x, type = x.readUInt32BE(5)) {
++    const attempt = generation
++    Promise.resolve((
+       type === 3 ? AuthenticationCleartextPassword :
+       type === 5 ? AuthenticationMD5Password :
+       type === 10 ? SASL :
+@@ -679,18 +940,20 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+       type === 12 ? SASLFinal :
+       type !== 0 ? UnknownAuth :
+       noop
+-    )(x, type)
++    )(x, type, attempt)).catch(err => attempt === generation && dispatch('authFailed', err))
+   }
+ 
+   /* c8 ignore next 5 */
+-  async function AuthenticationCleartextPassword() {
++  async function AuthenticationCleartextPassword(x, type, attempt) {
+     const payload = await Pass()
++    if (attempt !== generation)
++      return
+     write(
+       b().p().str(payload).z(1).end()
+     )
+   }
+ 
+-  async function AuthenticationMD5Password(x) {
++  async function AuthenticationMD5Password(x, type, attempt) {
+     const payload = 'md5' + (
+       await md5(
+         Buffer.concat([
+@@ -699,19 +962,25 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+         ])
+       )
+     )
++    if (attempt !== generation)
++      return
+     write(
+       b().p().str(payload).z(1).end()
+     )
+   }
+ 
+-  async function SASL() {
+-    nonce = (await crypto.randomBytes(18)).toString('base64')
++  async function SASL(x, type, attempt) {
++    const nextNonce = (await crypto.randomBytes(18)).toString('base64')
++    if (attempt !== generation)
++      return
++    nonce = nextNonce
+     b().p().str('SCRAM-SHA-256' + b.N)
+     const i = b.i
+     write(b.inc(4).str('n,,n=*,r=' + nonce).i32(b.i - i - 4, i).end())
+   }
+ 
+-  async function SASLContinue(x) {
++  async function SASLContinue(x, type, attempt) {
++    const clientNonce = nonce
+     const res = x.toString('utf8', 9).split(',').reduce((acc, x) => (acc[x[0]] = x.slice(2), acc), {})
+ 
+     const saltedPassword = await crypto.pbkdf2Sync(
+@@ -723,16 +992,19 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+ 
+     const clientKey = await hmac(saltedPassword, 'Client Key')
+ 
+-    const auth = 'n=*,r=' + nonce + ','
++    const auth = 'n=*,r=' + clientNonce + ','
+                + 'r=' + res.r + ',s=' + res.s + ',i=' + res.i
+                + ',c=biws,r=' + res.r
+ 
+-    serverSignature = (await hmac(await hmac(saltedPassword, 'Server Key'), auth)).toString('base64')
++    const signature = (await hmac(await hmac(saltedPassword, 'Server Key'), auth)).toString('base64')
+ 
+     const payload = 'c=biws,r=' + res.r + ',p=' + xor(
+       clientKey, Buffer.from(await hmac(await sha256(clientKey), auth))
+     ).toString('base64')
+ 
++    if (attempt !== generation)
++      return
++    serverSignature = signature
+     write(
+       b().p().str(payload).end()
+     )
+@@ -742,8 +1014,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+     if (x.toString('utf8', 9).split(b.N, 1)[0].slice(2) === serverSignature)
+       return
+     /* c8 ignore next 5 */
+-    errored(Errors.generic('SASL_SIGNATURE_MISMATCH', 'The server did not return the correct signature'))
+-    socket.destroy()
++    dispatch('authFailed', Errors.generic('SASL_SIGNATURE_MISMATCH', 'The server did not return the correct signature'))
+   }
+ 
+   function Pass() {
+@@ -765,48 +1036,47 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+     backend.secret = x.readUInt32BE(9)
+   }
+ 
+-  async function fetchArrayTypes() {
++  function fetchArrayTypes() {
+     needsTypes = false
+-    const types = await new Query([`
++    initialize(`
+       select b.oid, b.typarray
+       from pg_catalog.pg_type a
+       left join pg_catalog.pg_type b on b.oid = a.typelem
+       where a.typcategory = 'A'
+       group by b.oid, b.typarray
+       order by b.oid
+-    `], [], execute)
+-    types.forEach(({ oid, typarray }) => addArrayType(oid, typarray))
++    `, types => types.forEach(({ oid, typarray }) => addArrayType(options, oid, typarray)))
+   }
+ 
+-  function addArrayType(oid, typarray) {
+-    if (!!options.parsers[typarray] && !!options.serializers[typarray]) return
+-    const parser = options.parsers[oid]
+-    options.shared.typeArrayMap[oid] = typarray
+-    options.parsers[typarray] = (xs) => arrayParser(xs, parser, typarray)
+-    options.parsers[typarray].array = true
+-    options.serializers[typarray] = (xs) => arraySerializer(xs, options.serializers[oid], options, typarray)
+-  }
+-
+-  function tryNext(x, xs) {
++  function mismatchReason(x, xs) {
+     return (
+-      (x === 'read-write' && xs.default_transaction_read_only === 'on') ||
+-      (x === 'read-only' && xs.default_transaction_read_only === 'off') ||
+-      (x === 'primary' && xs.in_hot_standby === 'on') ||
+-      (x === 'standby' && xs.in_hot_standby === 'off') ||
+-      (x === 'prefer-standby' && xs.in_hot_standby === 'off' && options.host[retries])
++      (x === 'read-write' && xs.in_hot_standby === 'on' && 'is a standby') ||
++      (x === 'read-write' && xs.default_transaction_read_only === 'on' && 'is read-only') ||
++      (x === 'read-only' && xs.in_hot_standby === 'off' && xs.default_transaction_read_only === 'off' && 'is read-write') ||
++      (x === 'primary' && xs.in_hot_standby === 'on' && 'is a standby') ||
++      (x === 'standby' && xs.in_hot_standby === 'off' && 'is a primary') ||
++      (x === 'prefer-standby' && xs.in_hot_standby === 'off' && standbyPass() && 'is a primary') ||
++      null
+     )
+   }
+ 
+   function fetchState() {
+-    const query = new Query([`
++    initialize(`
+       show transaction_read_only;
+       select pg_catalog.pg_is_in_recovery()
+-    `], [], execute, null, { simple: true })
+-    query.resolve = ([[a], [b]]) => {
++    `, ([[a], [b]]) => {
+       backendParameters.default_transaction_read_only = a.transaction_read_only
+       backendParameters.in_hot_standby = b.pg_is_in_recovery ? 'on' : 'off'
+-    }
+-    query.execute()
++    }, true)
++  }
++
++  function initialize(string, resolve, simple = false) {
++    const attempt = generation
++    const q = new Query([string], [], q => attempt === generation
++      ? execute(q)
++      : queryError(q, Errors.connection('CONNECTION_CLOSED', options)), null, { simple })
++    q.initialization = resolve
++    q.catch(noop)
+   }
+ 
+   function ErrorResponse(x) {
+@@ -814,12 +1084,11 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+       (query.cursorFn || query.describeFirst) && write(Sync)
+       errorResponse = Errors.postgres(parseError(x))
+     } else {
+-      errored(Errors.postgres(parseError(x)))
++      dispatch('serverError', Errors.postgres(parseError(x)))
+     }
+   }
+ 
+   function retry(q, error) {
+-    delete statements[q.signature]
+     q.retried = error
+     execute(q)
+   }
+@@ -830,22 +1099,27 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+ 
+     let index = 9
+     while (x[index++] !== 0);
+-    onnotify(
++    callback(
++      onnotify,
+       x.toString('utf8', 9, index - 1),
+       x.toString('utf8', index, x.length - 1)
+     )
+   }
+ 
+   async function PortalSuspended() {
++    const current = query
++    const source = socket
+     try {
+-      const x = await Promise.resolve(query.cursorFn(result))
++      const x = await Promise.resolve(current.cursorFn(result))
++      if (query !== current || socket !== source)
++        return
+       rows = 0
+       x === CLOSE
+-        ? write(Close(query.portal))
+-        : (result = new Result(), write(Execute('', query.cursorRows)))
++        ? write(Close(current.portal))
++        : (result = new Result(), write(Execute('', current.cursorRows)))
+     } catch (err) {
+-      write(Sync)
+-      query.reject(err)
++      query === current && socket === source && write(Sync)
++      current.reject(err)
+     }
+   }
+ 
+@@ -862,7 +1136,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+       },
+       destroy(error, callback) {
+         callback(error)
+-        socket.write(b().f().str(error + b.N).end())
++        socket && socket.readyState === 'open' && socket.write(b().f().str(error + b.N).end())
+         stream = null
+       },
+       final(callback) {
+@@ -872,27 +1146,29 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+       }
+     })
+     query.resolve(stream)
++    connection.owner && connection.owner.next()
+   }
+ 
+   function CopyOutResponse() {
+     stream = new Stream.Readable({
+-      read() { socket.resume() }
++      read() { copyPaused = false; socket.resume() }
+     })
+     query.resolve(stream)
++    connection.owner && connection.owner.next()
+   }
+ 
+   /* c8 ignore next 3 */
+   function CopyBothResponse() {
+     stream = new Stream.Duplex({
+       autoDestroy: true,
+-      read() { socket.resume() },
++      read() { copyPaused = false; socket.resume() },
+       /* c8 ignore next 11 */
+       write(chunk, encoding, callback) {
+         socket.write(b().d().raw(chunk).end(), callback)
+       },
+       destroy(error, callback) {
+         callback(error)
+-        socket.write(b().f().str(error + b.N).end())
++        socket && socket.readyState === 'open' && socket.write(b().f().str(error + b.N).end())
+         stream = null
+       },
+       final(callback) {
+@@ -901,22 +1177,36 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+       }
+     })
+     query.resolve(stream)
++    connection.owner && connection.owner.next()
+   }
+ 
+   function CopyData(x) {
+-    stream && (stream.push(x.subarray(5)) || socket.pause())
++    if (stream && !stream.push(x.subarray(5))) {
++      copyPaused = true
++      socket.pause()
++    }
+   }
+ 
+   function CopyDone() {
+     stream && stream.push(null)
+     stream = null
++    resumeCopy()
++  }
++
++  function resumeCopy() {
++    if (copyPaused) {
++      copyPaused = false
++      socket.resume()
++    }
+   }
+ 
+   function NoticeResponse(x) {
+-    onnotice
+-      ? onnotice(parseError(x))
+-      : console.log(parseError(x)) // eslint-disable-line
++    if (onnotice === false)
++      return
+ 
++    onnotice
++      ? callback(onnotice, parseError(x))
++      : console.log(parseError(x)) // eslint-disable-line
+   }
+ 
+   /* c8 ignore next 3 */
+@@ -945,20 +1235,21 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+   }
+ 
+   /* Messages */
+-  function Bind(parameters, types, statement = '', portal = '') {
++  function Bind(q) {
++    const differences = []
+     let prev
+       , type
+ 
+-    b().B().str(portal + b.N).str(statement + b.N).i16(0).i16(parameters.length)
++    b().B().str((q.cursorName || '') + b.N).str(q.statement.name + b.N).i16(0).i16(q.parameters.length)
+ 
+-    parameters.forEach((x, i) => {
++    q.parameters.forEach((x, i) => {
+       if (x === null)
+         return b.i32(0xFFFFFFFF)
+ 
+-      type = types[i]
+-      parameters[i] = x = type in options.serializers
+-        ? options.serializers[type](x)
+-        : '' + x
++      type = q.statement.types[i]
++      x = !q.inferred || q.inferred[i] || Array.isArray(x)
++        ? serialize(x, type)
++        : options.parameter_types === 'client' ? clientSerialize(x) : compare(x, type, i, differences)
+ 
+       prev = b.i
+       b.inc(4).str(x).i32(b.i - prev - 4, prev)
+@@ -966,7 +1257,27 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+ 
+     b.i16(0)
+ 
+-    return b.end()
++    const message = b.end()
++    differences.length && callback(options.ontypemismatch || console.warn, { query: q.string, parameters: differences }) // eslint-disable-line
++    return message
++  }
++
++  function serialize(x, type) {
++    return type in options.serializers
++      ? options.serializers[type](x)
++      : '' + x
++  }
++
++  function compare(x, type, i, differences) {
++    const serverText = serialize(x, type)
++    let clientText
++    try {
++      clientText = clientSerialize(x)
++    } catch (error) {
++      clientText = error
++    }
++    serverText === clientText || differences.push({ position: i + 1, oid: type, typeof: typeof x, ...options.debug && { serverText, clientText } })
++    return serverText
+   }
+ 
+   function Parse(str, parameters, types, name = '') {
+@@ -994,7 +1305,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+   }
+ 
+   function StartupMessage() {
+-    return cancelMessage || b().inc(4).i16(3).z(2).str(
++    return b().inc(4).i16(3).z(2).str(
+       Object.entries(Object.assign({
+         user,
+         database,
+@@ -1042,21 +1353,44 @@ function xor(a, b) {
+ function timer(fn, seconds) {
+   seconds = typeof seconds === 'function' ? seconds() : seconds
+   if (!seconds)
+-    return { cancel: noop, start: noop }
++    return { cancel: noop, start: noop, expired: () => false }
+ 
+   let timer
++    , due = null
+   return {
+     cancel() {
+       timer && (clearTimeout(timer), timer = null)
++      due = null
+     },
+-    start() {
++    start(...args) {
+       timer && clearTimeout(timer)
+-      timer = setTimeout(done, seconds * 1000, arguments)
++      due = Date.now() + seconds * 1000
++      timer = clampedTimeout(() => done(args), seconds * 1000)
++    },
++    expired() {
++      return due !== null && Date.now() >= due
+     }
+   }
+ 
+   function done(args) {
+-    fn.apply(null, args)
+     timer = null
++    due = null
++    fn.apply(null, args)
++  }
++}
++
++export function defaultBackoff(retries) {
++  return (0.5 + Math.random() / 2) * Math.min(3 ** retries / 100, 20)
++}
++
++export function backoffSeconds(backoff, retries) {
++  if (typeof backoff !== 'function')
++    return backoff
++
++  try {
++    return backoff(retries)
++  } catch (e) {
++    callback(() => { throw e })
++    return defaultBackoff(retries)
+   }
+ }
+diff --git a/src/errors.js b/src/errors.js
+index 0ff83c428bec774e11417b8e1f033dc3305c18cf..023c3ba1bd113e6f5508ab079efcf220e7b33663 100644
+--- a/src/errors.js
++++ b/src/errors.js
+@@ -1,8 +1,16 @@
+ export class PostgresError extends Error {
+   constructor(x) {
+-    super(x.message)
++    super(typeof x === 'string' ? x : x.message)
+     this.name = this.constructor.name
+-    Object.assign(this, x)
++    typeof x === 'string' || Object.assign(this, x)
++  }
++}
++
++export function callback(fn, ...args) {
++  try {
++    fn && fn(...args)
++  } catch (e) {
++    queueMicrotask(() => { throw e })
+   }
+ }
+ 
+@@ -13,10 +21,10 @@ export const Errors = {
+   notSupported
+ }
+ 
+-function connection(x, options, socket) {
++function connection(x, options, socket, cause) {
+   const { host, port } = socket || options
+   const error = Object.assign(
+-    new Error(('write ' + x + ' ' + (options.path || (host + ':' + port)))),
++    new Error(('write ' + x + ' ' + (options.path || (host + ':' + port))), cause && { cause }),
+     {
+       code: x,
+       errno: x,
+diff --git a/src/index.js b/src/index.js
+index c7fba3dace20173f4cb13f3f138bb6d213b43683..015b8d1cfe4ba9f8de73a7bd41b7cea6aa8f1e58 100644
+--- a/src/index.js
++++ b/src/index.js
+@@ -3,10 +3,12 @@ import fs from 'fs'
+ 
+ import {
+   mergeUserTypes,
++  addDefaultArrayTypes,
+   inferType,
+   Parameter,
+   Identifier,
+   Builder,
++  escapeIdentifier,
+   toPascal,
+   pascal,
+   toCamel,
+@@ -18,13 +20,17 @@ import {
+   fromKebab
+ } from './types.js'
+ 
+-import Connection from './connection.js'
++import { Connection, defaultBackoff } from './connection.js'
++import { cancelRequest } from './transport.js'
++import clampedTimeout from './timeout.js'
+ import { Query, CLOSE } from './query.js'
+ import Queue from './queue.js'
+-import { Errors, PostgresError } from './errors.js'
++import { Errors, PostgresError, callback } from './errors.js'
+ import Subscribe from './subscribe.js'
+ import largeObject from './large.js'
+ 
++const Lease = { Active: 0, Settling: 1, Released: 2, Discarded: 3, Closed: 4 }
++
+ Object.assign(Postgres, {
+   PostgresError,
+   toPascal,
+@@ -51,6 +57,7 @@ function Postgres(a, b) {
+       , subscribe = options.no_subscribe || Subscribe(Postgres, { ...options })
+ 
+   let ending = false
++  let reconnecting = null
+ 
+   const queries = Queue()
+       , connecting = Queue()
+@@ -62,7 +69,7 @@ function Postgres(a, b) {
+       , full = Queue()
+       , queues = { connecting, reserved, closed, ended, open, busy, full }
+ 
+-  const connections = [...Array(options.max)].map(() => Connection(options, queues, { onopen, onend, onclose }))
++  const connections = [...Array(options.max)].map(() => Connection(options, queues, { onopen, onend, onclose, ondrain }))
+ 
+   const sql = Sql(handler)
+ 
+@@ -75,10 +82,12 @@ function Postgres(a, b) {
+     PostgresError,
+     options,
+     reserve,
++    stats,
+     listen,
+     begin,
+     close,
+-    end
++    end,
++    ...Symbol.asyncDispose && { [Symbol.asyncDispose]: () => end() }
+   })
+ 
+   return sql
+@@ -144,6 +153,56 @@ function Postgres(a, b) {
+     }
+   }
+ 
++  function stats() {
++    let idleCount = 0
++      , busyCount = 0
++      , reservedCount = 0
++      , connectingCount = 0
++      , closingCount = 0
++      , executingCount = 0
++      , waitingCount = queries.length
++
++    for (const c of connections) {
++      executingCount += c.active
++      waitingCount += c.pipelined + c.acquiring + (c.owner ? c.owner.queue.length : 0)
++      c.queue === open
++        ? idleCount++
++        : c.queue === connecting
++          ? connectingCount++
++          : c.queue === ended
++            ? closingCount++
++            : c.queue === reserved
++              ? reservedCount++
++              : (c.queue === busy || c.queue === full) && (c.owner ? reservedCount++ : busyCount++)
++    }
++
++    const totalCount = idleCount + busyCount + reservedCount + connectingCount
++
++    return {
++      max: options.max,
++      totalCount,
++      idleCount,
++      waitingCount,
++      activeCount: busyCount + reservedCount,
++      availableCount: idleCount + options.max - totalCount - closingCount,
++      busyCount,
++      reservedCount,
++      connectingCount,
++      closingCount,
++      executingCount,
++      listenCount: pooled(listen.sql),
++      subscribeCount: pooled(subscribe.sql)
++    }
++  }
++
++  function pooled(sql) {
++    if (!sql)
++      return 0
++
++    const s = sql.stats()
++    return s.totalCount + s.closingCount
++  }
++
+   async function listen(name, fn, onlisten) {
+     const listener = { fn, onlisten }
+ 
+@@ -153,6 +212,7 @@ function Postgres(a, b) {
+       idle_timeout: null,
+       max_lifetime: null,
+       fetch_types: false,
++      onidle: null,
+       onclose() {
+         Object.entries(listen.channels).forEach(([name, { listeners }]) => {
+           delete listen.channels[name]
+@@ -160,7 +220,7 @@ function Postgres(a, b) {
+         })
+       },
+       onnotify(c, x) {
+-        c in listen.channels && listen.channels[c].listeners.forEach(l => l.fn(x))
++        c in listen.channels && listen.channels[c].listeners.forEach(l => callback(l.fn, x))
+       }
+     }))
+ 
+@@ -170,7 +230,7 @@ function Postgres(a, b) {
+     if (exists) {
+       channels[name].listeners.push(listener)
+       const result = await channels[name].result
+-      listener.onlisten && listener.onlisten()
++      callback(listener.onlisten)
+       return { state: result.state, unlisten }
+     }
+ 
+@@ -178,7 +238,7 @@ function Postgres(a, b) {
+       sql.unsafe('"' + name.replace(/"/g, '""') + '"')
+     }`, listeners: [listener] }
+     const result = await channels[name].result
+-    listener.onlisten && listener.onlisten()
++    callback(listener.onlisten)
+     return { state: result.state, unlisten }
+ 
+     async function unlisten() {
+@@ -200,62 +260,134 @@ function Postgres(a, b) {
+     return await sql`select pg_notify(${ channel }, ${ '' + payload })`
+   }
+ 
+-  async function reserve() {
+-    const queue = Queue()
+-    const c = open.length
+-      ? open.shift()
+-      : await new Promise((resolve, reject) => {
+-        const query = { reserve: resolve, reject }
+-        queries.push(query)
+-        closed.length && connect(closed.shift(), query)
+-      })
++  async function lease(auto) {
++    if (ending)
++      throw Errors.connection('CONNECTION_ENDED', options)
+ 
+-    move(c, reserved)
+-    c.reserved = () => queue.length
+-      ? c.execute(queue.shift())
+-      : move(c, reserved)
+-    c.reserved.release = true
++    const l = { state: null, connection: null, error: null, onclose: null, queue: Queue() }
++    const idle = takeOpen()
++    idle
++      ? own(idle, l)
++      : auto && !closed.length && busy.length
++        ? own(busy.shift(), l)
++        : await new Promise((resolve, reject) => {
++          const query = { reserve: c => resolve(own(c, l)), reject }
++          closed.length
++            ? connect(closed.shift(), query)
++            : allHeldByCopy()
++              ? reject(copyInProgress())
++              : queries.push(query)
++        })
++    return l
++  }
+ 
+-    const sql = Sql(handler)
+-    sql.release = () => {
+-      c.reserved = null
+-      onopen(c)
++  function own(c, l) {
++    l.connection = c
++    l.state = Lease.Active
++    c.owner = l
++    l.next = () => {
++      while (l.queue.length) {
++        if (!c.execute(l.queue.shift()))
++          return
++      }
++      move(c, reserved)
++    }
++    return move(c, reserved)
++  }
++
++  function send(l, q, expected = Lease.Active) {
++    const c = l.connection
++    l.state === expected
++      ? c.copying || (c.queue !== full && c.accepting)
++        ? c.execute(q) || move(c, full)
++        : (move(c, full), q.queue = l.queue, l.queue.push(q))
++      : q.reject(leaseError(l.state))
++  }
++
++  function leaseError(state) {
++    return Errors.connection(state === Lease.Closed ? 'CONNECTION_CLOSED' : 'CONNECTION_ENDED', options)
++  }
++
++  function settle(l, outcome, err) {
++    if (l.state === Lease.Released || l.state === Lease.Discarded || l.state === Lease.Closed)
++      return
++
++    const c = l.connection
++    l.state = outcome
++    c.owner = null
++    while (l.queue.length)
++      l.queue.shift().reject(leaseError(outcome))
++
++    if (outcome === Lease.Closed) {
++      l.error = err || Errors.connection('CONNECTION_CLOSED', options)
++      return l.onclose && l.onclose(l.error)
+     }
+ 
++    outcome === Lease.Released ? c.release() : c.terminate()
++  }
++
++  async function reserve() {
++    const l = await lease(false)
++    const sql = Sql(handler)
++    sql.release = () => settle(l, Lease.Released)
++    Symbol.dispose && (sql[Symbol.dispose] = () => sql.release())
++    Symbol.asyncDispose && (sql[Symbol.asyncDispose] = async() => sql.release())
++    sql.stats = stats
+     return sql
+ 
++    // dd-trace starts query spans only inside function declarations named handler
+     function handler(q) {
+-      c.queue === full
+-        ? queue.push(q)
+-        : c.execute(q) || move(c, full)
++      send(l, q)
+     }
+   }
+ 
+   async function begin(options, fn) {
+     !fn && (fn = options, options = '')
+-    const queries = Queue()
++    const l = await lease(true)
+     let savepoints = 0
+-      , connection
+       , prepare = null
+ 
+     try {
+-      await sql.unsafe('begin ' + options.replace(/[^a-z ]/ig, ''), [], { onexecute }).execute()
+-      return await Promise.race([
+-        scope(connection, fn),
+-        new Promise((_, reject) => connection.onclose = reject)
+-      ])
+-    } catch (error) {
+-      throw error
++      const closing = new Promise((_, reject) => l.onclose = reject)
++      return await Promise.race([transaction(), closing])
++    } finally {
++      settle(l, Lease.Discarded)
+     }
+ 
+-    async function scope(c, fn, name) {
+-      const sql = Sql(handler)
++    async function transaction() {
++      await Sql(handler).unsafe('begin ' + options.replace(/[^a-z ]/ig, ''), []).execute().catch(e => {
++        e instanceof PostgresError && settle(l, Lease.Released)
++        throw e
++      })
++      return scope(fn)
++    }
++
++    async function finish(statement) {
++      let result
++      l.state = Lease.Settling
++      try {
++        result = await statement(Sql(q => handler(q, Lease.Settling)))
++      } catch (e) {
++        settle(l, Lease.Discarded)
++        throw e
++      }
++      settle(l, Lease.Released)
++      return result
++    }
++
++    async function scope(fn, name) {
++      const sql = Sql(track)
+       sql.savepoint = savepoint
+-      sql.prepare = x => prepare = x.replace(/[^a-z0-9$-_. ]/gi)
++      sql.prepare = x => {
++        if (typeof x !== 'string' || !x || x.includes('\0'))
++          throw Errors.generic('INVALID_TRANSACTION_NAME', 'sql.prepare requires a non-empty string without null bytes')
++
++        prepare = 'E\'' + x.replace(/\\/g, '\\\\').replace(/'/g, '\'\'') + '\''
++      }
+       let uncaughtError
+         , result
+ 
+-      name && await sql`savepoint ${ sql(name) }`
++      name && await sql.unsafe('savepoint ' + escapeIdentifier(name))
+       try {
+         result = await new Promise((resolve, reject) => {
+           const x = fn(sql)
+@@ -265,17 +397,27 @@ function Postgres(a, b) {
+         if (uncaughtError)
+           throw uncaughtError
+       } catch (e) {
+-        await (name
+-          ? sql`rollback to ${ sql(name) }`
+-          : sql`rollback`
++        l.state === Lease.Active && await (name
++          ? sql.unsafe('rollback to ' + escapeIdentifier(name))
++          : finish(final => final.unsafe('rollback'))
+         )
+         throw e instanceof PostgresError && e.code === '25P02' && uncaughtError || e
+       }
+ 
++      if (l.state !== Lease.Active)
++        throw l.error || leaseError(l.state)
++
+       if (!name) {
+-        prepare
+-          ? await sql`prepare transaction '${ sql.unsafe(prepare) }'`
+-          : await sql`commit`
++        const done = await finish(final => prepare
++          ? final.unsafe('prepare transaction ' + prepare)
++          : final.unsafe('commit')
++        )
++        if (done.command === 'ROLLBACK') {
++          throw Object.assign(
++            Errors.generic('TRANSACTION_ROLLED_BACK', 'The server rolled the transaction back instead of committing it'),
++            uncaughtError && { cause: uncaughtError }
++          )
++        }
+       }
+ 
+       return result
+@@ -285,23 +427,18 @@ function Postgres(a, b) {
+           return savepoint(sql => sql.apply(sql, arguments))
+ 
+         arguments.length === 1 && (fn = name, name = null)
+-        return scope(c, fn, 's' + savepoints++ + (name ? '_' + name : ''))
++        return scope(fn, 's' + savepoints++ + (name ? '_' + name : ''))
+       }
+ 
+-      function handler(q) {
++      function track(q) {
+         q.catch(e => uncaughtError || (uncaughtError = e))
+-        c.queue === full
+-          ? queries.push(q)
+-          : c.execute(q) || move(c, full)
++        handler(q)
+       }
+     }
+ 
+-    function onexecute(c) {
+-      connection = c
+-      move(c, reserved)
+-      c.reserved = () => queries.length
+-        ? c.execute(queries.shift())
+-        : move(c, reserved)
++    // dd-trace starts query spans only inside function declarations named handler
++    function handler(q, expected) {
++      send(l, q, expected)
+     }
+   }
+ 
+@@ -310,7 +447,7 @@ function Postgres(a, b) {
+     queue.push(c)
+     c.queue = queue
+     queue === open
+-      ? c.idleTimer.start()
++      ? (c.idleTimer.start(), callback(options.onidle, c.id))
+       : c.idleTimer.cancel()
+     return c
+   }
+@@ -330,15 +467,51 @@ function Postgres(a, b) {
+     if (ending)
+       return query.reject(Errors.connection('CONNECTION_ENDED', options, options))
+ 
+-    if (open.length)
+-      return go(open.shift(), query)
++    const idle = takeOpen()
++    if (idle)
++      return go(idle, query)
+ 
+     if (closed.length)
+       return connect(closed.shift(), query)
+ 
+-    busy.length
+-      ? go(busy.shift(), query)
+-      : queries.push(query)
++    const c = takeBusy()
++    c
++      ? go(c, query)
++      : allHeldByCopy()
++        ? query.reject(copyInProgress())
++        : queries.push(query)
++  }
++
++  function allHeldByCopy() {
++    return connections.every(c => c.copyHeld)
++  }
++
++  function copyInProgress() {
++    return Errors.generic('COPY_IN_PROGRESS', 'You cannot execute queries during copy')
++  }
++
++  function takeBusy() {
++    while (busy.length) {
++      const c = busy.shift()
++      if (c.accepting)
++        return c
++
++      move(c, full)
++    }
++
++    return null
++  }
++
++  function takeOpen() {
++    while (open.length) {
++      const c = open.shift()
++      if (!c.expired())
++        return c
++
++      c.terminate()
++    }
++
++    return null
+   }
+ 
+   function go(c, query) {
+@@ -348,17 +521,18 @@ function Postgres(a, b) {
+   }
+ 
+   function cancel(query) {
++    if (query.state && query.active)
++      return cancelRequest(options, query.state)
++
+     return new Promise((resolve, reject) => {
+-      query.state
+-        ? query.active
+-          ? Connection(options).cancel(query.state, resolve, reject)
+-          : query.cancelled = { resolve, reject }
+-        : (
+-          queries.remove(query),
+-          query.cancelled = true,
+-          query.reject(Errors.generic('57014', 'canceling statement due to user request')),
+-          resolve()
+-        )
++      if (query.state) {
++        query.cancelled = { resolve, reject }
++      } else {
++        (query.queue || queries).remove(query)
++        query.cancelled = true
++        query.reject(Errors.generic('57014', 'canceling statement due to user request'))
++        resolve()
++      }
+     })
+   }
+ 
+@@ -368,13 +542,23 @@ function Postgres(a, b) {
+ 
+     await 1
+     let timer
+-    return ending = Promise.race([
+-      new Promise(r => timeout !== null && (timer = setTimeout(destroy, timeout * 1000, r))),
+-      Promise.all(connections.map(c => c.end()).concat(
+-        listen.sql ? listen.sql.end({ timeout: 0 }) : [],
+-        subscribe.sql ? subscribe.sql.end({ timeout: 0 }) : []
+-      ))
+-    ]).then(() => clearTimeout(timer))
++    return ending = Promise.resolve().then(() => Promise.race([
++      new Promise(r => timeout !== null && (timer = clampedTimeout(() => destroy(r), timeout * 1000))),
++      endConnections()
++    ])).then(() => {
++      clearTimeout(timer)
++      while (queries.length)
++        queries.shift().reject(Errors.connection('CONNECTION_CLOSED', options))
++    })
++  }
++
++  async function endConnections() {
++    await Promise.all(connections.map(c => c.end()).concat(
++      listen.sql ? listen.sql.end({ timeout: 0 }) : [],
++      subscribe.sql ? subscribe.sql.end({ timeout: 0 }) : []
++    ))
++    if (reconnecting)
++      await reconnecting.end()
+   }
+ 
+   async function close() {
+@@ -382,9 +566,9 @@ function Postgres(a, b) {
+   }
+ 
+   async function destroy(resolve) {
+-    await Promise.all(connections.map(c => c.terminate()))
+     while (queries.length)
+       queries.shift().reject(Errors.connection('CONNECTION_DESTROYED', options))
++    await Promise.all(connections.map(c => c.terminate()))
+     resolve()
+   }
+ 
+@@ -398,12 +582,18 @@ function Postgres(a, b) {
+     move(c, ended)
+   }
+ 
+-  function onopen(c) {
+-    if (queries.length === 0)
++  function onopen(c, initial) {
++    if (initial && initial.reserve)
++      return initial.reserve(c)
++
++    if (!initial && !c.accepting)
++      return move(c, full)
++
++    if (!initial && !queries.length)
+       return move(c, open)
+ 
+     let max = Math.ceil(queries.length / (connecting.length + 1))
+-      , ready = true
++      , ready = !initial || c.execute(initial)
+ 
+     while (ready && queries.length && max-- > 0) {
+       const query = queries.shift()
+@@ -418,12 +608,51 @@ function Postgres(a, b) {
+       : move(c, full)
+   }
+ 
++  function ondrain(c) {
++    if (!ending)
++      return false
++
++    let drained = false
++    let ready = true
++    while (ready && queries.length) {
++      const query = queries.shift()
++      query.reserve
++        ? query.reject(Errors.connection('CONNECTION_ENDED', options))
++        : (drained = true, ready = c.execute(query))
++    }
++    drained && move(c, ended)
++    return drained
++  }
++
+   function onclose(c, e) {
+     move(c, closed)
+-    c.reserved = null
+-    c.onclose && (c.onclose(e), c.onclose = null)
+-    options.onclose && options.onclose(c.id)
+-    queries.length && connect(c, queries.shift())
++    c.owner && settle(c.owner, Lease.Closed, e)
++    callback(options.onclose, c.id)
++    if (ending)
++      return closedWhileEnding(c, e)
++
++    if (queries.length && c.queue === closed)
++      connect(c, queries.shift())
++  }
++
++  function closedWhileEnding(c, e) {
++    const reconnectFailed = c === reconnecting
++    if (connections.some(x => x !== c && x.queue !== closed))
++      return
++
++    while (queries.length) {
++      const query = queries.shift()
++      if (query.reserve) {
++        query.reject(Errors.connection('CONNECTION_ENDED', options))
++      } else if (reconnectFailed) {
++        query.reject(e)
++      } else {
++        reconnecting = c
++        connect(c, query)
++        c.end()
++        return
++      }
++    }
+   }
+ }
+ 
+@@ -453,16 +682,17 @@ function parseOptions(a, b) {
+     connect_timeout : 30,
+     max_lifetime    : max_lifetime,
+     max_pipeline    : 100,
+-    backoff         : backoff,
++    backoff         : defaultBackoff,
+     keep_alive      : 60,
+     prepare         : true,
+     debug           : false,
+     fetch_types     : true,
++    parameter_types : 'server',
+     publications    : 'alltables',
+     target_session_attrs: null
+   }
+ 
+-  return {
++  const options = {
+     host            : Array.isArray(host) ? host : host.split(',').map(x => x.split(':')[0]),
+     port            : Array.isArray(port) ? port : host.split(',').map(x => parseInt(x.split(':')[1] || port)),
+     path            : o.path || host.indexOf('/') > -1 && host + '/.s.PGSQL.' + port,
+@@ -472,8 +702,8 @@ function parseOptions(a, b) {
+     ...Object.entries(defaults).reduce(
+       (acc, [k, d]) => {
+         const value = k in o ? o[k] : k in query
+-          ? (query[k] === 'disable' || query[k] === 'false' ? false : query[k])
+-          : env['PG' + k.toUpperCase()] || d
++          ? off(query[k])
++          : env['PG' + k.toUpperCase()] ? off(env['PG' + k.toUpperCase()]) : d
+         acc[k] = typeof value === 'string' && ints.includes(k)
+           ? +value
+           : value
+@@ -488,16 +718,26 @@ function parseOptions(a, b) {
+     },
+     types           : o.types || {},
+     target_session_attrs: tsa(o, url, env),
++    parameter_types : parameterTypes(o, url, env),
+     onnotice        : o.onnotice,
+     onnotify        : o.onnotify,
+     onclose         : o.onclose,
++    onidle          : o.onidle,
+     onparameter     : o.onparameter,
++    ontypemismatch  : o.ontypemismatch,
+     socket          : o.socket,
+     transform       : parseTransform(o.transform || { undefined: undefined }),
+     parameters      : {},
+-    shared          : { retries: 0, typeArrayMap: {} },
++    shared          : { retries: 0, typeArrayMap: new Map() },
+     ...mergeUserTypes(o.types)
+   }
++
++  !options.fetch_types && addDefaultArrayTypes(options)
++  return options
++}
++
++function off(x) {
++  return x === 'disable' || x === 'false' ? false : x
+ }
+ 
+ function tsa(o, url, env) {
+@@ -508,8 +748,12 @@ function tsa(o, url, env) {
+   throw new Error('target_session_attrs ' + x + ' is not supported')
+ }
+ 
+-function backoff(retries) {
+-  return (0.5 + Math.random() / 2) * Math.min(3 ** retries / 100, 20)
++function parameterTypes(o, url, env) {
++  const x = o.parameter_types || url.searchParams.get('parameter_types') || env.PGPARAMETER_TYPES || 'server'
++  if (['server', 'client', 'warn'].includes(x))
++    return x
++
++  throw new Error('parameter_types ' + x + ' is not supported')
+ }
+ 
+ function max_lifetime() {
+diff --git a/src/query.js b/src/query.js
+index 0d44a15cd9e42beaf11d4be6ccde60223e09508a..c1777a904c2f214a041fb8af0b56f0ac38418081 100644
+--- a/src/query.js
++++ b/src/query.js
+@@ -23,10 +23,12 @@ export class Query extends Promise {
+     this.state = null
+     this.statement = null
+ 
+-    this.resolve = x => (this.active = false, resolve(x))
+-    this.reject = x => (this.active = false, reject(x))
++    // dd-trace's load-time rewrite only accepts single-expression arrows here
++    this.resolve = x => (this.active = false, this.settled = true, resolve(x))
++    this.reject = x => (this.active = false, this.settled = true, reject(x))
+ 
+     this.active = false
++    this.settled = false
+     this.cancelled = null
+     this.executed = false
+     this.signature = ''
+@@ -50,7 +52,14 @@ export class Query extends Promise {
+   }
+ 
+   cancel() {
+-    return this.canceller && (this.canceller(this), this.canceller = null)
++    if (!this.canceller || this.settled)
++      return Promise.resolve()
++
++    Promise.prototype.then.call(this, undefined, () => undefined)
++    const cancelled = this.canceller(this)
++    this.canceller = null
++    cancelled.catch(() => undefined)
++    return cancelled
+   }
+ 
+   simple() {
+diff --git a/src/subscribe.js b/src/subscribe.js
+index 4f8934cc8277fc58d2c37838cfb1afc315bc0744..0fd5d4201123e4c08d85fd1c46396baa60ba53cf 100644
+--- a/src/subscribe.js
++++ b/src/subscribe.js
+@@ -1,4 +1,9 @@
++import { callback } from './errors.js'
++import { defaultBackoff, backoffSeconds } from './connection.js'
++
+ const noop = () => { /* noop */ }
++    , commands = { 68: 'delete', 73: 'insert', 85: 'update' }
++    , statusInterval = 1000
+ 
+ export default function Subscribe(postgres, options) {
+   const subscribers = new Map()
+@@ -7,6 +12,9 @@ export default function Subscribe(postgres, options) {
+ 
+   let connection
+     , stream
++    , timer
++    , inflight = false
++    , retries = 0
+     , ended = false
+ 
+   const sql = subscribe.sql = postgres({
+@@ -16,17 +24,17 @@ export default function Subscribe(postgres, options) {
+     fetch_types: false,
+     idle_timeout: null,
+     max_lifetime: null,
++    onidle: null,
+     connection: {
+       ...options.connection,
+       replication: 'database'
+     },
+-    onclose: async function() {
++    onclose: function() {
+       if (ended)
+         return
+       stream = null
+       state.pid = state.secret = undefined
+-      connected(await init(sql, slot, options.publications))
+-      subscribers.forEach(event => event.forEach(({ onsubscribe }) => onsubscribe()))
++      inflight || timer || !connection || connect().catch(noop)
+     },
+     no_subscribe: true
+   })
+@@ -36,6 +44,9 @@ export default function Subscribe(postgres, options) {
+ 
+   sql.end = async() => {
+     ended = true
++    clearTimeout(timer)
++    timer = null
++    connection && await connection.catch(noop)
+     stream && (await new Promise(r => (stream.once('close', r), stream.end())))
+     return end()
+   }
+@@ -47,34 +58,74 @@ export default function Subscribe(postgres, options) {
+ 
+   return subscribe
+ 
+-  async function subscribe(event, fn, onsubscribe = noop, onerror = noop) {
++  async function subscribe(event, fn, onsubscribe = noop, onerror) {
+     event = parseEvent(event)
+ 
+-    if (!connection)
+-      connection = init(sql, slot, options.publications)
++    const subscriber = { fn, onsubscribe, onerror }
+ 
+-    const subscriber = { fn, onsubscribe }
+-    const fns = subscribers.has(event)
+-      ? subscribers.get(event).add(subscriber)
+-      : subscribers.set(event, new Set([subscriber])).get(event)
++    return (connection || connect()).then(() => {
++      const fns = subscribers.has(event)
++        ? subscribers.get(event).add(subscriber)
++        : subscribers.set(event, new Set([subscriber])).get(event)
+ 
+-    const unsubscribe = () => {
+-      fns.delete(subscriber)
+-      fns.size === 0 && subscribers.delete(event)
+-    }
++      const unsubscribe = () => {
++        fns.delete(subscriber)
++        fns.size === 0 && subscribers.delete(event)
++        subscribers.size === 0 && (clearTimeout(timer), timer = null)
++      }
+ 
+-    return connection.then(x => {
+-      connected(x)
+-      onsubscribe()
+-      stream && stream.on('error', onerror)
++      callback(onsubscribe)
+       return { unsubscribe, state, sql }
+     })
+   }
+ 
+-  function connected(x) {
+-    stream = x.stream
+-    state.pid = x.state.pid
+-    state.secret = x.state.secret
++  function connect() {
++    clearTimeout(timer)
++    timer = null
++    inflight = true
++    const resume = subscribers.size > 0
++    const current = connection = init(sql, slot, options.publications).then(x => {
++      stream = x.stream
++      state.pid = x.state.pid
++      state.secret = x.state.secret
++    })
++
++    current.then(
++      () => {
++        inflight = false
++        retries = 0
++        resume && !ended && subscribers.forEach(event => event.forEach(({ onsubscribe }) => callback(onsubscribe)))
++      },
++      error => {
++        inflight = false
++        connection === current && (connection = null)
++        if (ended || subscribers.size === 0)
++          return
++        reportConnection(error)
++        timer = setTimeout(() => connect().catch(noop), retryDelay(retries++))
++      }
++    )
++
++    return current
++  }
++
++  function retryDelay(n) {
++    let seconds = backoffSeconds(sql.options.backoff, n)
++    seconds = Number.isFinite(seconds) ? seconds : defaultBackoff(n)
++    return Math.min(Math.max(seconds * 1000, 100), 2 ** 31 - 1)
++  }
++
++  function reportConnection(error) {
++    console.error('Unexpected error during logical streaming - reconnecting', error) // eslint-disable-line
++    subscribers.forEach(fns => fns.forEach(({ onerror }) => callback(onerror, error)))
++  }
++
++  function report(error, match) {
++    let uncaught = false
++    subscribers.forEach((fns, event) => match(event) && fns.forEach(({ onerror }) =>
++      onerror ? callback(onerror, error) : uncaught = true
++    ))
++    uncaught && callback(() => { throw error })
+   }
+ 
+   async function init(sql, slot, publications) {
+@@ -98,18 +149,22 @@ export default function Subscribe(postgres, options) {
+     }
+ 
+     stream.on('data', data)
+-    stream.on('error', error)
++    stream.on('error', reportConnection)
+     stream.on('close', sql.close)
+ 
++    // A walsender can miss the wakeup for a commit and sleep until its timeout; a status update wakes it.
++    const status = setInterval(() => stream.writable && pong(), statusInterval)
++    stream.on('close', () => clearInterval(status))
++
+     return { stream, state: xs.state }
+ 
+-    function error(e) {
+-      console.error('Unexpected error during logical streaming - reconnecting', e) // eslint-disable-line
+-    }
+-
+     function data(x) {
+       if (x[0] === 0x77) {
+-        parse(x.subarray(25), state, sql.options.parsers, handle, options.transform)
++        try {
++          parse(x.subarray(25), state, sql.options.parsers, handle, options.transform)
++        } catch (error) {
++          skip(x.subarray(25), error)
++        }
+       } else if (x[0] === 0x6b && x[17]) {
+         state.lsn = x.subarray(1, 9)
+         pong()
+@@ -118,12 +173,26 @@ export default function Subscribe(postgres, options) {
+ 
+     function handle(a, b) {
+       const path = b.relation.schema + '.' + b.relation.table
++          , key = b.relation.keys.length && '=' + b.relation.keys.map(x => a[x.name])
+       call('*', a, b)
+       call('*:' + path, a, b)
+-      b.relation.keys.length && call('*:' + path + '=' + b.relation.keys.map(x => a[x.name]), a, b)
++      key && call('*:' + path + key, a, b)
+       call(b.command, a, b)
+       call(b.command + ':' + path, a, b)
+-      b.relation.keys.length && call(b.command + ':' + path + '=' + b.relation.keys.map(x => a[x.name]), a, b)
++      key && call(b.command + ':' + path + key, a, b)
++    }
++
++    function skip(x, error) {
++      const command = commands[x[0]]
++          , relation = command && state[x.readUInt32BE(1)]
++
++      if (!relation)
++        throw error
++
++      const path = relation.schema + '.' + relation.table
++          , events = ['*', '*:' + path, command, command + ':' + path]
++
++      report(error, event => events.includes(event.split('=')[0]))
+     }
+ 
+     function pong() {
+@@ -136,7 +205,7 @@ export default function Subscribe(postgres, options) {
+   }
+ 
+   function call(x, a, b) {
+-    subscribers.has(x) && subscribers.get(x).forEach(({ fn }) => fn(a, b, x))
++    subscribers.has(x) && subscribers.get(x).forEach(({ fn }) => callback(fn, a, b, x))
+   }
+ }
+ 
+@@ -161,19 +230,24 @@ function parse(x, state, parsers, handle, transform) {
+       let columnIndex = 0
+         , column
+ 
+-      while (i < x.length) {
+-        column = r.columns[columnIndex++] = {
+-          key: x[i++],
+-          name: transform.column.from
+-            ? transform.column.from(x.toString('utf8', i, i = x.indexOf(0, i)))
+-            : x.toString('utf8', i, i = x.indexOf(0, i)),
+-          type: x.readUInt32BE(i += 1),
+-          parser: parsers[x.readUInt32BE(i)],
+-          atttypmod: x.readUInt32BE(i += 4)
+-        }
++      try {
++        while (i < x.length) {
++          column = r.columns[columnIndex++] = {
++            key: x[i++],
++            name: transform.column.from
++              ? transform.column.from(x.toString('utf8', i, i = x.indexOf(0, i)))
++              : x.toString('utf8', i, i = x.indexOf(0, i)),
++            type: x.readUInt32BE(i += 1),
++            parser: parsers[x.readUInt32BE(i)],
++            atttypmod: x.readUInt32BE(i += 4)
++          }
+ 
+-        column.key && r.keys.push(column)
+-        i += 4
++          column.key && r.keys.push(column)
++          i += 4
++        }
++      } catch (error) {
++        r.error = error
++        r.failed = true
+       }
+     },
+     Y: () => { /* noop */ }, // Type
+@@ -184,7 +258,7 @@ function parse(x, state, parsers, handle, transform) {
+     },
+     I: x => { // Insert
+       let i = 1
+-      const relation = state[x.readUInt32BE(i)]
++      const relation = decodable(state[x.readUInt32BE(i)])
+       const { row } = tuples(x, relation.columns, i += 7, transform)
+ 
+       handle(row, {
+@@ -194,7 +268,7 @@ function parse(x, state, parsers, handle, transform) {
+     },
+     D: x => { // Delete
+       let i = 1
+-      const relation = state[x.readUInt32BE(i)]
++      const relation = decodable(state[x.readUInt32BE(i)])
+       i += 4
+       const key = x[i] === 75
+       handle(key || x[i] === 79
+@@ -208,7 +282,7 @@ function parse(x, state, parsers, handle, transform) {
+     },
+     U: x => { // Update
+       let i = 1
+-      const relation = state[x.readUInt32BE(i)]
++      const relation = decodable(state[x.readUInt32BE(i)])
+       i += 4
+       const key = x[i] === 75
+       const xs = key || x[i] === 79
+@@ -231,6 +305,13 @@ function parse(x, state, parsers, handle, transform) {
+   }).reduce(char, {})[x[0]](x)
+ }
+ 
++function decodable(relation) {
++  if (relation.failed)
++    throw relation.error
++
++  return relation
++}
++
+ function tuples(x, columns, xi, transform) {
+   let type
+     , column
+@@ -264,7 +345,7 @@ function tuples(x, columns, xi, transform) {
+ }
+ 
+ function parseEvent(x) {
+-  const xs = x.match(/^(\*|insert|update|delete)?:?([^.]+?\.?[^=]+)?=?(.+)?/i) || []
++  const xs = x.match(/^(\*|insert|update|delete)?:?([^.=]+(?:\.[^=]+)?)?=?(.+)?/i) || []
+ 
+   if (!xs)
+     throw new Error('Malformed subscribe pattern: ' + x)
+diff --git a/src/timeout.js b/src/timeout.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..bcdf4c1894e0f84957d7ff3890bea9d880fb166a
+--- /dev/null
++++ b/src/timeout.js
+@@ -0,0 +1,5 @@
++const maxDelay = 2 ** 31 - 1
++
++export default function clampedTimeout(fn, ms) {
++  return setTimeout(fn, Math.min(ms, maxDelay))
++}
+diff --git a/src/transport.js b/src/transport.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..05ab7c77cbd6128109de7846c9a94185e1783be0
+--- /dev/null
++++ b/src/transport.js
+@@ -0,0 +1,88 @@
++import net from 'net'
++import tls from 'tls'
++import b from './bytes.js'
++import clampedTimeout from './timeout.js'
++
++export const SSLRequest = b().i32(8).i32(80877103).end(8)
++
++export function tlsConfig(options, raw) {
++  const { ssl, sslnegotiation } = options
++  const config = {
++    socket: raw,
++    servername: net.isIP(raw.host) ? undefined : raw.host
++  }
++
++  if (sslnegotiation === 'direct')
++    config.ALPNProtocols = ['postgresql']
++
++  if (ssl === 'require' || ssl === 'allow' || ssl === 'prefer')
++    config.rejectUnauthorized = false
++  else if (typeof ssl === 'object')
++    Object.assign(config, ssl)
++
++  return config
++}
++
++export function cancelRequest(options, backend) {
++  return Promise.resolve()
++    .then(() => options.socket ? options.socket(options) : new net.Socket())
++    .then(socket => sendCancel(options, backend, socket))
++}
++
++function sendCancel(options, { pid, secret }, s) {
++  const { ssl, sslnegotiation, host, port } = options
++  const request = b().i32(16).i32(80877102).i32(pid).i32(secret).end(16)
++
++  return new Promise((resolve, reject) => {
++    let timeout = null
++    const watch = x => {
++      x.once('error', reject)
++      x.on('error', () => undefined)
++      x.once('close', () => (clearTimeout(timeout), resolve()))
++    }
++    const upgrade = () => {
++      try {
++        const raw = s
++        const config = tlsConfig(options, raw)
++        raw.removeAllListeners()
++        s = tls.connect(config)
++        watch(s)
++        s.once('secureConnect', () => s.write(request))
++      } catch (error) {
++        clearTimeout(timeout)
++        s.destroy()
++        reject(error)
++      }
++    }
++    const start = !ssl
++      ? () => s.write(request)
++      : sslnegotiation === 'direct'
++        ? upgrade
++        : () => {
++          s.once('data', x => x[0] === 83 || ssl !== 'prefer' ? upgrade() : s.write(request))
++          s.write(SSLRequest)
++        }
++
++    try {
++      watch(s)
++      options.connect_timeout && (timeout = clampedTimeout(() => s.destroy(), options.connect_timeout * 1000))
++
++      if (options.socket)
++        return start()
++
++      s.once('connect', start)
++
++      if (options.path)
++        return s.connect(options.path)
++
++      s.ssl = ssl
++      s.connect(port[0], host[0])
++      s.host = host[0]
++      s.port = port[0]
++    } catch (error) {
++      clearTimeout(timeout)
++      reject(error)
++    }
++  })
++}
++
+diff --git a/src/types.js b/src/types.js
+index 7c7c2b93094a1bced2b9dc387edc5c403e2c5864..87022bf3fdc550c26cada0d4f9dc0f91d8dfe701 100644
+--- a/src/types.js
++++ b/src/types.js
+@@ -86,7 +86,7 @@ export function handleValue(x, parameters, types, options) {
+   return '$' + (types.push(
+     x instanceof Parameter
+       ? (parameters.push(x.value), x.array
+-        ? x.array[x.type || inferType(x.value)] || x.type || firstIsString(x.value)
++        ? x.array.get(x.type || inferType(x.value)) || x.type || firstIsString(x.value)
+         : x.type
+       )
+       : (parameters.push(x), inferType(x))
+@@ -190,6 +190,25 @@ function firstIsString(x) {
+   return typeof x === 'string' ? 1009 : 0
+ }
+ 
++const builtInArrays = [[16, 1000], [17, 1001], [18, 1002], [19, 1003], [20, 1016], [21, 1005], [23, 1007], [25, 1009],
++                       [26, 1028], [114, 199], [700, 1021], [701, 1022], [1042, 1014], [1043, 1015], [1082, 1182],
++                       [1083, 1183], [1114, 1115], [1184, 1185], [1186, 1187], [1700, 1231], [2950, 2951], [3802, 3807]]
++
++export function addDefaultArrayTypes(options) {
++  builtInArrays.forEach(([oid, typarray]) => addArrayType(options, oid, typarray))
++}
++
++export function addArrayType(options, oid, typarray) {
++  options.shared.typeArrayMap.set(oid, typarray)
++  if (!options.parsers[typarray]) {
++    const parser = options.parsers[oid]
++    options.parsers[typarray] = xs => arrayParser(xs, parser, typarray)
++    options.parsers[typarray].array = true
++  }
++  if (!options.serializers[typarray])
++    options.serializers[typarray] = xs => arraySerializer(xs, options.serializers[oid], options, typarray)
++}
++
+ export const mergeUserTypes = function(types) {
+   const user = typeHandlers(types || {})
+   return {
+@@ -229,6 +248,11 @@ export const inferType = function inferType(x) {
+   )
+ }
+ 
++export function clientSerialize(x) {
++  const proto = typeof x === 'object' && Object.getPrototypeOf(x)
++  return proto === Object.prototype || proto === null ? JSON.stringify(x) : '' + x
++}
++
+ const escapeBackslash = /\\/g
+ const escapeQuote = /"/g
+ 
+@@ -278,6 +302,10 @@ export const arrayParser = function arrayParser(x, parser, typarray) {
+   return arrayParserLoop(arrayParserState, x, parser, typarray)
+ }
+ 
++function parseArrayValue(value, parser) {
++  return value === 'NULL' ? null : parser ? parser(value) : value
++}
++
+ function arrayParserLoop(s, x, parser, typarray) {
+   const xs = []
+   // Only _box (1020) has the ';' delimiter for arrays, all other types use the ',' delimiter
+@@ -302,30 +330,30 @@ function arrayParserLoop(s, x, parser, typarray) {
+       xs.push(arrayParserLoop(s, x, parser, typarray))
+     } else if (s.char === '}') {
+       s.quoted = false
+-      s.last < s.i && xs.push(parser ? parser(x.slice(s.last, s.i)) : x.slice(s.last, s.i))
++      s.last < s.i && xs.push(parseArrayValue(x.slice(s.last, s.i), parser))
+       s.last = s.i + 1
+       break
+     } else if (s.char === delimiter && s.p !== '}' && s.p !== '"') {
+-      xs.push(parser ? parser(x.slice(s.last, s.i)) : x.slice(s.last, s.i))
++      xs.push(parseArrayValue(x.slice(s.last, s.i), parser))
+       s.last = s.i + 1
+     }
+     s.p = s.char
+   }
+-  s.last < s.i && xs.push(parser ? parser(x.slice(s.last, s.i + 1)) : x.slice(s.last, s.i + 1))
++  s.last < s.i && xs.push(parseArrayValue(x.slice(s.last, s.i + 1), parser))
+   return xs
+ }
+ 
+ export const toCamel = x => {
+   let str = x[0]
+   for (let i = 1; i < x.length; i++)
+-    str += x[i] === '_' ? x[++i].toUpperCase() : x[i]
++    str += x[i] === '_' && i + 1 < x.length ? x[++i].toUpperCase() : x[i]
+   return str
+ }
+ 
+ export const toPascal = x => {
+   let str = x[0].toUpperCase()
+   for (let i = 1; i < x.length; i++)
+-    str += x[i] === '_' ? x[++i].toUpperCase() : x[i]
++    str += x[i] === '_' && i + 1 < x.length ? x[++i].toUpperCase() : x[i]
+   return str
+ }
+ 
+diff --git a/src/vercel.js b/src/vercel.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..e8a4bddf7c0f4b6c55ec7c5f33865888d545c57e
+--- /dev/null
++++ b/src/vercel.js
+@@ -0,0 +1,20 @@
++export function vercelPool(sql) {
++  const idle_timeout = sql.options.idle_timeout
++  if (typeof idle_timeout !== 'number' || !(idle_timeout > 0))
++    throw new Error('vercelPool requires idle_timeout to be a positive number of seconds')
++
++  return {
++    options: {
++      idleTimeoutMillis: idle_timeout * 1000
++    },
++    on(event, fn) {
++      if (event !== 'release')
++        return
++
++      const previous = sql.options.onidle
++      sql.options.onidle = previous
++        ? id => (fn(), previous(id))
++        : () => fn()
++    }
++  }
++}
+diff --git a/types/index.d.ts b/types/index.d.ts
+index 13c3432f761e2c2ee5b7dc1bdafe93e49f993dc7..3b8c61b7c813ea8338f947af5d004c988f59b6ac 100644
+--- a/types/index.d.ts
++++ b/types/index.d.ts
+@@ -1,4 +1,4 @@
+-import { Readable, Writable } from 'node:stream'
++import { Duplex, Readable, Writable } from 'node:stream'
+ 
+ /**
+  * Establish a connection to a PostgreSQL server.
+@@ -45,6 +45,8 @@ interface BaseOptions<T extends Record<string, postgres.PostgresType>> {
+    * @default false
+   */
+   ssl: 'require' | 'allow' | 'prefer' | 'verify-full' | boolean | object;
++  /** Set to 'direct' to start TLS immediately with ALPN instead of sending an SSLRequest first */
++  sslnegotiation: 'direct' | 'postgres' | null;
+   /**
+    * Max number of connections
+    * @default 10
+@@ -67,14 +69,11 @@ interface BaseOptions<T extends Record<string, postgres.PostgresType>> {
+    * @default true
+    */
+   prepare: boolean;
+-  /**
+-   * Called when a notice is received
+-   * @default console.log
+-   */
+-  onnotice: (notice: postgres.Notice) => void;
+-  /** (key; value) when a server param change */
++  /** Called when a notice is received, console.log by default and false to ignore them; if it throws, the error is rethrown as an uncaught exception */
++  onnotice: ((notice: postgres.Notice) => void) | false;
++  /** (key; value) when a server param change; if it throws, the error is rethrown as an uncaught exception */
+   onparameter: (key: string, value: any) => void;
+-  /** Is called with (connection; query; parameters) */
++  /** Is called with (connection; query; parameters); if it throws, the error is rethrown as an uncaught exception and the query still runs */
+   debug: boolean | ((connection: number, query: string, parameters: any[], paramTypes: any[]) => void);
+   /** Transform hooks */
+   transform: {
+@@ -113,15 +112,24 @@ interface BaseOptions<T extends Record<string, postgres.PostgresType>> {
+    * @default true
+    */
+   fetch_types: boolean;
++  /** How values whose type cannot be told from the JavaScript value are serialized: 'server' (default) asks PostgreSQL for the placeholder's type first, 'client' sends their text for PostgreSQL to parse, 'warn' does the same as 'server' and reports values 'client' would send differently */
++  parameter_types: 'server' | 'client' | 'warn';
++  /** Called in parameter_types: 'warn' mode with each query whose values would be sent differently, console.warn by default; if it throws, the error is rethrown as an uncaught exception */
++  ontypemismatch: (report: postgres.TypeMismatchReport) => void;
+   /**
+    * Publications to subscribe to (only relevant when calling `sql.subscribe()`)
+    * @default 'alltables'
+    */
+   publications: string
++  /** Called with the connection id each time a connection closes; if it throws, the error is rethrown as an uncaught exception */
+   onclose: (connId: number) => void;
++  /** Called with the connection id each time a connection returns to the pool idle and its idle timer starts */
++  onidle: (connId: number) => void;
+   backoff: boolean | ((attemptNum: number) => number);
+   max_lifetime: number | null;
+   keep_alive: number | null;
++  /** Function, sync or async, returning the socket-like duplex stream to connect through; it receives the parsed options */
++  socket?: (options: postgres.ParsedOptions) => Duplex | Promise<Duplex>;
+ }
+ 
+ 
+@@ -199,6 +207,8 @@ type Return<T, K extends readonly any[]> =
+ 
+ declare namespace postgres {
+   class PostgresError extends Error {
++    constructor(message: string);
++    constructor(fields: Partial<Omit<PostgresError, 'name' | 'stack' | 'cause'>>);
+     name: 'PostgresError';
+     severity_local: string;
+     severity: string;
+@@ -411,6 +421,23 @@ declare namespace postgres {
+     };
+   }
+ 
++  interface TypeMismatchReport {
++    query: string;
++    parameters: TypeMismatch[];
++  }
++
++  interface TypeMismatch {
++    /** The `$n` number of the placeholder */
++    position: number;
++    /** The type OID PostgreSQL inferred for the placeholder */
++    oid: number;
++    typeof: string;
++    /** Only set when debug is enabled */
++    serverText?: string;
++    /** Only set when debug is enabled; the error is what the 'client' mode would throw */
++    clientText?: string | globalThis.Error;
++  }
++
+   interface Notice {
+     [field: string]: string;
+   }
+@@ -457,7 +484,12 @@ declare namespace postgres {
+     | 'UNDEFINED_VALUE'
+     | 'MAX_PARAMETERS_EXCEEDED'
+     | 'SASL_SIGNATURE_MISMATCH'
+-    | 'UNSAFE_TRANSACTION';
++    | 'SSL_NOT_SUPPORTED'
++    | 'COPY_IN_PROGRESS'
++    | 'INVALID_TRANSACTION_NAME'
++    | 'TARGET_SESSION_ATTRS'
++    | 'UNSAFE_TRANSACTION'
++    | 'TRANSACTION_ROLLED_BACK';
+     message: string;
+   }
+ 
+@@ -605,7 +637,7 @@ declare namespace postgres {
+     writable(): Promise<Writable>;
+ 
+     execute(): this;
+-    cancel(): void;
++    cancel(): Promise<void>;
+ 
+     /**
+      * @deprecated `.stream` has been renamed to `.forEach`
+@@ -698,6 +730,35 @@ declare namespace postgres {
+     json(value: JSONValue): Parameter;
+   }
+ 
++  interface PoolStats {
++    /** The configured maximum number of pool connections */
++    max: number;
++    /** Pool connections that exist: connecting, idle or in use */
++    totalCount: number;
++    /** Pool connections with a live session that are not in use */
++    idleCount: number;
++    /** Issued queries and reserve or begin calls that are not running yet, whether queued in the pool, held by an opening connection, pipelined or queued on a reserved connection */
++    waitingCount: number;
++    /** Pool connections in use: busyCount plus reservedCount */
++    activeCount: number;
++    /** Connections a query can get without waiting behind other work: idleCount plus the slots the pool can still open */
++    availableCount: number;
++    /** Pool connections running queries, including those at the pipeline limit */
++    busyCount: number;
++    /** Pool connections held by reserve() or begin() */
++    reservedCount: number;
++    /** Pool connections opening a session */
++    connectingCount: number;
++    /** Pool connections draining or closing, not included in totalCount */
++    closingCount: number;
++    /** Queries the server is running right now, at most one per connection, startup queries and COPY included */
++    executingCount: number;
++    /** Connections held by the internal listen pool, outside max */
++    listenCount: number;
++    /** Connections held by the internal subscribe pool, outside max */
++    subscribeCount: number;
++  }
++
+   interface Sql<TTypes extends Record<string, unknown> = {}> extends ISql<TTypes> {
+     CLOSE: {};
+     END: this['CLOSE'];
+@@ -708,9 +769,13 @@ declare namespace postgres {
+ 
+     end(options?: { timeout?: number | undefined } | undefined): Promise<void>;
+ 
++    /** Calls `end()` with no timeout when an `await using` scope exits */
++    [Symbol.asyncDispose](): Promise<void>;
++
+     listen(channel: string, onnotify: (value: string) => void, onlisten?: (() => void) | undefined): ListenRequest;
+ 
+-    subscribe(event: string, cb: (row: Row | null, info: ReplicationEvent) => void, onsubscribe?: (() => void), onerror?: (() => any)): Promise<SubscriptionHandle>;
++    /** `onerror` receives replication connection errors and errors thrown while a change is decoded; such a change is skipped. */
++    subscribe(event: string, cb: (row: Row | null, info: ReplicationEvent) => void, onsubscribe?: (() => void), onerror?: ((error: Error) => void)): Promise<SubscriptionHandle>;
+ 
+     largeObject(oid?: number | undefined, /** @default 0x00020000 | 0x00040000 */ mode?: number | undefined): Promise<LargeObject>;
+ 
+@@ -718,6 +783,9 @@ declare namespace postgres {
+     begin<T>(options: string, cb: (sql: TransactionSql<TTypes>) => T | Promise<T>): Promise<UnwrapPromiseArray<T>>;
+ 
+     reserve(): Promise<ReservedSql<TTypes>>
++
++    /** Returns a snapshot of the pool's connection and query counts */
++    stats(): PoolStats;
+   }
+ 
+   interface TransactionSql<TTypes extends Record<string, unknown> = {}> extends ISql<TTypes>  {
+@@ -729,6 +797,12 @@ declare namespace postgres {
+ 
+   interface ReservedSql<TTypes extends Record<string, unknown> = {}> extends Sql<TTypes> {
+     release(): void;
++
++    /** Calls `release()` when a `using` scope exits */
++    [Symbol.dispose](): void;
++
++    /** Calls `release()` when an `await using` scope exits */
++    [Symbol.asyncDispose](): Promise<void>;
+   }
+ }
+ 
+diff --git a/types/package.json b/types/package.json
+index 49a279aa74ebd403f3a3c080ecea560ef6950904..93ae2b386d9169cf307fcddb41de7552943fc09e 100644
+--- a/types/package.json
++++ b/types/package.json
+@@ -1,5 +1,5 @@
+ {
+   "devDependencies": {
+-    "@types/node": "^16"
++    "@types/node": "^22"
+   }
+ }
+diff --git a/types/vercel.d.ts b/types/vercel.d.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..c79c47e0ce4c45f4a9fd54b24c377846f9e636c8
+--- /dev/null
++++ b/types/vercel.d.ts
+@@ -0,0 +1,8 @@
++import postgres from './index.js'
++
++export interface VercelPool {
++  options: { idleTimeoutMillis: number };
++  on(event: string, listener: () => void): void;
++}
++
++export function vercelPool(sql: postgres.Sql<any>): VercelPool;

@@ -118,6 +118,11 @@ jobs:
           registry-url: https://registry.npmjs.org
       - run: npm install -g npm@12
       - run: test "v$(node -p 'require("./package.json").version')" = "$GITHUB_REF_NAME"
+      - name: Check docs/changes-since-3.4.9.diff is current
+        run: |
+          git fetch --no-tags --depth=1 origin tag v3.4.9
+          npm run -s diff:upstream
+          git diff --exit-code docs/changes-since-3.4.9.diff
       - run: npm install --no-save eslint@8.57.1
       - run: npm stage publish --tag ${{ contains(github.ref_name, '-') && 'next' || 'latest' }}
       - name: Move next once the staged version is approved
