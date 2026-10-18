@@ -60,9 +60,13 @@ jobs:
       - run: npm run test:deno
 
   cloudflare:
-    name: Cloudflare workerd on PostgreSQL 17
+    name: Cloudflare workerd (${{ matrix.compat_date }}) on PostgreSQL 17
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        compat_date: ['2025-01-01', '2025-09-15', '2026-10-12']
     env:
       POSTGRES_VERSION: '17'
     steps:
@@ -83,6 +87,7 @@ jobs:
           bash .github/actions/setup-postgres/cluster.sh "$POSTGRES_VERSION" workerd_tls 55433 "$RUNNER_TEMP/server.crt" "$RUNNER_TEMP/server.key"
       - run: npm run test:workerd -- . 55432
         env:
+          WORKERD_COMPAT_DATE: ${{ matrix.compat_date }}
           WORKERD_TLS_PORT: 55433
           WORKERD_TLS_CA: ${{ runner.temp }}/server.crt
 

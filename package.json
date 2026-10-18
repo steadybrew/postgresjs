@@ -41,7 +41,7 @@
     "diff:upstream": "git diff --no-color --no-ext-diff --full-index -M v3.4.9 -- src types > docs/changes-since-3.4.9.diff",
     "prepare": "npm run build",
     "prepublishOnly": "npm run lint",
-    "test:workerd": "npm exec --yes --package=wrangler@4.123.0 -- node tests-startup/workerd-run.mjs",
+    "test:workerd": "npm exec --yes --package=wrangler@4.151.1 -- node tests-startup/workerd-run.mjs",
     "test:deno-socket": "node tests-startup/deno-run.js"
   },
   "files": [
