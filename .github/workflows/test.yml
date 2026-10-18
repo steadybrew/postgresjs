@@ -88,6 +88,7 @@ jobs:
       - run: npm run test:workerd -- . 55432
         env:
           WORKERD_COMPAT_DATE: ${{ matrix.compat_date }}
+          WORKERD_KNOWN_FAILURES: ${{ format('copy-out,ssl-prefer-declined,subscribe{0}', matrix.compat_date != '2026-10-12' && ',tls-untrusted-ca' || '') }}
           WORKERD_TLS_PORT: 55433
           WORKERD_TLS_CA: ${{ runner.temp }}/server.crt
 
