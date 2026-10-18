@@ -18,9 +18,9 @@ The full API of [@steadybrew/postgresjs](../README.md). Installing, switching fr
 * [Connection details](#connection-details)
 * [Custom Types](#custom-types)
 * [Teardown / Cleanup](#teardown--cleanup)
+* [Reserving connections](#reserving-connections)
 * [Error handling](#error-handling)
 * [TypeScript support](#typescript-support)
-* [Reserving connections](#reserving-connections)
 * [Migration tools](#migration-tools)
 
 ## Connection
@@ -447,7 +447,7 @@ await sql`select 1; select 2;`.simple()
 
 ### Copy to/from as Streams
 
-Postgres.js supports [`COPY ...`](https://www.postgresql.org/docs/14/sql-copy.html) queries, which are exposed as [Node.js streams](https://nodejs.org/api/stream.html).
+Postgres.js supports [`COPY ...`](https://www.postgresql.org/docs/current/sql-copy.html) queries, which are exposed as [Node.js streams](https://nodejs.org/api/stream.html).
 
 #### ```await sql`copy ... from stdin`.writable() -> Writable```
 
@@ -490,13 +490,13 @@ for await (const chunk of readableStream) {
 }
 ```
 
-> **NOTE** This is a low-level API which does not provide any type safety. To make this work, you must match your [`copy query` parameters](https://www.postgresql.org/docs/14/sql-copy.html) correctly to your [Node.js stream read or write](https://nodejs.org/api/stream.html) code. Ensure [Node.js stream backpressure](https://nodejs.org/en/learn/modules/backpressuring-in-streams) is handled correctly to avoid memory exhaustion.
+> **NOTE** This is a low-level API which does not provide any type safety. To make this work, you must match your [`copy query` parameters](https://www.postgresql.org/docs/current/sql-copy.html) correctly to your [Node.js stream read or write](https://nodejs.org/api/stream.html) code. Ensure [Node.js stream backpressure](https://nodejs.org/en/learn/modules/backpressuring-in-streams) is handled correctly to avoid memory exhaustion.
 
 A `COPY` holds its connection until it finishes. Postgres.js cannot tell that a simple-protocol query is a `COPY` until the server answers, so it sends nothing behind a simple query whose text contains the word `copy` (`sql.unsafe()` or `sql.file()` without parameters, `.simple()`, `.readable()`, `.writable()`). Queries sent through `sql` meanwhile run on another connection or wait for one. When every connection is running a `COPY` that has not been ended, for example with `max: 1`, queries, `sql.reserve()` and `sql.begin()` through `sql` reject with `COPY_IN_PROGRESS` instead, because only that `COPY` finishing could free a connection. Statements on a `sql.reserve()` or `sql.begin()` handle reject with `COPY_IN_PROGRESS` while its `COPY` runs.
 
 ### Canceling Queries in Progress
 
-Postgres.js supports, [canceling queries in progress](https://www.postgresql.org/docs/7.1/protocol-protocol.html#AEN39000). It works by opening a new connection with a protocol level startup message to cancel the current query running on a specific connection. That means there is no guarantee that the query will be canceled, and due to the possible race conditions it might even result in canceling another query. This is fine for long running queries, but in the case of high load and fast queries it might be better to simply ignore results instead of canceling.
+Postgres.js supports [canceling queries in progress](https://www.postgresql.org/docs/current/protocol-flow.html#PROTOCOL-FLOW-CANCELING-REQUESTS). It works by opening a new connection with a protocol level startup message to cancel the current query running on a specific connection. That means there is no guarantee that the query will be canceled, and due to the possible race conditions it might even result in canceling another query. This is fine for long running queries, but in the case of high load and fast queries it might be better to simply ignore results instead of canceling.
 
 ```js
 const query = sql`select pg_sleep(100)`.execute()
@@ -504,7 +504,9 @@ setTimeout(() => query.cancel(), 100)
 const result = await query
 ```
 
-A cancelled query rejects with code `57014`. A cancel can arrive too late, in which case the query may still complete, or fail with its own error. `query.cancel()` resolves once the cancel request has been sent. A cancelled query you don't await does not cause an unhandled rejection.
+A cancelled query rejects with code `57014`. A cancel can arrive too late, in which case the query may still complete, or fail with its own error. `query.cancel()` resolves once the cancel request has been sent. A cancelled query you don't await does not cause an unhandled rejection. A query cancelled before it was sent is removed from the queue and rejects with `57014` without contacting the server.
+
+The cancel request opens its own connection with the same `ssl`, `sslnegotiation` and `socket` options, bounded by `connect_timeout`. With [several hosts](#multi-host-connections---high-availability-ha) it always goes to the first one, so a query running on another host is not cancelled.
 
 ### Execute
 
@@ -552,11 +554,13 @@ await sql`
 
 ## Transactions
 
-#### BEGIN / COMMIT `await sql.begin([options = ''], fn) -> fn()`
+### BEGIN / COMMIT `await sql.begin([options = ''], fn) -> fn()`
 
 Use `sql.begin` to start a new transaction. Postgres.js will reserve a connection for the transaction and supply a scoped `sql` instance for all transaction uses in the callback function. `sql.begin` will resolve with the returned value from the callback function.
 
-`BEGIN` is automatically sent with the optional options, and if anything fails `ROLLBACK` will be called so the connection can be released and execution can continue.
+`BEGIN` is automatically sent with the optional options, such as `'read write'` or `'isolation level serializable'`; characters other than letters and spaces are removed from them. If the callback throws or a query in it fails, `ROLLBACK` is sent and `sql.begin` rejects with that error. If the server answers the `COMMIT` with `ROLLBACK`, for example after a failed query that was not awaited or a caught savepoint failure, `sql.begin` rejects with [`TRANSACTION_ROLLED_BACK`](#transaction_rolled_back) and nothing is committed.
+
+The scoped `sql` only works inside the callback. Statements on it after the transaction has finished, including statements sent while its `COMMIT` or `ROLLBACK` is in flight, reject with `CONNECTION_ENDED`, and statements after its connection closed reject with `CONNECTION_CLOSED`.
 
 ```js
 const [user, account] = await sql.begin(async sql => {
@@ -594,7 +598,7 @@ const result = await sql.begin(sql => [
 ])
 ```
 
-#### SAVEPOINT `await sql.savepoint([name], fn) -> fn()`
+### SAVEPOINT `await sql.savepoint([name], fn) -> fn()`
 
 ```js
 sql.begin('read write', async sql => {
@@ -629,7 +633,7 @@ sql.begin('read write', async sql => {
 ```
 
 
-#### PREPARE TRANSACTION `sql.prepare(name)`
+### PREPARE TRANSACTION `sql.prepare(name)`
 
 Indicates that the transactions should be prepared using the [`PREPARE TRANSACTION [NAME]`](https://www.postgresql.org/docs/current/sql-prepare-transaction.html) statement
 instead of being committed.
@@ -749,10 +753,9 @@ To specify your own transformation functions, you can use the `column`, `value` 
 
 > Both parameters are optional, if not provided, the default transformation function will be used.
 
+The built-in transforms in [`src/types.js`](../src/types.js) (`toCamel`, `fromCamel` and the others) show the expected shape.
+
 ```js
-// Implement your own functions, look at postgres.toCamel, etc
-// as a reference:
-// https://github.com/porsager/postgres/blob/4241824ffd7aa94ffb482e54ca9f585d9d0a4eea/src/types.js#L310-L328
 function transformColumnToDatabase() { /* ... */ }
 function transformColumnFromDatabase() { /* ... */ }
 
@@ -772,7 +775,7 @@ const sql = postgres({
 
 When you call `.listen`, a dedicated connection will be created to ensure that you receive notifications instantly. This connection will be used for any further calls to `.listen`. The connection will automatically reconnect according to a backoff reconnection pattern to not overload the database server.
 
-### Listen `await sql.listen(channel, onnotify, [onlisten]) -> { state }`
+### Listen `await sql.listen(channel, onnotify, [onlisten]) -> { state, unlisten }`
 `.listen` takes the channel name, a function to handle each notify, and an optional function to run every time listen is registered and ready (happens on initial connect and reconnects). It returns a promise which resolves once the `LISTEN` query to Postgres completes, or if there is already a listener active. If either function throws, the error is rethrown as an uncaught exception, and the other listeners and the returned promise are not affected.
 
 ```js
@@ -795,6 +798,13 @@ function run(job) {
   // And here you do the work you please
 }
 ```
+
+`unlisten()` removes this listener. When it was the channel's last listener, `UNLISTEN` is sent.
+
+```js
+const { unlisten } = await sql.listen('news', payload => console.log(payload))
+await unlisten()
+```
 ### Notify `await sql.notify(channel, payload) -> Result[]`
 Notify can be done as usual in SQL, or by using the `sql.notify` method.
 ```js
@@ -816,7 +826,7 @@ CREATE PUBLICATION alltables FOR ALL TABLES
 
 #### Subscribe to updates
 ```js
-const sql = postgres({ publications: 'alltables' })
+const sql = postgres({ publications: 'alltables' }) // 'alltables' is the default
 
 const { unsubscribe } = await sql.subscribe(
   'insert:events',
@@ -833,9 +843,14 @@ const { unsubscribe } = await sql.subscribe(
 )
 ```
 
+`unsubscribe()` removes this subscription. The result also carries `state` and `sql`, the replication connection's backend state and client. While subscribed, the client sends the server a status update every second, so a change reaches you within about a second even when the server misses its wake-up for a commit.
+
 If any of these callbacks throws, the error is rethrown as an uncaught exception, and other subscribers and the replication stream are not affected.
 
-`onerror` is called with errors of the replication connection, after which the subscription reconnects on a new replication slot and calls `onsubscribe` again (these are also logged with `console.error`, and changes committed while it was disconnected are not delivered; if the reconnect itself fails, it is retried with backoff, its error is logged with `console.error` and passed to `onerror`, and it never ends the process), and with errors thrown while a change is decoded by a [transform](#data-transformation) or a custom type parser. Such a change is skipped, and the replication stream and later changes carry on. A decode error goes only to the subscriptions that would have received the change, matched by operation and table; a subscription filtered by key gets every skipped change of its table, as the key is read from the decoded row, even if the table has no primary key. If a column name transform throws, each change of that table is skipped and reported until the server describes the table again, for example after `ALTER TABLE`. If one of the matching subscriptions has no `onerror`, the error is rethrown once as an uncaught exception, which ends the process under Node's default handling. `onerror` stays registered across reconnects until `unsubscribe()`.
+`onerror` is called in two cases, and stays registered across reconnects until `unsubscribe()`:
+
+- **The replication connection fails.** The error is also logged with `console.error`. The subscription reconnects on a new replication slot and calls `onsubscribe` again; changes committed while it was disconnected are not delivered. A failed reconnect is retried with [backoff](#all-postgres-options), logged and passed to `onerror`, and never ends the process.
+- **A change cannot be decoded,** because a [transform](#data-transformation) or a custom type parser threw. That change is skipped and later changes carry on. The error goes only to the subscriptions that would have received the change, matched by operation and table; a subscription filtered by key gets every skipped change of its table, because the key is read from the decoded row. If a column name transform throws, every change of that table is skipped and reported until the server describes the table again, for example after `ALTER TABLE`. If one of the matching subscriptions has no `onerror`, the error is rethrown once as an uncaught exception, which ends the process under Node's default handling.
 
 ### Subscribe pattern
 
@@ -865,7 +880,7 @@ sql.subscribe('update:users=1',   () => /* all updates on the users row with a p
 
 `Number` in javascript is only able to represent 2<sup>53</sup>-1 safely which means that types in PostgreSQLs like `bigint` and `numeric` won't fit into `Number`.
 
-Since Node.js v10.4 we can use [`BigInt`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/BigInt) to match the PostgreSQL type `bigint` which is returned for eg. `count(*)`. Unfortunately, it doesn't work with `JSON.stringify` out of the box, so Postgres.js will return it as a string.
+JavaScript's [`BigInt`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/BigInt) can match the PostgreSQL type `bigint` which is returned for eg. `count(*)`. Unfortunately, it doesn't work with `JSON.stringify` out of the box, so Postgres.js will return it as a string.
 
 If you want to use `BigInt` you can add this custom type:
 
@@ -1025,25 +1040,36 @@ This is the state `{ pid, secret }` of the connection that executed the query.
 
 ```js
 const sql = postgres('postgres://username:password@host:port/database', {
-  host                 : '',            // Postgres ip address[es] or domain name[s]
+  host                 : 'localhost',   // Postgres ip address[es] or domain name[s] (alias hostname)
   port                 : 5432,          // Postgres server port[s]
   path                 : '',            // unix socket path (usually '/tmp')
-  database             : '',            // Name of database to connect to
-  username             : '',            // Username of database user
-  password             : '',            // Password of database user
-  ssl                  : false,         // true, prefer, require, tls.connect options
-  sslnegotiation       : null,          // direct
-  max                  : 10,            // Max number of connections
-  max_lifetime         : null,          // Max lifetime in seconds (more info below)
-  idle_timeout         : 0,             // Idle connection timeout in seconds
-  connect_timeout      : 30,            // Connect timeout in seconds
-  prepare              : true,          // Automatic creation of prepared statements
-  types                : [],            // Array of custom types, see more below
-  onnotice             : fn,            // Default console.log, set false to silence NOTICE
-  onparameter          : fn,            // (key, value) when server param change
+  database             : user,          // Name of database to connect to (alias db), defaults to the user name
+  username             : '',            // Username of database user (alias user), defaults to the OS user
+  password             : '',            // Password of database user (alias pass), or a function, see Dynamic passwords
+  ssl                  : false,         // true, 'require', 'allow', 'prefer', 'verify-full' or tls.connect options
+  sslnegotiation       : null,          // 'direct' for direct TLS, or 'postgres'
+  max                  : 10,            // Max number of connections, 3 on Cloudflare Workers
+  max_lifetime         : random,        // Max lifetime in seconds, 30 to 60 minutes by default, see Connection timeout
+  idle_timeout         : null,          // Idle connection timeout in seconds, off by default
+  connect_timeout      : 30,            // Connect timeout in seconds, see Connection timeout
+  backoff              : fn,            // Seconds to wait before a reconnect attempt, see Connection timeout
+  keep_alive           : 60,            // TCP keepalive delay in seconds, false to disable
+  max_pipeline         : 100,           // Max queries pipelined on one connection, 0 to disable pipelining
+  prepare              : true,          // Automatic creation of prepared statements (no_prepare: true disables it)
+  fetch_types          : true,          // Fetches array types when each connection starts, see Auto fetching of array types
+  parameter_types      : 'server',      // 'client' or 'warn', see Parameter types
+  types                : {},            // Custom types by name, see Custom Types
+  target_session_attrs : null,          // Which kind of server to connect to, see Multi-host connections
+  publications         : 'alltables',   // Publication used by sql.subscribe()
+  socket               : fn,            // fn returning custom socket to use, see Custom socket
+  debug                : false,         // true makes query, parameters and types enumerable on errors,
+                                        // or fn called with (connection, query, parameters, types)
+  onnotice             : fn,            // (notice), default console.log, false to silence NOTICE
+  onparameter          : fn,            // (key, value) when a server parameter changes
+  onnotify             : fn,            // (channel, payload) for every notification on a pool connection
+  onclose              : fn,            // (connId) when a connection closes
   onidle               : fn,            // (connId) when a connection returns to the pool idle
-  debug                : fn,            // Is called with (connection, query, params, types)
-  socket               : fn,            // fn returning custom socket to use
+  ontypemismatch       : fn,            // Called by parameter_types: 'warn', default console.warn
   transform            : {
     undefined          : undefined,     // Transforms undefined values (eg. to null)
     column             : fn,            // Transforms incoming column names
@@ -1053,19 +1079,11 @@ const sql = postgres('postgres://username:password@host:port/database', {
   connection           : {
     application_name   : 'postgres.js', // Default application_name
     ...                                 // Other connection parameters, see https://www.postgresql.org/docs/current/runtime-config-client.html
-  },
-  target_session_attrs : null,          // Which kind of server to connect to, see
-                                        // Multi-host connections below
-  fetch_types          : true,          // Automatically fetches types on connect
-                                        // on initial connection.
-  parameter_types      : 'server',      // 'client' or 'warn', see Parameter types (PGPARAMETER_TYPES)
-  ontypemismatch       : fn,            // Called by parameter_types: 'warn', default console.warn
+  }
 })
 ```
 
-The `onnotice`, `onparameter`, `ontypemismatch`, `onnotify`, `onclose`, `onidle` and `debug` callbacks passed in the options are called synchronously from inside the driver. If one throws, the error is rethrown as an uncaught exception and the connection and its queries are not affected; under Node's default handling that ends the process.
-
-Note that `max_lifetime = 60 * (30 + Math.random() * 30)` by default. This resolves to an interval between 30 and 60 minutes to optimize for the benefits of prepared statements **and** working nicely with Linux's OOM killer.
+The `onnotice`, `onparameter`, `ontypemismatch`, `onnotify`, `onclose`, `onidle`, `backoff` and `debug` callbacks passed in the options are called synchronously from inside the driver. If one throws, the error is rethrown as an uncaught exception and the connection and its queries are not affected; under Node's default handling that ends the process. A `backoff` that throws falls back to the default delay. `onidle` can also be set after creation through `sql.options.onidle`, and is not called for the connections of `sql.listen()` and `sql.subscribe()`.
 
 ### Dynamic passwords
 
@@ -1093,12 +1111,14 @@ const sql =
     : postgres()
 ```
 
-For more information regarding `ssl` with `postgres`, check out the [Node.js documentation for tls](https://nodejs.org/dist/latest-v16.x/docs/api/tls.html#new-tlstlssocketsocket-options).
+`ssl: 'require'`, `'allow'` and `'prefer'` encrypt without verifying the certificate. Only `'prefer'` falls back to an unencrypted connection when the server refuses SSL; the others fail with [`SSL_NOT_SUPPORTED`](#ssl_not_supported). `true`, `'verify-full'` and an options object verify the certificate as `tls.connect` does. `sslnegotiation: 'direct'` starts TLS immediately instead of asking the server first, which PostgreSQL 17 and later accept.
+
+For more information regarding `ssl`, check out the [Node.js documentation for tls](https://nodejs.org/api/tls.html#tlsconnectoptions-callback).
 
 
 ### Multi-host connections - High Availability (HA)
 
-Multiple connection strings can be passed to `postgres()` in the form of `postgres('postgres://localhost:5432,localhost:5433', ...)`. This works the same as native the `psql` command. Read more at [multiple host URIs](https://www.postgresql.org/docs/13/libpq-connect.html#LIBPQ-MULTIPLE-HOSTS).
+Multiple connection strings can be passed to `postgres()` in the form of `postgres('postgres://localhost:5432,localhost:5433', ...)`. This works the same as the `psql` command. Read more at [multiple host URIs](https://www.postgresql.org/docs/current/libpq-connect.html#LIBPQ-MULTIPLE-HOSTS).
 
 Connections will be attempted in order of the specified hosts/ports. On a successful connection, all retries will be reset. This ensures that hosts can come up and down seamlessly.
 
@@ -1115,7 +1135,7 @@ Connections will be attempted in order of the specified hosts/ports. On a succes
 
 During a failover or an upgrade, `'read-write'` and `'primary'` wait for the promoted server instead of connecting to a standby whose writes would fail. Read traffic that should keep using standbys during the switch belongs on `'prefer-standby'` or no `target_session_attrs` at all.
 
-With several hosts, a host that answers but is the wrong kind is skipped and the next one is tried at once; if every host answers and none matches, the connection fails immediately with `TARGET_SESSION_ATTRS`. With a single host, or when some host fails to connect, it keeps retrying, bounded by `connect_timeout` per host, because a failover may be in progress.
+With several hosts, a host that answers but is the wrong kind is skipped and the next one is tried at once; if every host answers and none matches, the connection fails immediately with [`TARGET_SESSION_ATTRS`](#target_session_attrs). With a single host, or when some host fails to connect, it keeps retrying, bounded by `connect_timeout` per host, because a failover may be in progress. With `'prefer-standby'`, the search for a standby starts again after each backoff round.
 
 ### The Connection Pool
 
@@ -1138,7 +1158,7 @@ await Promise.all([
 ])
 ```
 
-> When there are high amount of concurrent queries, `postgres` will open as many connections as needed up until `max` number of connections is reached. By default `max` is 10. This can be changed by setting `max` in the `postgres()` call. Example - `postgres('connectionURL', { max: 20 })`.
+> When there are high amount of concurrent queries, Postgres.js will open as many connections as needed up until `max` number of connections is reached. By default `max` is 10, and 3 on Cloudflare Workers. This can be changed by setting `max` in the `postgres()` call. Example - `postgres('connectionURL', { max: 20 })`.
 
 This means that we get a much simpler story for error handling and reconnections. Queries will be sent over the wire immediately on the next available connection in the pool. Connections are automatically taken out of the pool if you start a transaction using `sql.begin()`, and automatically returned to the pool once your transaction is done.
 
@@ -1146,7 +1166,9 @@ Any query which was already sent over the wire will be rejected if the connectio
 
 There are no guarantees about queries executing in order unless using a transaction with `sql.begin()` or setting `max: 1`. Of course doing a series of queries, one awaiting the other will work as expected, but that's just due to the nature of js async/promise handling, so it's not necessary for this library to be concerned with ordering.
 
-Since this library automatically creates prepared statements, it also has a default max lifetime for connections to prevent memory bloat on the database itself. This is a random interval for each connection between 45 and 90 minutes. This allows multiple connections to independently come up and down without affecting the service.
+Since this library automatically creates prepared statements, connections have a default [`max_lifetime`](#connection-timeout) of 30 to 60 minutes, so that prepared statements do not bloat the server's memory.
+
+The states a connection and a reserved or transaction handle move through, and what each state guarantees, are described in [lifecycle.md](lifecycle.md).
 
 ### Pool stats
 
@@ -1198,17 +1220,18 @@ http.createServer((req, res) => {
 
 How much waiting work is acceptable depends on the query durations and the latency the application can tolerate, so the limit has no universal value.
 
-Change events and a running total of finished queries are planned together with the diagnostics events, so for now take snapshots on a timer or on request.
+There are no change events, so take snapshots on a timer or on request.
 
 ### Connection timeout
 
-By default, connections will not close until `.end()` is called. However, it may be useful to have them close automatically when:
+Four options decide when connections close and how fast they reopen.
 
-- re-instantiating multiple ` sql`` ` instances
-- using Postgres.js in a Serverless environment (Lambda, etc.)
-- using Postgres.js with a database service that automatically closes connections after some time (see [`ECONNRESET` issue](https://github.com/porsager/postgres/issues/179))
+- **`idle_timeout`** closes a connection that has been idle for that many seconds. It is off by default. Set it in serverless environments (Lambda, Vercel), when re-instantiating several `sql` instances, and with a database service that closes idle connections itself (see the [`ECONNRESET` issue](https://github.com/porsager/postgres/issues/179)).
+- **`max_lifetime`** closes a connection that many seconds after its session started; in-flight work finishes first. The default is a random interval between 30 and 60 minutes per connection (`60 * (30 + Math.random() * 30)`), which bounds the memory prepared statements hold on the server, works well with Linux's OOM killer and keeps connections from all closing at once. Pass `null` or `0` to keep connections until `sql.end()`.
+- **`connect_timeout`** (30 seconds by default) bounds each connection attempt: socket creation, TCP and TLS negotiation, authentication, session checks and type discovery. When an attempt times out the next host is tried, and the acquisition as a whole is bounded by `connect_timeout` multiplied by the number of hosts, measured from the first attempt; time spent waiting on an inherited reconnect delay is not counted. It also bounds a graceful close: if the server does not close the socket within `connect_timeout` seconds after `end()` sends Terminate, the connection is closed anyway. Zero disables all three limits.
+- **`backoff`** is the delay before a reconnect attempt after failed ones: a number of seconds, or a function of the number of attempts that failed in a row across the pool, returning seconds. The default is `(0.5 + Math.random() / 2) * Math.min(3 ** retries / 100, 20)`: a few milliseconds after the first failure, rising to between 10 and 20 seconds after seven failures. A successful connection resets the count.
 
-This can be done using the `idle_timeout` or `max_lifetime` options. These configuration options specify the number of seconds to wait before automatically closing an idle connection and the maximum time a connection can exist, respectively. Both are also checked when an idle connection is handed out, so an idle connection that is past either limit (for example after a serverless instance was frozen) is closed instead of being used.
+`idle_timeout` and `max_lifetime` are also checked when an idle connection is handed out, so an idle connection that is past either limit, for example after a serverless instance was frozen, is closed instead of being used.
 
 For example, to close a connection that has either been idle for 20 seconds or existed for more than 30 minutes:
 
@@ -1218,6 +1241,8 @@ const sql = postgres({
   max_lifetime: 60 * 30
 })
 ```
+
+If the only attempt times out, the error is [`CONNECT_TIMEOUT`](#connect_timeout). Once earlier attempts have failed, exhausting the overall budget reports the earlier error, such as the last server error or `CONNECTION_CLOSED`. With a single host, a socket or socket factory error rejects the query once; with several hosts, errors keep cycling through the hosts with backoff until the budget is spent. Queries already sent to the server are not replayed.
 
 ### Vercel Fluid Compute
 
@@ -1232,16 +1257,15 @@ const sql = postgres({ idle_timeout: 5 })
 attachDatabasePool(vercelPool(sql))
 ```
 
-`vercelPool` requires `idle_timeout` to be a number of seconds. It hooks into the `onidle` option, which is called with the connection id each time a connection returns to the pool idle and its idle timer starts, and it keeps any `onidle` you set yourself. If `onidle` throws, the error is rethrown as an uncaught exception and the connection is not affected. A connection that was frozen past `idle_timeout` anyway is closed when it is next handed out (see [Connection timeout](#connection-timeout)).
+`vercelPool(sql)` returns the pool object `attachDatabasePool` expects: `options.idleTimeoutMillis` and `on('release', fn)`. It throws unless `idle_timeout` is a positive number of seconds. It hooks into the `onidle` option, which is called with the connection id each time a connection returns to the pool idle and its idle timer starts, and it keeps any `onidle` you set yourself. A connection that was frozen past `idle_timeout` anyway is closed when it is next handed out (see [Connection timeout](#connection-timeout)).
 
 ### Cloudflare Workers support
 
-Postgres.js has built-in support for the [TCP socket API](https://developers.cloudflare.com/workers/runtime-apis/tcp-sockets/) in Cloudflare Workers, which is [on-track](https://github.com/wintercg/proposal-sockets-api) to be standardized and adopted in Node.js and other JavaScript runtimes, such as Deno.
+Postgres.js has built-in support for the [TCP socket API](https://developers.cloudflare.com/workers/runtime-apis/tcp-sockets/) in Cloudflare Workers. The package's `workerd` export condition selects that build, so the import is the same as on Node.js.
 
 You can use Postgres.js directly in a Worker, or to benefit from connection pooling and query caching, via the [Hyperdrive](https://developers.cloudflare.com/hyperdrive/learning/connect-to-postgres/#driver-examples) service available to Workers by passing the Hyperdrive `connectionString` when creating a new `postgres` client as follows:
 
 ```ts
-// Requires Postgres.js 3.4.0 or later
 import postgres from '@steadybrew/postgresjs'
 
 interface Env {
@@ -1274,25 +1298,41 @@ SQL `NULL` elements are returned as JavaScript `null`; a quoted text element `"N
 
 Column, value, and row transforms apply to application query results; initialization metadata retains its original shape.
 
-### Environmental variables
+### Environment variables and URL parameters
 
-It is also possible to connect to the database without a connection string or any options. Postgres.js will fall back to the common environment variables used by `psql` as in the table below:
+It is also possible to connect to the database without a connection string or any options. Postgres.js falls back to the environment variables used by `psql`:
 
 ```js
 const sql = postgres()
 ```
 
-| Option             | Environment Variables    |
-| ------------------ | ------------------------ |
-| `host`             | `PGHOST`                 |
-| `port`             | `PGPORT`                 |
-| `database`         | `PGDATABASE`             |
-| `username`         | `PGUSERNAME` or `PGUSER` |
-| `password`         | `PGPASSWORD`             |
-| `application_name` | `PGAPPNAME`              |
-| `idle_timeout`     | `PGIDLE_TIMEOUT`         |
-| `connect_timeout`  | `PGCONNECT_TIMEOUT`      |
-| `parameter_types`  | `PGPARAMETER_TYPES`      |
+| Option                 | Environment variables    |
+| ---------------------- | ------------------------ |
+| `host`                 | `PGHOST`                 |
+| `port`                 | `PGPORT`                 |
+| `database`             | `PGDATABASE`             |
+| `username`             | `PGUSERNAME` or `PGUSER` |
+| `password`             | `PGPASSWORD`             |
+| `application_name`     | `PGAPPNAME`              |
+| `target_session_attrs` | `PGTARGETSESSIONATTRS`   |
+| `ssl`                  | `PGSSL`                  |
+| `sslnegotiation`       | `PGSSLNEGOTIATION`       |
+| `max`                  | `PGMAX`                  |
+| `idle_timeout`         | `PGIDLE_TIMEOUT`         |
+| `connect_timeout`      | `PGCONNECT_TIMEOUT`      |
+| `max_lifetime`         | `PGMAX_LIFETIME`         |
+| `max_pipeline`         | `PGMAX_PIPELINE`         |
+| `backoff`              | `PGBACKOFF`              |
+| `keep_alive`           | `PGKEEP_ALIVE`           |
+| `prepare`              | `PGPREPARE`              |
+| `debug`                | `PGDEBUG`                |
+| `fetch_types`          | `PGFETCH_TYPES`          |
+| `parameter_types`      | `PGPARAMETER_TYPES`      |
+| `publications`         | `PGPUBLICATIONS`         |
+
+The options from `ssl` to `publications` are also read from a query parameter of the same name in the URL, such as `?idle_timeout=20`. The values `false` and `disable` turn an option off, so `PGSSL=disable` and `?prepare=false` work as they read. `?sslmode=` sets `ssl`, and `?sslrootcert=system` sets `ssl: 'verify-full'`. Any other query parameter is sent to the server as a connection parameter, as with `connection`.
+
+An option passed in the object wins over the URL, and the URL wins over the environment. When no user is given, the OS user is used, and the database defaults to the user name. `PGMAX` and `?max=` are read as a string and give a pool of one connection ([#129](https://github.com/steadybrew/postgresjs/issues/129)); pass `max` in the options.
 
 ### Prepared statements
 
@@ -1387,9 +1427,11 @@ async function main() {
 }
 ```
 
-This calls `sql.end()` when the scope exits, so it suits scripts and jobs, not a shared client at a module's top level. The syntax needs Node.js 24+ or TypeScript 5.2+.
+This calls `sql.end()` when the scope exits, so it suits scripts and jobs, not a shared client at a module's top level. The syntax needs Node.js 24+ or TypeScript 5.2+. [Reserved connections](#reserving-connections) release themselves the same way. Transaction handles, cursors, `listen` and `subscribe` are not disposable; `sql.begin()` and `for await` already scope the first two.
 
-#### Sample shutdown using [Prexit](https://github.com/porsager/prexit)
+`sql.end()` waits at most `connect_timeout` per connection for the server to close it after Terminate; see [Connection timeout](#connection-timeout).
+
+### Sample shutdown using [Prexit](https://github.com/porsager/prexit)
 
 ```js
 import prexit from 'prexit'
@@ -1414,16 +1456,14 @@ await reserved.release()
 
 ### `reserved.release()`
 
-Once you have finished with the reserved connection, call `release` to add it back to the pool.
+Once you have finished with the reserved connection, call `release` to add it back to the pool. A `using` or `await using` declaration calls `release()` when the scope exits:
 
 ```js
 using reserved = await sql.reserve()
 await reserved`select * from users`
 ```
 
-A `using` or `await using` declaration calls `release()` when the scope exits.
-
-After release, queries through that reserved handle reject with `CONNECTION_ENDED`. Call `sql.reserve()` again to acquire a new handle. A reserved handle whose connection has closed cannot be reused after reconnect.
+After release, queries through that reserved handle reject with [`CONNECTION_ENDED`](#connection_ended). Call `sql.reserve()` again to acquire a new handle. A reserved handle whose connection has closed rejects with `CONNECTION_CLOSED` and cannot be reused after reconnect.
 
 ## Error handling
 
@@ -1433,90 +1473,97 @@ Query errors will contain a stored error with the origin of the query to aid in 
 
 Query errors will also contain the `query` string and the `parameters`. These are not enumerable to avoid accidentally leaking confidential information in logs. To log these it is required to specifically access `error.query` and `error.parameters`, or set `debug: true` in options.
 
-There are also the following errors specifically for this library.
+There are also the following errors specifically for this library. Each has the code below as `err.code`. Errors about the connection have a message such as `write CONNECTION_CLOSED host:port`; the others have the code, a colon and the message, such as `UNDEFINED_VALUE: Undefined values are not allowed`.
 
-##### UNSAFE_TRANSACTION
-> Only use sql.begin or max: 1
+### UNSAFE_TRANSACTION
+> Only use sql.begin, sql.reserved or max: 1
 
-To ensure statements in a transaction runs on the same connection (which is required for them to run inside the transaction), you must use [`sql.begin(...)`](#transactions) or only allow a single connection in options (`max: 1`).
+A raw `BEGIN` was sent through the pool. To ensure statements in a transaction run on the same connection (which is required for them to run inside the transaction), use [`sql.begin(...)`](#transactions), a [reserved connection](#reserving-connections) or only allow a single connection in options (`max: 1`).
 
-##### UNDEFINED_VALUE
+### UNDEFINED_VALUE
 > Undefined values are not allowed
 
-Postgres.js won't accept `undefined` as values in tagged template queries since it becomes ambiguous what to do with the value. If you want to set something to null, use `null` explicitly.
+Postgres.js won't accept `undefined` as values in tagged template queries since it becomes ambiguous what to do with the value. Use `null` explicitly, or [transform `undefined` values](#transform-undefined-values).
 
-##### MESSAGE_NOT_SUPPORTED
-> X (X) is not supported
+### MESSAGE_NOT_SUPPORTED
+> FunctionCallResponse (B) is not supported
 
-Whenever a message is received from Postgres which is not supported by this library. Feel free to file an issue if you think something is missing.
+The server sent a message this library does not handle: `FunctionCallResponse` or `NegotiateProtocolVersion`. Feel free to file an issue if you think something is missing.
 
-##### MAX_PARAMETERS_EXCEEDED
+### MAX_PARAMETERS_EXCEEDED
 > Max number of parameters (65534) exceeded
 
 The postgres protocol doesn't allow more than 65534 (16bit) parameters. If you run into this issue there are various workarounds such as using `sql([...])` to escape values instead of passing them as parameters.
 
-##### SASL_SIGNATURE_MISMATCH
-> Message type X not supported
+### SASL_SIGNATURE_MISMATCH
+> The server did not return the correct signature
 
 When using SASL authentication the server responds with a signature at the end of the authentication flow which needs to match the one on the client. This is to avoid [man-in-the-middle attacks](https://en.wikipedia.org/wiki/Man-in-the-middle_attack). If you receive this error the connection was canceled because the server did not reply with the expected signature.
 
-##### NOT_TAGGED_CALL
+### NOT_TAGGED_CALL
 > Query not called as a tagged template literal
 
 Making queries has to be done using the sql function as a [tagged template](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Template_literals#Tagged_templates). This is to ensure parameters are serialized and passed to Postgres as query parameters with correct types and to avoid SQL injection.
 
-##### SSL_NOT_SUPPORTED
+### SSL_NOT_SUPPORTED
 > The server does not support SSL connections
 
-The server answered the SSL request with a refusal while `ssl` is set to `require` (or another mode that does not fall back to plain text). The attempt fails at once for a single host. Use `ssl: 'prefer'` to fall back to an unencrypted connection, or enable SSL on the server.
+The server answered the SSL request with a refusal while `ssl` is set to a mode other than `'prefer'`. The attempt fails at once for a single host. Use `ssl: 'prefer'` to fall back to an unencrypted connection, or enable SSL on the server. See [SSL](#ssl).
 
-##### TARGET_SESSION_ATTRS
+### TARGET_SESSION_ATTRS
 > No host matched target_session_attrs=read-write: localhost:5432 is read-only
 
-No host satisfied [`target_session_attrs`](#connection-details). This error is the `cause` of the `CONNECTION_CLOSED` error the query rejects with, so retry logic keyed on `CONNECTION_CLOSED` keeps working; read `err.cause.code` and `err.cause.message` for the reason. The message names the requested value and each host with the reason it was rejected. With several hosts, the connection fails at once when every host answered and none matched; if any host failed for another reason (refused, closed, timed out), the client keeps retrying until `connect_timeout` instead, since a failover may be in progress. With a single host, the client keeps retrying until `connect_timeout` before failing, because a single endpoint that is read-only is often in the middle of a failover, for example a cluster DNS name that still points at the old primary.
+No host satisfied [`target_session_attrs`](#multi-host-connections---high-availability-ha). This error is the `cause` of the `CONNECTION_CLOSED` error the query rejects with, so retry logic keyed on `CONNECTION_CLOSED` keeps working; read `err.cause.code` and `err.cause.message` for the reason. The message names the requested value and each host with the reason it was rejected. When it is raised at once and when the client keeps retrying instead is described under [Multi-host connections](#multi-host-connections---high-availability-ha).
 
-##### AUTH_TYPE_NOT_IMPLEMENTED
-> Auth type X not implemented
+### INVALID_TRANSACTION_NAME
+> sql.prepare requires a non-empty string without null bytes
 
-Postgres supports many different authentication types. This one is not supported.
+Thrown by [`sql.prepare(name)`](#prepare-transaction-sqlpreparename) inside `sql.begin()` for a name that is not a non-empty string, or that contains a NUL character.
 
-##### CONNECTION_CLOSED
+### 57014
+> canceling statement due to user request
+
+The code PostgreSQL uses for a cancelled statement. A query [cancelled](#canceling-queries-in-progress) before it was sent rejects with a plain `Error` carrying this code, so `err.code === '57014'` matches a cancel whether the server or the client settled it.
+
+### CONNECTION_CLOSED
 > write CONNECTION_CLOSED host:port
 
 This error is thrown if the connection was closed, or could not be opened, without an error of its own. When the server or the network ended the session, or no host matched `target_session_attrs`, the underlying error is available as `err.cause`.
 
-##### CONNECTION_ENDED
+### CONNECTION_ENDED
 > write CONNECTION_ENDED host:port
 
 This error is thrown if the user has called [`sql.end()`](#teardown--cleanup) and performed a query afterward.
 
-A reserved `sql` used after `release()`, or a transaction `sql` used after `begin()` has committed, rolled back or prepared, also rejects with `CONNECTION_ENDED`.
+A reserved `sql` used after `release()`, or a transaction `sql` used after `begin()` has committed, rolled back or prepared, or while its `COMMIT` or `ROLLBACK` is in flight, also rejects with `CONNECTION_ENDED`.
 
-##### CONNECTION_DESTROYED
+### CONNECTION_DESTROYED
 > write CONNECTION_DESTROYED host:port
 
 This error is thrown for any queries that were pending when the timeout to [`sql.end({ timeout: X })`](#teardown--cleanup) was reached.
 
-##### CONNECT_TIMEOUT
+### CONNECT_TIMEOUT
 > write CONNECT_TIMEOUT host:port
 
-The timeout applies to each connection attempt and covers socket creation, TCP and TLS negotiation, authentication, session checks and type discovery. When an attempt times out, the next host is tried. The acquisition as a whole is bounded by `connect_timeout` multiplied by the number of hosts, measured from the first attempt; time spent waiting on an inherited reconnect delay is not counted. Set it with `connect_timeout` or `PGCONNECT_TIMEOUT` (30 seconds by default); zero disables both limits. The same value also bounds a graceful close: if the server does not close the socket within `connect_timeout` seconds after `end()` sends Terminate, the connection is closed anyway; zero leaves a graceful close unbounded.
+A connection attempt took longer than `connect_timeout` (30 seconds by default, `PGCONNECT_TIMEOUT`). What it covers, how it combines across hosts and which error you get once several attempts failed is described under [Connection timeout](#connection-timeout).
 
-If the only attempt times out, the error is `CONNECT_TIMEOUT`. Once earlier attempts have failed, exhausting the overall budget reports the earlier error, such as the last server error or `CONNECTION_CLOSED`. With a single host, a socket or socket factory error rejects the query once; with several hosts, errors keep cycling through the hosts with backoff until the budget is spent. Queries already sent to the server are not replayed.
-
-##### COPY_IN_PROGRESS
+### COPY_IN_PROGRESS
 > You cannot execute queries during copy
 
-This error is thrown for a statement on a `sql.reserve()` or `sql.begin()` handle while its copy operation (writable / readable) runs, including statements sent before the server started it. A query, `sql.reserve()` or `sql.begin()` through `sql` gets it when every connection is running a copy operation whose writable has not been ended; otherwise it waits for a connection.
+A statement was sent on a `sql.reserve()` or `sql.begin()` handle while its copy operation runs, or through `sql` while every connection is running a copy operation that has not been ended. See [Copy to/from as Streams](#copy-tofrom-as-streams).
 
-##### TRANSACTION_ROLLED_BACK
+### TRANSACTION_ROLLED_BACK
 > The server rolled the transaction back instead of committing it
 
 This error is thrown by `sql.begin()` when the server answers the final `COMMIT` (or `PREPARE TRANSACTION`) with `ROLLBACK`, because the transaction was aborted by a statement whose error the callback did not surface, such as a failing query that was not awaited. Nothing was committed. When such a query's error was already recorded, it is the error's `cause`.
 
+### Other errors
+
+`postgres()` throws a plain `Error` without a code for an unsupported `target_session_attrs` or `parameter_types` value, `vercelPool()` for a missing `idle_timeout`, and `sql.subscribe()` rejects with one for an empty `publications` option or a malformed pattern.
+
 ## TypeScript support
 
-`postgres` has TypeScript support. You can pass a row list type for your queries in this way:
+Postgres.js has TypeScript support. You can pass a row list type for your queries in this way:
 ```ts
 interface User {
   id: number
@@ -1550,11 +1597,11 @@ const [first, second]: [User?] = await sql`SELECT * FROM users WHERE id = ${id}`
 const [first, second] = await sql<[User?]>`SELECT * FROM users WHERE id = ${id}` // don't fail : `second: User | undefined`
 ```
 
-We do our best to type all the public API, however types are not always updated when features are added or changed. Feel free to open an issue if you have trouble with types.
+The declarations need `@types/node` 22 or newer, or `skipLibCheck`. Feel free to open an issue if you have trouble with types.
 
 ## Migration tools
 
-Postgres.js doesn't come with any migration solution since it's way out of scope, but here are some modules that support Postgres.js for migrations:
+Postgres.js doesn't come with a schema migration tool. These third-party modules support Postgres.js; they are not maintained or tested here:
 
 - https://github.com/porsager/postgres-shift
 - https://github.com/lukeed/ley
