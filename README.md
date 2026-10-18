@@ -69,9 +69,9 @@ The alias above works with `drizzle-orm/postgres-js`, `drizzle-kit`, `kysely-pos
 
 ## Security
 
-Published from GitHub Actions through npm trusted publishing, with provenance and maintainer approval using two-factor authentication. No stored npm token, runtime dependencies or registry install scripts. Verify with `npm audit signatures`.
+Maintained by [Oleg Komarov](https://github.com/okomarov). Since 4.5.0, every version is published from GitHub Actions through npm trusted publishing, with provenance and maintainer approval using two-factor authentication. No stored npm token, runtime dependencies or registry install scripts. Verify with `npm audit signatures`, or under Provenance at the bottom of the [npm page](https://www.npmjs.com/package/@steadybrew/postgresjs).
 
-[Changes since upstream 3.4.9](https://github.com/steadybrew/postgresjs/compare/v3.4.9...main) · [Report a vulnerability](SECURITY.md) · [Unlicense](UNLICENSE)
+[Driver changes since Postgres.js 3.4.9](docs/changes-since-3.4.9.diff) · [Report a vulnerability](SECURITY.md) · [Unlicense](UNLICENSE)
 
 ## Compatibility
 
