@@ -1,8 +1,7 @@
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
-import { createRequire } from 'node:module'
+import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const pm = process.argv[2]
@@ -11,11 +10,17 @@ const dir = mkdtempSync(join(tmpdir(), 'postgresjs-migrate-install-'))
 const run = (cmd, args) => execFileSync(cmd, args, { cwd: dir, stdio: ['ignore', 'pipe', 'inherit'], encoding: 'utf8', env: { ...process.env, CI: 'true' } })
 
 function owner(from) {
-  let file = createRequire(join(from, 'noop.js')).resolve('postgres')
-  while (!existsSync(join(dirname(file), 'package.json')) || !JSON.parse(readFileSync(join(dirname(file), 'package.json'), 'utf8')).name)
-    file = dirname(file)
-  const pkg = JSON.parse(readFileSync(join(dirname(file), 'package.json'), 'utf8'))
-  return pkg.name + '@' + pkg.version
+  return execFileSync(process.execPath, ['-e', `
+    const { createRequire } = require('node:module')
+    const { existsSync, readFileSync } = require('node:fs')
+    const { dirname, join } = require('node:path')
+    const named = d => existsSync(join(d, 'package.json')) && JSON.parse(readFileSync(join(d, 'package.json'), 'utf8')).name
+    let d = dirname(createRequire(join(process.argv[1], 'noop.js')).resolve('postgres'))
+    while (!named(d))
+      d = dirname(d)
+    const pkg = JSON.parse(readFileSync(join(d, 'package.json'), 'utf8'))
+    process.stdout.write(pkg.name + '@' + pkg.version)
+  `, from], { encoding: 'utf8' })
 }
 
 function resolved() {
