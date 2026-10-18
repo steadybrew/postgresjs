@@ -18,16 +18,6 @@ fs.writeFileSync(
   transpile(fs.readFileSync(path.join('types', 'index.d.ts'), 'utf8'), 'index.d.ts', 'types')
 )
 
-fs.writeFileSync(
-  path.join(root, 'README.md'),
-  fs.readFileSync('README.md', 'utf8')
-    .replace(/### Installation(\n.*){4}/, '')
-    .replace(
-      'import postgres from \'@steadybrew/postgresjs\'',
-      'import postgres from \'https://raw.githubusercontent.com/steadybrew/postgresjs/master/deno/mod.js\''
-    )
-)
-
 fs.readdirSync('src').forEach(name =>
   fs.writeFileSync(
     path.join(src, name),

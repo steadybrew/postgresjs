@@ -45,6 +45,7 @@
   },
   "files": [
     "/UNLICENSE",
+    "/docs/api.md",
     "/cf/src",
     "/cf/polyfills.js",
     "/cjs/src",
