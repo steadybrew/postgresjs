@@ -233,7 +233,7 @@ function Socket() {
       let done
         , value
       while (({ done, value } = await tcp.reader.read(), !done)) {
-        tcp.emit('data', Buffer.from(value))
+        tcp.emit('data', Buffer.from(value.buffer, value.byteOffset, value.byteLength))
         paused && await resumption()
       }
       close()
@@ -249,7 +249,7 @@ function Socket() {
       if (done)
         return close()
 
-      tcp.emit('data', Buffer.from(value))
+      tcp.emit('data', Buffer.from(value.buffer, value.byteOffset, value.byteLength))
       value[0] !== 83 && tcp.readyState !== 'closed' && read()
     } catch (err) {
       error(err)
