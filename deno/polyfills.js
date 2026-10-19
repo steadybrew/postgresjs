@@ -174,10 +174,10 @@ export const net = {
 }
 
 export const tls = {
-  connect({ socket, ...options }) {
+  connect({ socket, ALPNProtocols, ...options }) {
     socket.encrypted = true
     socket.readyState = 'connecting'
-    Deno.startTls(socket.raw, { hostname: socket.hostname, ...options })
+    Deno.startTls(socket.raw, { hostname: socket.hostname, ...options, ...(ALPNProtocols ? { alpnProtocols: ALPNProtocols } : {}) })
       .then(socket.success, socket.error)
     socket.raw = null
     return socket
