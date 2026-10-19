@@ -138,8 +138,10 @@ const scenarios = {
   async subscribe(port) {
     const sql = client(port, { max: 1, publications: 'workerd_subscribe' })
     await sql`create table if not exists workerd_subscribe (id bigint primary key, value text)`
-    await sql`drop publication if exists workerd_subscribe`
-    await sql`create publication workerd_subscribe for table workerd_subscribe`
+    await sql`create publication workerd_subscribe for table workerd_subscribe`.catch((error) => {
+      if (error.code !== '42710')
+        throw error
+    })
     const id = Date.now()
     let received
     const delivered = new Promise((resolve) => { received = resolve })
