@@ -12,6 +12,9 @@ on:
       cpu_rounds:
         description: Rounds per variant for the CPU measurement instead of the scenarios (0 runs the scenarios)
         default: '0'
+      profile_rounds:
+        description: Requests per variant for a V8 CPU profile on local workerd instead of the scenarios (0 skips it)
+        default: '0'
   push:
     branches: [main]
     tags: ['v*']
@@ -27,7 +30,7 @@ concurrency:
 jobs:
   edge:
     name: Cloudflare edge Preview (${{ matrix.compat_date }}) on Neon and Supabase
-    if: github.event.action != 'closed' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (github.event_name != 'workflow_dispatch' || inputs.cpu_rounds == '0')
+    if: github.event.action != 'closed' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (github.event_name != 'workflow_dispatch' || (inputs.cpu_rounds == '0' && inputs.profile_rounds == '0'))
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     strategy:
@@ -104,6 +107,36 @@ jobs:
       - name: Delete the Preview
         if: always() && env.PREVIEW_NAME
         run: npx --yes wrangler@4.151.1 preview delete --worker-name postgresjs-edge --name "$PREVIEW_NAME" --skip-confirmation
+
+  profile:
+    name: Workers CPU profile on local workerd and PostgreSQL 18
+    if: github.event_name == 'workflow_dispatch' && inputs.profile_rounds != '0'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      POSTGRES_VERSION: '18'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+      - uses: ./.github/actions/setup-postgres
+        with:
+          version: ${{ env.POSTGRES_VERSION }}
+      - run: npm run build:cf
+      - name: Start a PostgreSQL cluster with SCRAM authentication
+        run: |
+          bash .github/actions/setup-postgres/cluster.sh "$POSTGRES_VERSION" profile 55434
+          psql -h 127.0.0.1 -p 55434 -U postgres -c "alter user postgres password 'postgres'"
+          printf 'local all all trust\nhost all all all scram-sha-256\n' | sudo tee "/etc/postgresql/$POSTGRES_VERSION/profile/pg_hba.conf" >/dev/null
+          sudo pg_ctlcluster "$POSTGRES_VERSION" profile reload
+      - run: node tests-startup/workerd-profile.mjs "$RUNNER_TEMP/profile" postgres://postgres:postgres@127.0.0.1:55434/postgres "${{ inputs.profile_rounds }}"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: workers-cpu-profiles
+          path: ${{ runner.temp }}/profile-profiles
+          if-no-files-found: ignore
 
   cleanup:
     name: Delete the edge Previews (${{ matrix.compat_date }})
