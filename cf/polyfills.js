@@ -148,6 +148,7 @@ function Socket() {
 
   let paused = false
     , resumed = null
+    , shutting = null
 
   return tcp
 
@@ -201,8 +202,12 @@ function Socket() {
       return close()
 
     return data
-      ? tcp.write(data, () => tcp.raw.close())
-      : tcp.raw.close()
+      ? tcp.write(data)
+      : shut()
+  }
+
+  function shut() {
+    return shutting || (shutting = Promise.resolve(tcp.raw.close()).catch(noop))
   }
 
   function destroy() {
@@ -231,6 +236,8 @@ function Socket() {
         tcp.emit('data', Buffer.from(value))
         paused && await resumption()
       }
+      close()
+      shut()
     } catch (err) {
       error(err)
     }

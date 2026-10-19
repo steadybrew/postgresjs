@@ -44,6 +44,7 @@ async function main() {
   const tlsScenarios = ['end-tls', 'tls-untrusted-ca']
   const peerScenarios = ['cold-reserve-false', 'catalog-error']
   const knownFailures = (process.env.WORKERD_KNOWN_FAILURES || '').split(',').filter(Boolean)
+  const forcedCloses = ['connect-timeout', 'end-timeout', 'end-while-connecting']
   const servers = new Map()
 
   async function trusting(trustedCa, fn) {
@@ -67,7 +68,7 @@ async function main() {
           name: 'postgresjs-startup-local-validation',
           main: path.join(work, 'worker.js'),
           compatibility_date: process.env.WORKERD_COMPAT_DATE || '2025-01-01',
-          compatibility_flags: ['nodejs_compat']
+          compatibility_flags: ['nodejs_compat', ...(process.env.WORKERD_COMPAT_FLAGS || '').split(',').filter(Boolean)]
         }
       }]
     })
@@ -94,6 +95,7 @@ async function main() {
       const expected = knownFailures.includes(name)
       if (Boolean(failure) !== expected) process.exitCode = 1
       const closeRejections = unhandled.filter((x) => /Stream was cancelled|This socket has been closed/.test(x)).length
+      if (closeRejections && !forcedCloses.includes(name)) process.exitCode = 1
       await writeFile(path.join(work, name + '.log'), output)
       console.log(JSON.stringify({
         name,
