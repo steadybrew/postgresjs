@@ -1,7 +1,12 @@
 /* eslint no-console: 0 */
 /* global addEventListener */
-import postgres from './cf/src/index.js'
-addEventListener('unhandledrejection', (event) => console.error('WORKER_UNHANDLED_REJECTION', event.reason?.stack || String(event.reason)))
+import postgres from './driver.js'
+let unhandled = []
+addEventListener('unhandledrejection', (event) => {
+  const reason = event.reason?.stack || String(event.reason)
+  unhandled.push(reason)
+  console.error('WORKER_UNHANDLED_REJECTION', reason)
+})
 const nativeSetTimeout = globalThis.setTimeout
 globalThis.setTimeout = function(callback, delay, ...extra) {
   if (extra.length) throw new TypeError('Failed to execute \'setTimeout\': parameter 3 is not of type \'Array\'.')
@@ -83,12 +88,91 @@ const scenarios = {
       times.push(Date.now() - started)
     }
     return { times }
+  },
+  async 'copy-out'(port) {
+    const sql = client(port, { max: 1 })
+    const rows = 50000
+    const readable = await within(sql.unsafe('copy (select generate_series(1, ' + rows + ')) to stdout').readable(), 3000, 'copy readable')
+    const consume = async() => {
+      let bytes = 0
+        , chunks = 0
+      for await (const chunk of readable) {
+        bytes += chunk.length
+        if (++chunks % 50 === 0) await sleep(1)
+      }
+      return { bytes, chunks }
+    }
+    const result = await within(consume(), 10000, 'copy stream')
+    let expected = 0
+    for (let i = 1; i <= rows; i++) expected += String(i).length + 1
+    equal(result.bytes, expected)
+    await within(sql.end(), 3000, 'end')
+    return result
+  },
+  async 'ssl-prefer-declined'(port) {
+    const sql = client(port, { max: 1, ssl: 'prefer', connect_timeout: 3 })
+    const [{ ssl }] = await within(sql`select ssl from pg_stat_ssl where pid = pg_backend_pid()`, 6000, 'query with ssl: prefer')
+    equal(ssl, false)
+    await within(sql.end(), 3000, 'end')
+    return { ssl }
+  },
+  async 'tls-untrusted-ca'(port) {
+    const sql = client(port, { max: 1, ssl: 'require', connect_timeout: 5 })
+    const started = Date.now()
+    const error = await within(sql`select 1`.then(() => null, (e) => e), 9000, 'untrusted certificate')
+    const ms = Date.now() - started
+    if (!error) throw new Error('Connected despite an untrusted certificate')
+    if (error.code === 'CONNECT_TIMEOUT') throw new Error('Untrusted certificate reported as CONNECT_TIMEOUT after ' + ms + 'ms')
+    await within(sql.end({ timeout: 0 }), 3000, 'end')
+    return { code: error.code, message: error.message, ms }
+  },
+  async subscribe(port) {
+    const sql = client(port, { max: 1 })
+    await sql`create table if not exists workerd_subscribe (id bigint primary key, value text)`
+    await sql`drop publication if exists alltables`
+    await sql`create publication alltables for all tables`
+    const id = Date.now()
+    let received
+    const delivered = new Promise((resolve) => { received = resolve })
+    const { unsubscribe } = await within(
+      sql.subscribe('insert:workerd_subscribe', (row) => row.id === String(id) && received(row)),
+      5000,
+      'subscribe'
+    )
+    await sql`insert into workerd_subscribe ${ sql({ id, value: 'workerd' }) }`
+    const row = await within(delivered, 5000, 'subscribe delivery')
+    await within(unsubscribe(), 3000, 'unsubscribe')
+    await within(sql.end(), 3000, 'end')
+    return { row }
+  },
+  async 'diagnostics-channel'() {
+    const dc = await import('node:diagnostics_channel')
+    const seen = []
+    const listener = (message) => seen.push(message)
+    dc.subscribe('postgres:workerd-check', listener)
+    dc.channel('postgres:workerd-check').publish({ marker: 1 })
+    dc.unsubscribe('postgres:workerd-check', listener)
+    equal(seen, [{ marker: 1 }])
+    const events = []
+    const tracing = typeof dc.tracingChannel === 'function' ? dc.tracingChannel('postgres:workerd-check') : null
+    if (tracing) {
+      tracing.subscribe({
+        start: () => events.push('start'),
+        end: () => events.push('end'),
+        asyncStart: () => events.push('asyncStart'),
+        asyncEnd: () => events.push('asyncEnd'),
+        error: () => events.push('error')
+      })
+      await tracing.tracePromise(async() => 1, {})
+    }
+    return { tracingChannel: Boolean(tracing), events }
   }
 }
 export default {
   async fetch(request, env, context) {
     const url = new URL(request.url)
     if (url.pathname === '/health') return Response.json({ ready: true })
+    unhandled = []
     const name = url.searchParams.get('case')
         , port = Number(url.searchParams.get('port'))
     context.waitUntil(new Promise((resolve) => setTimeout(resolve, 20000)))
@@ -101,7 +185,7 @@ export default {
         error = { message: e.message, code: e.code, stack: e.stack }
       }
       await sleep(300)
-      return Response.json({ name, passed: !error, result, error }, { status: error ? 500 : 200 })
+      return Response.json({ name, passed: !error, result, error, unhandled }, { status: error ? 500 : 200 })
     }
     const sql = postgres({
       host: '127.0.0.1',
@@ -141,6 +225,6 @@ export default {
     } finally {
       await new Promise((resolve) => setTimeout(resolve, 100))
     }
-    return Response.json({ name, passed: !error, result, error }, { status: error ? 500 : 200 })
+    return Response.json({ name, passed: !error, result, error, unhandled }, { status: error ? 500 : 200 })
   }
 }

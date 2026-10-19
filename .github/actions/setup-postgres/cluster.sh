@@ -5,7 +5,7 @@ version=$1 name=$2 port=$3 cert=${4:-} key=${5:-}
 
 sudo pg_createcluster "$version" "$name" --port "$port"
 config="/etc/postgresql/$version/$name"
-printf 'local all all trust\nhost all all all trust\n' | sudo tee "$config/pg_hba.conf" >/dev/null
+printf 'local all all trust\nhost all all all trust\nhost replication all all trust\n' | sudo tee "$config/pg_hba.conf" >/dev/null
 if [[ -n $cert ]]; then
   sudo install -o postgres -g postgres -m 644 "$cert" "$config/server.crt"
   sudo install -o postgres -g postgres -m 600 "$key" "$config/server.key"
@@ -14,5 +14,6 @@ if [[ -n $cert ]]; then
 else
   echo 'ssl = off' | sudo tee -a "$config/postgresql.conf" >/dev/null
 fi
+echo 'wal_level = logical' | sudo tee -a "$config/postgresql.conf" >/dev/null
 sudo pg_ctlcluster "$version" "$name" start
 pg_isready -h 127.0.0.1 -p "$port"

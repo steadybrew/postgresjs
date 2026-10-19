@@ -1,11 +1,13 @@
 /* eslint no-console: 0, no-process-env: 0 */
 import assert from 'node:assert/strict'
-import { spawn, spawnSync } from 'node:child_process'
 import { mkdtemp, cp, writeFile } from 'node:fs/promises'
+import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import net from 'node:net'
+
+const wranglerVersion = '4.151.1'
 
 async function blackhole() {
   const sockets = new Set()
@@ -23,130 +25,130 @@ async function blackhole() {
   }
 }
 
+function within(promise, ms, label) {
+  let timer
+  const limit = new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(label + ' did not settle within ' + ms + 'ms')), ms) })
+  return Promise.race([promise, limit]).finally(() => clearTimeout(timer))
+}
+
 async function main() {
   const repo = path.resolve(process.argv[2] || '.')
   const pgPort = Number(process.argv[3])
-  const wrangler = process.env.WRANGLER_BIN || 'wrangler'
-  const version = spawnSync(wrangler, ['--version'], { encoding: 'utf8' })
-  assert(version.status === 0 && /\b4\.123\.0\b/.test(version.stdout), 'Requires pinned Wrangler4.123.0')
+  const require = createRequire(path.join(repo, 'package.json'))
+  assert.equal(require('wrangler/package.json').version, wranglerVersion, 'Requires pinned Wrangler ' + wranglerVersion)
   assert(pgPort > 0, 'Pass the disposable PostgreSQL TCP port as second argument')
+  const { createTestHarness } = await import(pathToFileURL(require.resolve('wrangler')))
   const { peer } = await import(pathToFileURL(path.join(repo, 'tests-startup/peer.js')))
   const work = await mkdtemp(path.join(tmpdir(), 'postgresjs-workerd-'))
-  const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
-  async function freePort() {
-    const server = net.createServer()
-    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
-    const port = server.address().port
-    await new Promise((resolve) => server.close(resolve))
-    return port
+  const tlsPort = Number(process.env.WORKERD_TLS_PORT) || 0
+  const tlsScenarios = ['end-tls', 'tls-untrusted-ca']
+  const peerScenarios = ['cold-reserve-false', 'catalog-error']
+  const knownFailures = (process.env.WORKERD_KNOWN_FAILURES || '').split(',').filter(Boolean)
+  const build = process.env.WORKERD_BUILD || 'cf'
+  assert(build === 'cf' || build === 'src', 'WORKERD_BUILD must be cf or src')
+  const servers = new Map()
+
+  async function trusting(trustedCa, fn) {
+    const previous = process.env.SSL_CERT_FILE
+    trustedCa ? process.env.SSL_CERT_FILE = trustedCa : delete process.env.SSL_CERT_FILE
+    try {
+      return await fn()
+    } finally {
+      previous === undefined ? delete process.env.SSL_CERT_FILE : process.env.SSL_CERT_FILE = previous
+    }
   }
+
+  function server(trustedCa) {
+    if (servers.has(trustedCa))
+      return servers.get(trustedCa)
+
+    const harness = createTestHarness({
+      root: work,
+      workers: [{
+        config: {
+          name: 'postgresjs-startup-local-validation',
+          main: path.join(work, 'worker.js'),
+          compatibility_date: process.env.WORKERD_COMPAT_DATE || '2025-01-01',
+          compatibility_flags: ['nodejs_compat']
+        }
+      }]
+    })
+    servers.set(trustedCa, harness)
+    return harness
+  }
+
   try {
-    await cp(path.join(repo, 'cf'), path.join(work, 'cf'), { recursive: true })
+    await cp(path.join(repo, build), path.join(work, build), { recursive: true })
     await cp(new URL('./workerd-worker.js', import.meta.url), path.join(work, 'worker.js'))
-    await writeFile(
-      path.join(work, 'wrangler.json'),
-      JSON.stringify({
-        name: 'postgresjs-startup-local-validation',
-        main: 'worker.js',
-        compatibility_date: '2025-01-01',
-        compatibility_flags: ['nodejs_compat'],
-        send_metrics: false
-      })
-    )
-    const tlsPort = Number(process.env.WORKERD_TLS_PORT) || 0
-    for (const name of process.argv[4]
+    await writeFile(path.join(work, 'driver.js'), 'export { default } from \'./' + (build === 'cf' ? 'cf/src' : 'src') + '/index.js\'\n')
+    const scenarios = process.argv[4]
       ? process.argv[4].split(',')
       : [
         'cold-reserve-false', 'arrays-false', 'arrays-true', 'catalog-error',
         'timers', 'connect-timeout', 'end-timeout', 'end-plain', 'end-while-connecting',
-        ...(tlsPort && process.env.WORKERD_TLS_CA ? ['end-tls'] : [])
-      ]) {
-      if (name === 'end-tls') assert(tlsPort > 0 && process.env.WORKERD_TLS_CA, 'end-tls requires WORKERD_TLS_PORT and WORKERD_TLS_CA')
-      const silent = name === 'connect-timeout' ? await blackhole() : null
-      const fixture = silent || /^(arrays|timers|end-)/.test(name) ? null : await peer({ catalogError: name === 'catalog-error' })
-      const port = await freePort()
-          , inspector = await freePort()
-      const child = spawn(
-        wrangler,
-        [
-          'dev',
-          '--local',
-          '--config',
-          path.join(work, 'wrangler.json'),
-          '--ip',
-          '127.0.0.1',
-          '--port',
-          String(port),
-          '--inspector-port',
-          String(inspector),
-          '--show-interactive-dev-session=false'
-        ],
-        { detached: true, stdio: ['ignore', 'pipe', 'pipe'], env: {
-          ...process.env,
-          WRANGLER_SEND_METRICS: 'false',
-          ...(name === 'end-tls' ? { SSL_CERT_FILE: process.env.WORKERD_TLS_CA || process.env.SSL_CERT_FILE || '' } : {})
-        } }
-      )
-      let output = ''
-        , failure
-        , detail
-      child.stdout.on('data', (x) => (output += x))
-      child.stderr.on('data', (x) => (output += x))
-      const closed = new Promise((resolve) => child.once('close', resolve))
-      const watchdog = setTimeout(() => {
-        try {
-          process.kill(-child.pid, 'SIGKILL')
-        } catch {
-          /* Process may have already exited or listener may not be ready. */
-        }
-      }, 25000)
-      try {
-        let ready = false
-        for (let i = 0; i < 100; i++) {
-          if (child.exitCode !== null) break
-          try {
-            const res = await fetch('http://127.0.0.1:' + port + '/health', { signal: AbortSignal.timeout(100) })
-            ready = res.ok
-          } catch {
-            /* Process may have already exited or listener may not be ready. */
-          }
-          if (ready) break
-          await pause(100)
-        }
-        assert(ready, 'workerd failed to start: ' + output)
-        const target = silent?.port || fixture?.port || (name === 'end-tls' ? tlsPort : pgPort)
-        const res = await fetch('http://127.0.0.1:' + port + '/?case=' + name + '&port=' + target, {
-          signal: AbortSignal.timeout(15000)
-        })
-        const body = await res.json()
-        detail = body.result
-        await pause(150)
-        assert(res.ok && body.passed, JSON.stringify(body))
-        const fatal = /WORKER_UNHANDLED_REJECTION|Uncaught|unhandled rejection|parameter \d+ is not of type/i
-        assert(!output.split('\n').some((line) => fatal.test(line) && !line.includes('Stream was cancelled')), output)
-        if (fixture && name === 'cold-reserve-false') assert.equal(fixture.events.filter((x) => x.type === 'P').length, 0)
-        if (fixture && name === 'catalog-error') assert.equal(fixture.events.filter((x) => x.type === 'Q').length, 0)
-      } catch (error) {
-        failure = error
-        process.exitCode = 1
-      } finally {
-        try {
-          process.kill(-child.pid, 'SIGKILL')
-        } catch {
-          /* Process may have already exited or listener may not be ready. */
-        }
-        await closed
-        clearTimeout(watchdog)
-        if (fixture) await fixture.close()
-        if (silent) await silent.close()
-      }
+        'copy-out', 'ssl-prefer-declined', 'subscribe', 'diagnostics-channel',
+        ...(tlsPort && process.env.WORKERD_TLS_CA ? tlsScenarios : [])
+      ]
+    for (const name of scenarios) {
+      if (tlsScenarios.includes(name)) assert(tlsPort > 0 && process.env.WORKERD_TLS_CA, name + ' requires WORKERD_TLS_PORT and WORKERD_TLS_CA')
+      const { failure, detail, output, unhandled } = await run(name)
+      const expected = knownFailures.includes(name)
+      if (Boolean(failure) !== expected) process.exitCode = 1
+      const closeRejections = unhandled.filter((x) => /Stream was cancelled|This socket has been closed/.test(x)).length
       await writeFile(path.join(work, name + '.log'), output)
-      console.log(JSON.stringify({ name, passed: !failure, result: detail, error: failure?.message, log: path.join(work, name + '.log') }))
+      console.log(JSON.stringify({
+        name,
+        passed: !failure,
+        ...(expected ? { knownFailure: true } : {}),
+        result: detail,
+        closeRejections,
+        error: failure?.message,
+        log: path.join(work, name + '.log')
+      }))
     }
     console.log(JSON.stringify({ artifacts: work }))
   } catch (error) {
     console.error(error)
     process.exitCode = 1
+  } finally {
+    for (const harness of servers.values()) await harness.close()
+  }
+
+  async function run(name) {
+    const silent = name === 'connect-timeout' ? await blackhole() : null
+    const fixture = peerScenarios.includes(name) ? await peer({ catalogError: name === 'catalog-error' }) : null
+    const trustedCa = name === 'end-tls' ? process.env.WORKERD_TLS_CA : ''
+    const harness = server(trustedCa)
+    let failure
+      , detail
+      , body
+    try {
+      await trusting(trustedCa, async() => {
+        await harness.listen()
+        await harness.reset()
+        await harness.listen()
+      })
+      const target = silent?.port || fixture?.port || (tlsScenarios.includes(name) ? tlsPort : pgPort)
+      const res = await within(harness.fetch('/?case=' + name + '&port=' + target), 15000, name)
+      body = await res.json()
+      detail = body.result
+      await new Promise((resolve) => setTimeout(resolve, 150))
+      assert(res.ok && body.passed, JSON.stringify(body))
+      const closing = /Stream was cancelled|This socket has been closed/
+      const fatal = /WORKER_UNHANDLED_REJECTION|Uncaught|unhandled rejection|parameter \d+ is not of type/i
+      const errors = harness.getLogs().map((x) => String(x.message)).filter((x) => fatal.test(x) && !closing.test(x))
+      assert.deepEqual(errors, [], 'Worker errors: ' + errors.join('\n'))
+      if (fixture && name === 'cold-reserve-false') assert.equal(fixture.events.filter((x) => x.type === 'P').length, 0)
+      if (fixture && name === 'catalog-error') assert.equal(fixture.events.filter((x) => x.type === 'Q').length, 0)
+    } catch (error) {
+      failure = error
+    } finally {
+      if (fixture) await fixture.close()
+      if (silent) await silent.close()
+    }
+    const logs = harness.getLogs().map((x) => String(x.message))
+    const output = logs.join('\n')
+    return { failure, detail, output, unhandled: logs.filter((x) => x.includes('WORKER_UNHANDLED_REJECTION')) }
   }
 }
 main().catch((error) => {
