@@ -1,6 +1,6 @@
 /* eslint no-console: 0 */
 /* global addEventListener */
-import postgres from './driver.js'
+import * as drivers from './driver.js'
 let unhandled = []
 addEventListener('unhandledrejection', (event) => {
   const reason = event.reason?.stack || String(event.reason)
@@ -21,8 +21,13 @@ async function within(promise, ms, label) {
   const limit = new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(label + ' did not settle within ' + ms + 'ms')), ms) })
   try { return await Promise.race([promise, limit]) } finally { clearTimeout(timer) }
 }
-function client(port, options = {}) {
-  return postgres({ host: '127.0.0.1', port, user: 'postgres', database: 'postgres', ssl: false, prepare: false, fetch_types: false, ...options })
+let target = null
+function client(port, { ssl, ...options } = {}) {
+  return target.url
+    ? target.postgres(target.url, { prepare: false, fetch_types: false, ...options })
+    : target.postgres({
+      host: '127.0.0.1', port, user: 'postgres', database: 'postgres', ssl: ssl || false, prepare: false, fetch_types: false, ...options
+    })
 }
 const scenarios = {
   async timers(port) {
@@ -81,8 +86,12 @@ const scenarios = {
     const times = []
     for (let i = 0; i < 3; i++) {
       const sql = client(port, { max: 1, ssl: 'require' })
-      const [{ ssl }] = await sql`select ssl from pg_stat_ssl where pid = pg_backend_pid()`
-      if (ssl !== true) throw new Error('Connection was not encrypted')
+      if (target.url) {
+        await sql`select 1`
+      } else {
+        const [{ ssl }] = await sql`select ssl from pg_stat_ssl where pid = pg_backend_pid()`
+        if (ssl !== true) throw new Error('Connection was not encrypted')
+      }
       const started = Date.now()
       await within(sql.end(), 3000, 'tls sql.end() #' + i)
       times.push(Date.now() - started)
@@ -127,10 +136,10 @@ const scenarios = {
     return { code: error.code, message: error.message, ms }
   },
   async subscribe(port) {
-    const sql = client(port, { max: 1 })
+    const sql = client(port, { max: 1, publications: 'workerd_subscribe' })
     await sql`create table if not exists workerd_subscribe (id bigint primary key, value text)`
-    await sql`drop publication if exists alltables`
-    await sql`create publication alltables for all tables`
+    await sql`drop publication if exists workerd_subscribe`
+    await sql`create publication workerd_subscribe for table workerd_subscribe`
     const id = Date.now()
     let received
     const delivered = new Promise((resolve) => { received = resolve })
@@ -166,13 +175,55 @@ const scenarios = {
       await tracing.tracePromise(async() => 1, {})
     }
     return { tracingChannel: Boolean(tracing), events }
-  }
+  },
+  async 'ssl-verify'(port) {
+    const sql = client(port, { max: 1 })
+    const [{ x }] = await within(sql`select 1 as x`, 10000, 'verified TLS query')
+    await within(sql.end(), 3000, 'end')
+    const plain = target.postgres(target.url, { max: 1, ssl: false, connect_timeout: 5, prepare: false, fetch_types: false })
+    const error = await within(plain`select 1`.then(() => null, (e) => e), 9000, 'plaintext query')
+    await within(plain.end({ timeout: 0 }), 3000, 'end')
+    if (!error) throw new Error('The server accepted a connection without TLS')
+    return { x, plaintext: error.code || error.message }
+  },
+  async pooled() {
+    const sql = target.postgres(target.pooledUrl, { max: 2, prepare: false, fetch_types: false })
+    const rows = await within(Promise.all(Array.from({ length: 20 }, (_, i) => sql`select ${ i }::int as i`)), 10000, 'pooled queries')
+    equal(rows.map(([{ i }]) => i), Array.from({ length: 20 }, (_, i) => i))
+    await within(sql.end(), 3000, 'end')
+    return { queries: rows.length }
+  },
+  hyperdrive: () => hyperdrive(target.hyperdrive),
+  'hyperdrive-pooled': () => hyperdrive(target.hyperdrivePooled)
+}
+async function hyperdrive(connectionString) {
+  const sql = target.postgres(connectionString, { max: 5, fetch_types: false })
+  await sql`create table if not exists workerd_hyperdrive (id bigint primary key, value text)`
+  const first = Date.now() * 1000 + Math.floor(Math.random() * 20) * 50
+  const ids = Array.from({ length: 50 }, (_, i) => first + i)
+  await within(Promise.all(ids.map(async(id) => {
+    await sql`insert into workerd_hyperdrive ${ sql({ id, value: String(id) }) }`
+    const [{ value }] = await sql`select value from workerd_hyperdrive where id = ${ id }`
+    equal(value, String(id))
+  })), 20000, 'hyperdrive queries')
+  await sql`delete from workerd_hyperdrive where id >= ${ first } and id < ${ first + ids.length }`
+  await within(sql.end(), 3000, 'end')
+  return { queries: ids.length * 2 + 2 }
 }
 export default {
   async fetch(request, env, context) {
     const url = new URL(request.url)
+    if (env.EDGE_TOKEN && request.headers.get('authorization') !== 'Bearer ' + env.EDGE_TOKEN)
+      return new Response('unauthorized', { status: 401 })
     if (url.pathname === '/health') return Response.json({ ready: true })
     unhandled = []
+    target = {
+      postgres: drivers[url.searchParams.get('build')] || drivers.default,
+      url: env.DATABASE_URL,
+      pooledUrl: env.POOLED_URL,
+      hyperdrive: env.HYPERDRIVE?.connectionString,
+      hyperdrivePooled: env.HYPERDRIVE_POOLED?.connectionString
+    }
     const name = url.searchParams.get('case')
         , port = Number(url.searchParams.get('port'))
     context.waitUntil(new Promise((resolve) => setTimeout(resolve, 20000)))
@@ -187,17 +238,7 @@ export default {
       await sleep(300)
       return Response.json({ name, passed: !error, result, error, unhandled }, { status: error ? 500 : 200 })
     }
-    const sql = postgres({
-      host: '127.0.0.1',
-      port,
-      user: 'postgres',
-      database: 'postgres',
-      ssl: false,
-      max: 1,
-      prepare: false,
-      fetch_types: !name.includes('false'),
-      connect_timeout: 2
-    })
+    const sql = client(port, { max: 1, fetch_types: !name.includes('false'), connect_timeout: 2 })
     let error
       , result
     try {
