@@ -1267,7 +1267,7 @@ On Cloudflare Workers the package runs the same `src/` build as Node.js, over wo
 compatibility_flags = ["nodejs_compat"]
 ```
 
-CI runs the Workers scenarios at compatibility dates 2025-01-01, 2025-09-15 and 2026-10-12 in local workerd, and on Cloudflare's network against Neon, directly, through its pooler and through Hyperdrive.
+CI runs the Workers scenarios at compatibility dates 2025-01-01, 2025-09-15 and 2026-10-12 in local workerd, and on Cloudflare's network against Neon, directly, through its pooler and through Hyperdrive, and against Supabase through Hyperdrive.
 
 The earlier build over the [`cloudflare:sockets` API](https://developers.cloudflare.com/workers/runtime-apis/tcp-sockets/) stays available until 5.0:
 
@@ -1292,7 +1292,7 @@ export default {
 
 TLS on Workers differs from Node.js:
 
-- Certificates are always verified against public roots: `ssl: 'require'` behaves like `'verify-full'`, and `ca` and `rejectUnauthorized: false` are ignored. A server whose certificate chains to a private CA cannot be reached over TLS from a Worker; Hyperdrive can connect to it with its own CA setting.
+- Certificates are always verified against public roots: `ssl: 'require'` behaves like `'verify-full'`, and `ca` and `rejectUnauthorized: false` are ignored. A server whose certificate chains to a private CA cannot be reached over TLS from a Worker; Hyperdrive can connect to it with its own CA setting. Supabase is one: its certificates chain to Supabase's own root CA, so reach it through Hyperdrive with that CA uploaded and `verify-full`.
 - `sslnegotiation: 'direct'` is not supported.
 - The server name is sent, so hosts that route by it, such as Neon, need no extra option.
 
@@ -1304,7 +1304,9 @@ TLS on Workers differs from Node.js:
 const sql = postgres(env.HYPERDRIVE.connectionString, { max: 5, fetch_types: false })
 ```
 
-CI runs concurrent prepared queries through Hyperdrive, with caching off, in front of Neon's direct and pooled endpoints on every change.
+CI runs concurrent prepared queries through Hyperdrive, with caching off, on every change: in front of Neon's direct and pooled endpoints, and in front of Supabase's direct connection, verified against Supabase's CA.
+
+Point Hyperdrive at the database itself, not at another pooler's transaction mode; for Supabase that is the direct connection, as [Cloudflare's Supabase guide](https://developers.cloudflare.com/hyperdrive/examples/connect-to-postgres/postgres-database-providers/supabase/) says. Hyperdrive pools in transaction mode and needs prepared statements: Cloudflare [discourages `prepare: false`](https://developers.cloudflare.com/hyperdrive/examples/connect-to-postgres/postgres-drivers-and-libraries/postgres-js/) behind it. Supavisor's transaction mode [does not support prepared statements](https://supabase.com/docs/guides/database/connecting-to-postgres), and in front of it queries fail with `prepared statement does not exist`.
 
 #### Next.js
 

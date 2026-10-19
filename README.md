@@ -13,7 +13,7 @@
 - **Pool monitoring.** See busy connections, idle connections and waiting queries with `sql.stats()`.
 - **Faster queries behind poolers.** Removes an extra network round trip for supported values (opt-in).
 - **Vercel Fluid Compute support.** Reuse connections between requests and close idle ones before suspension to avoid connection leaks.
-- **Cloudflare Workers without a socket polyfill.** Runs on workerd's own `node:net` and `node:tls`, tested locally and on Cloudflare's network with Neon and Hyperdrive.
+- **Cloudflare Workers without a socket polyfill.** Runs on workerd's own `node:net` and `node:tls`, tested locally and on Cloudflare's network with Neon, Supabase and Hyperdrive.
 
 **[50+ reported upstream bugs fixed](docs/fixed-issues.md)**, with regression tests.
 
@@ -82,7 +82,7 @@ Releases pass the [test matrix](.github/workflows/test.yml) before publishing:
 | --- | --- |
 | Node.js 22, 24 and 26, ESM and CommonJS | 15–18 |
 | Deno 1.46.3 | 18 |
-| Cloudflare Workers, compatibility dates 2025-01-01 to 2026-10-12, in local workerd and on Cloudflare's network | 18, and Neon directly, pooled and through Hyperdrive |
+| Cloudflare Workers, compatibility dates 2025-01-01 to 2026-10-12, in local workerd and on Cloudflare's network | 18; Neon directly, pooled and through Hyperdrive; Supabase through Hyperdrive |
 
 TypeScript declarations are included; use `@types/node` 22+ or `skipLibCheck`.
 
