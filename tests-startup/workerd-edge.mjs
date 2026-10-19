@@ -65,6 +65,7 @@ async function run(base) {
       let body
         , failure
         , platformErrors = 0
+        , waitedMs = 0
       try {
         let res
         for (;;) {
@@ -73,10 +74,13 @@ async function run(base) {
             signal: AbortSignal.timeout(30000)
           })
           const fromWorker = res.ok || (res.headers.get('content-type') || '').includes('json')
-          if (fromWorker || platformErrors === 1)
+          const wait = retryAfter(res.headers.get('retry-after')) ?? Math.min(2000 * 2 ** platformErrors, 30000)
+          if (fromWorker || waitedMs + wait > 180000)
             break
           platformErrors++
+          waitedMs += wait
           await res.body?.cancel()
+          await new Promise((resolve) => setTimeout(resolve, wait))
         }
         assert.notEqual(res.status, 401, 'Preview rejected the token')
         assert((res.headers.get('content-type') || '').includes('json'), 'Cloudflare answered HTTP ' + res.status + ' instead of the Worker')
@@ -96,11 +100,18 @@ async function run(base) {
         ...(expected ? { knownFailure: true } : {}),
         result: body?.result,
         closeRejections: (body?.unhandled || []).filter((x) => closing.test(x)).length,
-        ...(platformErrors ? { platformErrors } : {}),
+        ...(platformErrors ? { platformErrors, waitedMs } : {}),
         error: failure?.message
       }))
     }
   }
+}
+
+function retryAfter(value) {
+  if (!value)
+    return
+  const ms = /^\d+$/.test(value.trim()) ? Number(value) * 1000 : Date.parse(value) - Date.now()
+  return Number.isNaN(ms) ? undefined : Math.max(ms, 0)
 }
 
 async function main([mode, ...args]) {
