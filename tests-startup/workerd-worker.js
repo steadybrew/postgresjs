@@ -195,6 +195,18 @@ const scenarios = {
     await within(sql.end(), 3000, 'end')
     return { queries: rows.length }
   },
+  async cpu() {
+    const q = target.search
+    const sql = target.postgres(q.get('target') === 'neon' ? target.url : target.supabaseUrl, {
+      max: 2,
+      prepare: false,
+      fetch_types: q.get('fetch_types') === 'true',
+      connect_timeout: 10
+    })
+    const [{ x }] = await sql`select 1 as x`
+    await sql.end({ timeout: 5 })
+    return { x }
+  },
   hyperdrive: () => hyperdrive(target.hyperdrive),
   'hyperdrive-pooled': () => hyperdrive(target.hyperdrivePooled),
   'hyperdrive-supabase': () => hyperdrive(target.hyperdriveSupabase)
@@ -224,13 +236,15 @@ export default {
       postgres: drivers[url.searchParams.get('build')] || drivers.default,
       url: env.DATABASE_URL,
       pooledUrl: env.POOLED_URL,
+      supabaseUrl: env.SUPABASE_URL,
+      search: url.searchParams,
       hyperdrive: env.HYPERDRIVE?.connectionString,
       hyperdrivePooled: env.HYPERDRIVE_POOLED?.connectionString,
       hyperdriveSupabase: env.HYPERDRIVE_SUPABASE?.connectionString
     }
     const name = url.searchParams.get('case')
         , port = Number(url.searchParams.get('port'))
-    context.waitUntil(new Promise((resolve) => setTimeout(resolve, 20000)))
+    name === 'cpu' || context.waitUntil(new Promise((resolve) => setTimeout(resolve, 20000)))
     if (scenarios[name]) {
       let error
         , result

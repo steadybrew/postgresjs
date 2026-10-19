@@ -44,8 +44,6 @@ async function main() {
   const tlsScenarios = ['end-tls', 'tls-untrusted-ca']
   const peerScenarios = ['cold-reserve-false', 'catalog-error']
   const knownFailures = (process.env.WORKERD_KNOWN_FAILURES || '').split(',').filter(Boolean)
-  const build = process.env.WORKERD_BUILD || 'cf'
-  assert(build === 'cf' || build === 'src', 'WORKERD_BUILD must be cf or src')
   const servers = new Map()
 
   async function trusting(trustedCa, fn) {
@@ -81,8 +79,7 @@ async function main() {
     await mkdir(path.join(work, 'node_modules/@steadybrew'), { recursive: true })
     await symlink(repo, path.join(work, 'node_modules/@steadybrew/postgresjs'), 'dir')
     await cp(new URL('./workerd-worker.js', import.meta.url), path.join(work, 'worker.js'))
-    const entry = build === 'cf' ? '@steadybrew/postgresjs/cloudflare-sockets' : '@steadybrew/postgresjs'
-    await writeFile(path.join(work, 'driver.js'), 'export { default } from \'' + entry + '\'\n')
+    await writeFile(path.join(work, 'driver.js'), 'export { default } from \'@steadybrew/postgresjs\'\n')
     const scenarios = process.argv[4]
       ? process.argv[4].split(',')
       : [

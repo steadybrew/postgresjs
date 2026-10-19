@@ -1261,7 +1261,7 @@ attachDatabasePool(vercelPool(sql))
 
 ### Cloudflare Workers support
 
-On Cloudflare Workers the package runs the same `src/` build as Node.js, over workerd's own `node:net` and `node:tls`. The package's `workerd` export condition selects it, so the import is the same as on Node.js. It needs the `nodejs_compat` compatibility flag, which is on by default from compatibility date 2026-08-04; for earlier dates add it to your Wrangler configuration:
+On Cloudflare Workers the package connects through Cloudflare's [`cloudflare:sockets` API](https://developers.cloudflare.com/workers/runtime-apis/tcp-sockets/). The package's `workerd` export condition selects that build, so the import is the same as on Node.js. It needs the `nodejs_compat` compatibility flag, which is on by default from compatibility date 2026-08-04; for earlier dates add it to your Wrangler configuration:
 
 ```toml
 compatibility_flags = ["nodejs_compat"]
@@ -1269,11 +1269,7 @@ compatibility_flags = ["nodejs_compat"]
 
 CI runs the Workers scenarios at compatibility dates 2025-01-01, 2025-09-15 and 2026-10-12 in local workerd, and on Cloudflare's network against Neon, directly, through its pooler and through Hyperdrive, and against Supabase through Hyperdrive.
 
-The earlier build over the [`cloudflare:sockets` API](https://developers.cloudflare.com/workers/runtime-apis/tcp-sockets/) stays available until 5.0:
-
-```js
-import postgres from '@steadybrew/postgresjs/cloudflare-sockets'
-```
+workerd also emulates Node's `node:net` and `node:tls` on top of `cloudflare:sockets`, but running the driver through that emulation costs more CPU per connection: measured on Cloudflare's network against a Supabase pooler, the median rose from 8 to 10 ms with `fetch_types` on, and 30% of connections went past the Workers Free limit of 10 ms, against 9 to 16% over `cloudflare:sockets`. The package therefore ships one Workers build, over `cloudflare:sockets`, with no option to switch ([measurements](https://github.com/steadybrew/postgresjs/issues/15)).
 
 Create the client inside the request handler and close it when the response is done: a Worker cannot reuse a connection opened by another request.
 

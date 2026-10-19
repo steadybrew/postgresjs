@@ -13,7 +13,7 @@
 - **Pool monitoring.** See busy connections, idle connections and waiting queries with `sql.stats()`.
 - **Faster queries behind poolers.** Removes an extra network round trip for supported values (opt-in).
 - **Vercel Fluid Compute support.** Reuse connections between requests and close idle ones before suspension to avoid connection leaks.
-- **Cloudflare Workers without a socket polyfill.** Runs on workerd's own `node:net` and `node:tls`, tested locally and on Cloudflare's network with Neon, Supabase and Hyperdrive.
+- **Cloudflare Workers on the cheapest path.** Connects through Cloudflare's own `cloudflare:sockets` API, which costs less CPU per connection than workerd's `node:net`, tested locally and on Cloudflare's network with Neon, Supabase and Hyperdrive.
 
 **[50+ reported upstream bugs fixed](docs/fixed-issues.md)**, with regression tests.
 
@@ -88,7 +88,7 @@ TypeScript declarations are included; use `@types/node` 22+ or `skipLibCheck`.
 
 Older Node.js versions may work but aren't tested. The package declares `engines.node: >=22`, so package managers may warn or reject installation on older versions.
 
-Hosted Supabase Edge Functions are deployed in production with this fork, outside the CI matrix. Standalone Deno 2 is unverified. Bun is best effort, without CI coverage. On Cloudflare Workers the driver uses workerd's built-in `node:net` and `node:tls`, like any other Node.js module there: the Worker needs Node.js compatibility, which is on by default from compatibility date 2026-08-04 and is otherwise the `nodejs_compat` flag. The earlier `cloudflare:sockets` build stays available as `@steadybrew/postgresjs/cloudflare-sockets` until 5.0. At compatibility date 2026-10-12, closing sockets no longer reports unhandled rejections ([#1196](https://github.com/porsager/postgres/issues/1196), [#1202](https://github.com/porsager/postgres/issues/1202)); on older dates one can still appear when `sql.end({ timeout })` closes a busy connection. See [Cloudflare Workers support](docs/api.md#cloudflare-workers-support).
+Hosted Supabase Edge Functions are deployed in production with this fork, outside the CI matrix. Standalone Deno 2 is unverified. Bun is best effort, without CI coverage. On Cloudflare Workers the driver connects through Cloudflare's `cloudflare:sockets` API, which costs less CPU per connection than workerd's `node:net`; the Worker needs Node.js compatibility, which is on by default from compatibility date 2026-08-04 and is otherwise the `nodejs_compat` flag. At compatibility date 2026-10-12, closing sockets no longer reports unhandled rejections ([#1196](https://github.com/porsager/postgres/issues/1196), [#1202](https://github.com/porsager/postgres/issues/1202)); on older dates most closes still report one. See [Cloudflare Workers support](docs/api.md#cloudflare-workers-support).
 
 ## Why this fork
 
@@ -117,7 +117,7 @@ With `prepare: false`, parameterized queries can pay for an extra network round 
 - **See pool pressure.** [`sql.stats()`](docs/api.md#pool-stats) reports busy and idle connections and waiting queries.
 - **Handle serverless suspension.** Expired idle connections are replaced on resume; the [Vercel Fluid Compute adapter](docs/api.md#vercel-fluid-compute) keeps instances alive until idle connections close.
 - **Automatic cleanup.** [`await using`](docs/api.md#teardown--cleanup) closes a pool and `using` releases a reserved connection when its scope ends. Requires Node.js 24+ or TypeScript 5.2+.
-- **Cloudflare Workers on `node:net`.** The [Workers build](docs/api.md#cloudflare-workers-support) is the same `src/` that Node.js runs, over workerd's `node:net` and `node:tls`, instead of a generated copy over `cloudflare:sockets`.
+- **Cloudflare Workers fixes.** On [Workers](docs/api.md#cloudflare-workers-support), `COPY TO` streams and `subscribe()` pause and resume the socket ([#975](https://github.com/porsager/postgres/issues/975)), and `ssl: 'prefer'` falls back to plaintext when the server declines TLS.
 - **Arrays without startup discovery.** With [`fetch_types: false`](docs/api.md#auto-fetching-of-array-types), common built-in arrays still parse and serialize without a catalog query.
 
 ## Documentation
