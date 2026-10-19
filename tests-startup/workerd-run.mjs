@@ -44,7 +44,7 @@ async function main() {
   const tlsScenarios = ['end-tls', 'tls-untrusted-ca']
   const peerScenarios = ['cold-reserve-false', 'catalog-error']
   const knownFailures = (process.env.WORKERD_KNOWN_FAILURES || '').split(',').filter(Boolean)
-  const forcedCloses = ['connect-timeout', 'end-timeout', 'end-while-connecting']
+  const closeRejectionsLogged = process.env.WORKERD_CLOSE_REJECTIONS === 'logged'
   const servers = new Map()
 
   async function trusting(trustedCa, fn) {
@@ -86,7 +86,7 @@ async function main() {
       : [
         'cold-reserve-false', 'arrays-false', 'arrays-true', 'catalog-error',
         'timers', 'connect-timeout', 'end-timeout', 'end-plain', 'end-while-connecting',
-        'copy-out', 'ssl-prefer-declined', 'subscribe', 'diagnostics-channel',
+        'copy-out', 'ssl-prefer-declined', 'subscribe', 'diagnostics-channel', 'no-end',
         ...(tlsPort && process.env.WORKERD_TLS_CA ? tlsScenarios : [])
       ]
     for (const name of scenarios) {
@@ -95,7 +95,7 @@ async function main() {
       const expected = knownFailures.includes(name)
       if (Boolean(failure) !== expected) process.exitCode = 1
       const closeRejections = unhandled.filter((x) => /Stream was cancelled|This socket has been closed/.test(x)).length
-      if (closeRejections && !forcedCloses.includes(name)) process.exitCode = 1
+      if (closeRejections && !closeRejectionsLogged) process.exitCode = 1
       await writeFile(path.join(work, name + '.log'), output)
       console.log(JSON.stringify({
         name,
@@ -115,6 +115,17 @@ async function main() {
     for (const harness of servers.values()) await harness.close()
   }
 
+  async function released(harness, port, tag) {
+    const start = Date.now()
+    for (;;) {
+      const { result } = await (await harness.fetch('/?case=backends&port=' + port + '&tag=' + tag)).json()
+      if (result?.n === 0)
+        return { releasedAfterMs: Date.now() - start }
+      assert(Date.now() - start < 10000, 'The connection the request left open still has a backend after 10 s')
+      await new Promise((resolve) => setTimeout(resolve, 250))
+    }
+  }
+
   async function run(name) {
     const silent = name === 'connect-timeout' ? await blackhole() : null
     const fixture = peerScenarios.includes(name) ? await peer({ catalogError: name === 'catalog-error' }) : null
@@ -130,11 +141,13 @@ async function main() {
         await harness.listen()
       })
       const target = silent?.port || fixture?.port || (tlsScenarios.includes(name) ? tlsPort : pgPort)
-      const res = await within(harness.fetch('/?case=' + name + '&port=' + target), 15000, name)
+      const tag = name === 'no-end' ? 'no-end-' + Date.now().toString(36) : ''
+      const res = await within(harness.fetch('/?case=' + name + '&port=' + target + (tag ? '&tag=' + tag : '')), 15000, name)
       body = await res.json()
       detail = body.result
       await new Promise((resolve) => setTimeout(resolve, 150))
       assert(res.ok && body.passed, JSON.stringify(body))
+      if (tag) detail = { ...detail, ...await released(harness, target, tag) }
       const closing = /Stream was cancelled|This socket has been closed/
       const fatal = /WORKER_UNHANDLED_REJECTION|Uncaught|unhandled rejection|parameter \d+ is not of type/i
       const errors = harness.getLogs().map((x) => String(x.message)).filter((x) => fatal.test(x) && !closing.test(x))

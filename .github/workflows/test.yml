@@ -69,8 +69,10 @@ jobs:
         include:
           - compat_date: '2025-01-01'
             known_failures: tls-untrusted-ca
+            close_rejections: logged
           - compat_date: '2025-09-15'
             known_failures: tls-untrusted-ca
+            close_rejections: logged
           - compat_date: '2025-01-01'
             flags: unhandled_rejection_after_microtask_checkpoint
           - compat_date: '2026-10-12'
@@ -97,6 +99,7 @@ jobs:
           WORKERD_COMPAT_DATE: ${{ matrix.compat_date }}
           WORKERD_COMPAT_FLAGS: ${{ matrix.flags }}
           WORKERD_KNOWN_FAILURES: ${{ matrix.known_failures }}
+          WORKERD_CLOSE_REJECTIONS: ${{ matrix.close_rejections }}
           WORKERD_TLS_PORT: 55433
           WORKERD_TLS_CA: ${{ runner.temp }}/server.crt
 

@@ -202,7 +202,7 @@ function Socket() {
       return close()
 
     return data
-      ? tcp.write(data)
+      ? tcp.write(data, shut)
       : shut()
   }
 

@@ -6,7 +6,7 @@ import path from 'node:path'
 
 const scenarios = [
   'arrays-false', 'arrays-true', 'timers', 'end-timeout', 'end-plain', 'end-while-connecting', 'end-tls',
-  'copy-out', 'subscribe', 'diagnostics-channel', 'ssl-verify', 'pooled'
+  'copy-out', 'subscribe', 'diagnostics-channel', 'ssl-verify', 'pooled', 'no-end'
 ]
 const hyperdrive = [
   { binding: 'HYPERDRIVE', id: '6cac003bd1af42849ca7e83e125d5a3d' },
@@ -99,7 +99,8 @@ async function run(base) {
       , failure
       , fetched
     try {
-      fetched = await fetchWorker(new URL('/?case=' + name + '&build=' + build, base), headers)
+      const tag = name === 'no-end' ? 'no-end-' + Date.now().toString(36) : ''
+      fetched = await fetchWorker(new URL('/?case=' + name + '&build=' + build + (tag ? '&tag=' + tag : ''), base), headers)
       const { res } = fetched
       assert.notEqual(res.status, 401, 'Preview rejected the token')
       assert((res.headers.get('content-type') || '').includes('json'), 'Cloudflare answered HTTP ' + res.status + ' instead of the Worker')
@@ -107,6 +108,7 @@ async function run(base) {
       assert(res.ok && body.passed, JSON.stringify(body.error || body))
       const unexpected = body.unhandled.filter((x) => !closing.test(x))
       assert.deepEqual(unexpected, [], 'Unhandled rejections: ' + unexpected.join('\n'))
+      if (tag) body.result = { ...body.result, ...await released(base, headers, build, tag) }
     } catch (error) {
       failure = error
     }
@@ -122,6 +124,20 @@ async function run(base) {
       ...(fetched?.platformErrors ? { platformErrors: fetched.platformErrors, waitedMs: fetched.waitedMs } : {}),
       error: failure?.message
     }))
+  }
+}
+
+async function released(base, headers, build, tag) {
+  const start = Date.now()
+  const counts = []
+  for (;;) {
+    const { res } = await fetchWorker(new URL('/?case=backends&build=' + build + '&tag=' + tag, base), headers)
+    const n = (await res.json()).result?.n
+    counts.push(n)
+    if (n === 0)
+      return { releasedAfterMs: Date.now() - start, counts }
+    assert(Date.now() - start < 60000, 'The connection the request left open still has a backend after 60 s: ' + counts.join(','))
+    await new Promise((resolve) => setTimeout(resolve, 1000))
   }
 }
 

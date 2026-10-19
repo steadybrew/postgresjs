@@ -1269,7 +1269,7 @@ compatibility_flags = ["nodejs_compat"]
 
 CI runs the Workers scenarios at compatibility dates 2025-01-01 (with and without `unhandled_rejection_after_microtask_checkpoint`), 2025-09-15 and 2026-10-12 in local workerd, and on Cloudflare's network against Neon, directly, through its pooler and through Hyperdrive, and against Supabase through Hyperdrive.
 
-On compatibility dates before 2026-03-03, workerd can report a rejection as unhandled before the code awaiting it has handled it ([cloudflare/workerd#6020](https://github.com/cloudflare/workerd/issues/6020)). A graceful `sql.end()` avoids this on every date: the driver sends Terminate and lets the server close the connection. A close the driver forces still logs `Stream was cancelled.` or `This socket has been closed.` as an unhandled rejection on those dates; that is a connection that hits `connect_timeout`, an `sql.end({ timeout })` that expires, or `sql.end()` while a connection is still opening. Queries and their errors are unaffected. To remove it, move to 2026-03-03 or later, or add the flag:
+On compatibility dates before 2026-03-03, workerd can report a rejection as unhandled before the code awaiting it has handled it ([cloudflare/workerd#6020](https://github.com/cloudflare/workerd/issues/6020)). Closing a socket rejects the read the driver always has pending, so each closed connection logs `Stream was cancelled.` or `This socket has been closed.` as an unhandled rejection on those dates, whether `sql.end()` closed it, a timeout did, or the request finished with the client still open. The driver handles it, and queries and their errors are unaffected. `sql.end()` sends Terminate and closes at once rather than waiting a round trip for the server to close first, so the log line is the cost of a fast `end()`. To remove it, move to 2026-03-03 or later, or add the flag:
 
 ```toml
 compatibility_flags = ["nodejs_compat", "unhandled_rejection_after_microtask_checkpoint"]
@@ -1277,7 +1277,7 @@ compatibility_flags = ["nodejs_compat", "unhandled_rejection_after_microtask_che
 
 workerd also emulates Node's `node:net` and `node:tls` on top of `cloudflare:sockets`, but running the driver through that emulation costs more CPU per connection: measured on Cloudflare's network against a Supabase pooler, the median rose from 8 to 10 ms with `fetch_types` on, and 30% of connections went past the Workers Free limit of 10 ms, against 9 to 16% over `cloudflare:sockets`. The package therefore ships one Workers build, over `cloudflare:sockets`, with no option to switch ([measurements](https://github.com/steadybrew/postgresjs/issues/15)).
 
-Create the client inside the request handler and close it when the response is done: a Worker cannot reuse a connection opened by another request.
+Create the client inside the request handler: a Worker cannot reuse a connection opened by another request.
 
 ```ts
 import postgres from '@steadybrew/postgresjs'
@@ -1286,11 +1286,13 @@ export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext) {
     const sql = postgres(env.DATABASE_URL)
     const users = await sql`select * from users limit 10`
-    ctx.waitUntil(sql.end())
+    await sql.end()
     return Response.json(users)
   }
 }
 ```
+
+`await sql.end()` and `ctx.waitUntil(sql.end())` cost the same: `end()` writes Terminate and closes without waiting for the server. Leaving the client open also works: when the request finishes, workerd closes its sockets, and in CI the server's backend is gone by the next request, locally and on Cloudflare's network against Neon. The server then sees the client disconnect without Terminate. CI does not check what a pooler does with a client that leaves this way; through Hyperdrive the Worker never holds the database connection itself.
 
 TLS on Workers differs from Node.js:
 

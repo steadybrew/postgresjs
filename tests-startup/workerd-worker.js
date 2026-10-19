@@ -207,6 +207,17 @@ const scenarios = {
     await sql.end({ timeout: 5 })
     return { x }
   },
+  async 'no-end'(port) {
+    const sql = client(port, { max: 1, connection: { application_name: target.search.get('tag') } })
+    const [{ x }] = await sql`select 1 as x`
+    return { x }
+  },
+  async backends(port) {
+    const sql = client(port, { max: 1 })
+    const [{ n }] = await sql`select count(*)::int as n from pg_stat_activity where application_name = ${ target.search.get('tag') }`
+    await sql.end()
+    return { n }
+  },
   hyperdrive: () => hyperdrive(target.hyperdrive),
   'hyperdrive-pooled': () => hyperdrive(target.hyperdrivePooled),
   'hyperdrive-supabase': () => hyperdrive(target.hyperdriveSupabase)
@@ -244,7 +255,7 @@ export default {
     }
     const name = url.searchParams.get('case')
         , port = Number(url.searchParams.get('port'))
-    name === 'cpu' || context.waitUntil(new Promise((resolve) => setTimeout(resolve, 20000)))
+    name === 'cpu' || name === 'no-end' || context.waitUntil(new Promise((resolve) => setTimeout(resolve, 20000)))
     if (scenarios[name]) {
       let error
         , result
