@@ -1,6 +1,6 @@
 /* eslint no-console: 0, no-process-env: 0 */
 import assert from 'node:assert/strict'
-import { mkdtemp, cp, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, cp, symlink, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -78,9 +78,11 @@ async function main() {
   }
 
   try {
-    await cp(path.join(repo, build), path.join(work, build), { recursive: true })
+    await mkdir(path.join(work, 'node_modules/@steadybrew'), { recursive: true })
+    await symlink(repo, path.join(work, 'node_modules/@steadybrew/postgresjs'), 'dir')
     await cp(new URL('./workerd-worker.js', import.meta.url), path.join(work, 'worker.js'))
-    await writeFile(path.join(work, 'driver.js'), 'export { default } from \'./' + (build === 'cf' ? 'cf/src' : 'src') + '/index.js\'\n')
+    const entry = build === 'cf' ? '@steadybrew/postgresjs/cloudflare-sockets' : '@steadybrew/postgresjs'
+    await writeFile(path.join(work, 'driver.js'), 'export { default } from \'' + entry + '\'\n')
     const scenarios = process.argv[4]
       ? process.argv[4].split(',')
       : [

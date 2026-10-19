@@ -64,12 +64,22 @@ async function run(base) {
     for (const name of [...scenarios, ...Array(rounds).fill(['hyperdrive', 'hyperdrive-pooled']).flat()]) {
       let body
         , failure
+        , platformErrors = 0
       try {
-        const res = await fetch(new URL('/?case=' + name + '&build=' + build, base), {
-          headers,
-          signal: AbortSignal.timeout(30000)
-        })
+        let res
+        for (;;) {
+          res = await fetch(new URL('/?case=' + name + '&build=' + build, base), {
+            headers,
+            signal: AbortSignal.timeout(30000)
+          })
+          const fromWorker = res.ok || (res.headers.get('content-type') || '').includes('json')
+          if (fromWorker || platformErrors === 1)
+            break
+          platformErrors++
+          await res.body?.cancel()
+        }
         assert.notEqual(res.status, 401, 'Preview rejected the token')
+        assert((res.headers.get('content-type') || '').includes('json'), 'Cloudflare answered HTTP ' + res.status + ' instead of the Worker')
         body = await res.json()
         assert(res.ok && body.passed, JSON.stringify(body.error || body))
         const unexpected = body.unhandled.filter((x) => !closing.test(x))
@@ -86,6 +96,7 @@ async function run(base) {
         ...(expected ? { knownFailure: true } : {}),
         result: body?.result,
         closeRejections: (body?.unhandled || []).filter((x) => closing.test(x)).length,
+        ...(platformErrors ? { platformErrors } : {}),
         error: failure?.message
       }))
     }
