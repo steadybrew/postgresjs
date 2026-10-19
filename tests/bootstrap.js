@@ -29,6 +29,6 @@ async function execAsync(cmd, args) { // eslint-disable-line
   const cp = await spawn(cmd, args, { stdio: 'pipe', encoding: 'utf8' }) // eslint-disable-line
   cp.stderr.on('data', x => stderr += x)
   await new Promise(x => cp.on('exit', x))
-  if (stderr && !stderr.includes('already exists') && !stderr.includes('does not exist'))
+  if (stderr && !stderr.includes('already exists') && !stderr.includes('does not exist') && !stderr.includes('WARNING:'))
     throw new Error(stderr)
 }

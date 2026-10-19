@@ -43,14 +43,14 @@ jobs:
           npm run test:cjs
 
   deno:
-    name: Deno 1.46.3 on PostgreSQL 17
+    name: Deno 1.46.3 on PostgreSQL 18
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - uses: ./.github/actions/setup-postgres
         with:
-          version: '17'
+          version: '18'
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '24'
@@ -60,7 +60,7 @@ jobs:
       - run: npm run test:deno
 
   cloudflare:
-    name: Cloudflare workerd ${{ matrix.build }} build (${{ matrix.compat_date }}) on PostgreSQL 17
+    name: Cloudflare workerd ${{ matrix.build }} build (${{ matrix.compat_date }}) on PostgreSQL 18
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     strategy:
@@ -69,7 +69,7 @@ jobs:
         compat_date: ['2025-01-01', '2025-09-15', '2026-10-12']
         build: [cf, src]
     env:
-      POSTGRES_VERSION: '17'
+      POSTGRES_VERSION: '18'
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
