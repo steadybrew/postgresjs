@@ -7,6 +7,9 @@ export const SSLRequest = b().i32(8).i32(80877103).end(8)
 
 export function tlsConfig(options, raw) {
   const { ssl, sslnegotiation } = options
+  if (globalThis.Cloudflare)
+    return workerdTlsConfig(options, raw)
+
   const config = {
     socket: raw,
     servername: net.isIP(raw.host) ? undefined : raw.host
@@ -21,6 +24,14 @@ export function tlsConfig(options, raw) {
     Object.assign(config, ssl)
 
   return config
+}
+
+function workerdTlsConfig({ ssl, sslnegotiation }, raw) {
+  return {
+    socket: raw,
+    servername: (typeof ssl === 'object' && ssl.servername) || (net.isIP(raw.host) ? undefined : raw.host),
+    ...(sslnegotiation === 'direct' ? { ALPNProtocols: ['postgresql'] } : {})
+  }
 }
 
 export function cancelRequest(options, backend) {
