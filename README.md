@@ -13,6 +13,7 @@
 - **Pool monitoring.** See busy connections, idle connections and waiting queries with `sql.stats()`.
 - **Faster queries behind poolers.** Removes an extra network round trip for supported values (opt-in).
 - **Vercel Fluid Compute support.** Reuse connections between requests and close idle ones before suspension to avoid connection leaks.
+- **Cloudflare Workers without a socket polyfill.** Runs on workerd's own `node:net` and `node:tls`, tested locally and on Cloudflare's network with Neon and Hyperdrive.
 
 **[50+ reported upstream bugs fixed](docs/fixed-issues.md)**, with regression tests.
 
@@ -80,14 +81,14 @@ Releases pass the [test matrix](.github/workflows/test.yml) before publishing:
 | Runtime | PostgreSQL tested |
 | --- | --- |
 | Node.js 22, 24 and 26, ESM and CommonJS | 15–18 |
-| Deno 1.46.3 | 17 |
-| Cloudflare Workers (workerd) | 17 |
+| Deno 1.46.3 | 18 |
+| Cloudflare Workers, compatibility dates 2025-01-01 to 2026-10-12, in local workerd and on Cloudflare's network | 18, and Neon directly, pooled and through Hyperdrive |
 
 TypeScript declarations are included; use `@types/node` 22+ or `skipLibCheck`.
 
 Older Node.js versions may work but aren't tested. The package declares `engines.node: >=22`, so package managers may warn or reject installation on older versions.
 
-Hosted Supabase Edge Functions are deployed in production with this fork, outside the CI matrix. Standalone Deno 2 is unverified. Bun is best effort, without CI coverage. Cloudflare Workers has a known socket-close rejection ([#1196](https://github.com/porsager/postgres/issues/1196), [#1202](https://github.com/porsager/postgres/issues/1202)).
+Hosted Supabase Edge Functions are deployed in production with this fork, outside the CI matrix. Standalone Deno 2 is unverified. Bun is best effort, without CI coverage. On Cloudflare Workers the driver uses workerd's built-in `node:net` and `node:tls`, like any other Node.js module there: the Worker needs Node.js compatibility, which is on by default from compatibility date 2026-08-04 and is otherwise the `nodejs_compat` flag. The earlier `cloudflare:sockets` build stays available as `@steadybrew/postgresjs/cloudflare-sockets` until 5.0. At compatibility date 2026-10-12, closing sockets no longer reports unhandled rejections ([#1196](https://github.com/porsager/postgres/issues/1196), [#1202](https://github.com/porsager/postgres/issues/1202)); on older dates one can still appear when `sql.end({ timeout })` closes a busy connection. See [Cloudflare Workers support](docs/api.md#cloudflare-workers-support).
 
 ## Why this fork
 
@@ -116,6 +117,7 @@ With `prepare: false`, parameterized queries can pay for an extra network round 
 - **See pool pressure.** [`sql.stats()`](docs/api.md#pool-stats) reports busy and idle connections and waiting queries.
 - **Handle serverless suspension.** Expired idle connections are replaced on resume; the [Vercel Fluid Compute adapter](docs/api.md#vercel-fluid-compute) keeps instances alive until idle connections close.
 - **Automatic cleanup.** [`await using`](docs/api.md#teardown--cleanup) closes a pool and `using` releases a reserved connection when its scope ends. Requires Node.js 24+ or TypeScript 5.2+.
+- **Cloudflare Workers on `node:net`.** The [Workers build](docs/api.md#cloudflare-workers-support) is the same `src/` that Node.js runs, over workerd's `node:net` and `node:tls`, instead of a generated copy over `cloudflare:sockets`.
 - **Arrays without startup discovery.** With [`fetch_types: false`](docs/api.md#auto-fetching-of-array-types), common built-in arrays still parse and serialize without a catalog query.
 
 ## Documentation

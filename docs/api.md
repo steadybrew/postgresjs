@@ -1261,30 +1261,54 @@ attachDatabasePool(vercelPool(sql))
 
 ### Cloudflare Workers support
 
-Postgres.js has built-in support for the [TCP socket API](https://developers.cloudflare.com/workers/runtime-apis/tcp-sockets/) in Cloudflare Workers. The package's `workerd` export condition selects that build, so the import is the same as on Node.js.
-
-You can use Postgres.js directly in a Worker, or to benefit from connection pooling and query caching, via the [Hyperdrive](https://developers.cloudflare.com/hyperdrive/learning/connect-to-postgres/#driver-examples) service available to Workers by passing the Hyperdrive `connectionString` when creating a new `postgres` client as follows:
-
-```ts
-import postgres from '@steadybrew/postgresjs'
-
-interface Env {
-    HYPERDRIVE: Hyperdrive;
-}
-
-export default async fetch(req: Request, env: Env, ctx: ExecutionContext) {
-    // The Postgres.js library accepts a connection string directly
-    const sql = postgres(env.HYPERDRIVE.connectionString)
-    const results = await sql`SELECT * FROM users LIMIT 10`
-    return Response.json(results)
-}
-```
-
-In `wrangler.toml` you will need to enable the `nodejs_compat` compatibility flag to allow Postgres.js to operate in the Workers environment:
+On Cloudflare Workers the package runs the same `src/` build as Node.js, over workerd's own `node:net` and `node:tls`. The package's `workerd` export condition selects it, so the import is the same as on Node.js. It needs the `nodejs_compat` compatibility flag, which is on by default from compatibility date 2026-08-04; for earlier dates add it to your Wrangler configuration:
 
 ```toml
 compatibility_flags = ["nodejs_compat"]
 ```
+
+CI runs the Workers scenarios at compatibility dates 2025-01-01, 2025-09-15 and 2026-10-12 in local workerd, and on Cloudflare's network against Neon, directly, through its pooler and through Hyperdrive.
+
+The earlier build over the [`cloudflare:sockets` API](https://developers.cloudflare.com/workers/runtime-apis/tcp-sockets/) stays available until 5.0:
+
+```js
+import postgres from '@steadybrew/postgresjs/cloudflare-sockets'
+```
+
+Create the client inside the request handler and close it when the response is done: a Worker cannot reuse a connection opened by another request.
+
+```ts
+import postgres from '@steadybrew/postgresjs'
+
+export default {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext) {
+    const sql = postgres(env.DATABASE_URL)
+    const users = await sql`select * from users limit 10`
+    ctx.waitUntil(sql.end())
+    return Response.json(users)
+  }
+}
+```
+
+TLS on Workers differs from Node.js:
+
+- Certificates are always verified against public roots: `ssl: 'require'` behaves like `'verify-full'`, and `ca` and `rejectUnauthorized: false` are ignored. A server whose certificate chains to a private CA cannot be reached over TLS from a Worker; Hyperdrive can connect to it with its own CA setting.
+- `sslnegotiation: 'direct'` is not supported.
+- The server name is sent, so hosts that route by it, such as Neon, need no extra option.
+
+#### Hyperdrive
+
+[Hyperdrive](https://developers.cloudflare.com/hyperdrive/) pools connections to your database and can cache read queries. Pass its connection string to `postgres()`; Cloudflare recommends `max: 5` and `fetch_types: false`:
+
+```ts
+const sql = postgres(env.HYPERDRIVE.connectionString, { max: 5, fetch_types: false })
+```
+
+CI runs concurrent prepared queries through Hyperdrive, with caching off, in front of Neon's direct and pooled endpoints on every change.
+
+#### Next.js
+
+Routes and middleware on the Next.js edge runtime have no TCP sockets, so no PostgreSQL driver can connect from them. Use the Node.js runtime for routes that query the database.
 
 ### Auto fetching of array types
 
