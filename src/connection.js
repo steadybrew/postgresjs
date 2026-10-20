@@ -13,6 +13,7 @@ import { SSLRequest, tlsConfig, cancelRequest } from './transport.js'
 import { Query, CLOSE } from './query.js'
 import b from './bytes.js'
 import { cell, text } from './text.js'
+import { Frames } from './messages.js'
 
 export { Connection }
 
@@ -57,6 +58,7 @@ const errorFields = {
 }
 
 function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose = noop, ondrain = noop } = {}) {
+  const frames = Frames()
   const {
     sslnegotiation,
     ssl,
@@ -95,20 +97,16 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     , closeTimer = null
     , errorResponse = null
     , result = new Result()
-    , incoming = Buffer.alloc(0)
     , needsTypes = options.fetch_types
     , backendParameters = {}
     , statements = {}
     , statementId = Math.random().toString(36).slice(2)
     , statementCount = 1
-    , remaining = 0
     , hostIndex = 0
-    , length = 0
     , rows = 0
     , copyPaused = false
     , serverSignature = null
     , nextWriteTimer = null
-    , incomings = null
     , results = null
     , stream = null
     , chunk = null
@@ -444,9 +442,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     clearTimeout(closeTimer)
     closeTimer = null
     clearImmediate(nextWriteTimer)
-    incoming = Buffer.alloc(0)
-    remaining = 0
-    incomings = null
+    frames.reset()
     if (socket) {
       socket.removeAllListeners()
       socket.on('error', noop)
@@ -638,40 +634,18 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
   }
 
   function data(x) {
-    if (incomings) {
-      incomings.push(x)
-      remaining -= x.length
-      if (remaining > 0)
-        return
-    }
-
-    incoming = incomings
-      ? Buffer.concat(incomings, length - remaining)
-      : incoming.length === 0
-        ? x
-        : Buffer.concat([incoming, x], incoming.length + x.length)
-
     const source = socket
-    while (incoming.length > 4) {
-      length = incoming.readUInt32BE(1)
-      if (length >= incoming.length) {
-        remaining = length - incoming.length
-        incomings = [incoming]
-        break
-      }
+    frames.push(x, message => handled(message, source))
+  }
 
-      try {
-        handle(incoming.subarray(0, length + 1))
-      } catch (e) {
-        query && (query.cursorFn || query.describeFirst) && write(Sync)
-        dispatch('protocolError', e)
-      }
-      if (socket !== source)
-        return
-      incoming = incoming.subarray(length + 1)
-      remaining = 0
-      incomings = null
+  function handled(message, source) {
+    try {
+      handle(message)
+    } catch (e) {
+      query && (query.cursorFn || query.describeFirst) && write(Sync)
+      dispatch('protocolError', e)
     }
+    return socket === source
   }
 
   function lost(err, counted = true) {

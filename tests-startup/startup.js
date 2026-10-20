@@ -409,7 +409,7 @@ export async function phases(name, postgres, onEvent) {
   const refused = 1
   const base = { host: '127.0.0.1', user: 'fixture', database: 'fixture', ssl: false, max: 1, fetch_types: true, onnotice: () => { /* Quiet. */ } }
   const hang = ['forced-queued', 'cancel-errors', 'gap-query', 'gap-query-pool', 'stale-ending-lifetime', 'stale-ending-close',
-                'stale-ending-rst', 'fin-inflight', 'rst-inflight', 'begin-socket-cause',
+                'stale-ending-rst', 'fin-inflight', 'rst-inflight', 'partial-header-close', 'partial-body-close', 'begin-socket-cause',
                 'cancel-request-refused', 'cancel-unawaited', 'ending-queued-reconnect', 'ending-queued-down',
                 'ending-other-open', 'terminate-ready', 'terminate-draining', 'terminate-pipeline'].includes(name)
   const cause = name.startsWith('cause-') ? name.split('-')[2] : ''
@@ -517,6 +517,19 @@ export async function phases(name, postgres, onEvent) {
       name === 'fin-inflight' ? server.disconnect() : server.reset()
       const queryOutcome = await hung
       assert.strictEqual(queryOutcome.slice(0, 8), 'rejected', 'in-flight query settled as ' + queryOutcome)
+      const endOutcome = await settle(sql.end())
+      assert.strictEqual(endOutcome, 'resolved', 'sql.end() settled as ' + endOutcome)
+    } else if (name === 'partial-header-close' || name === 'partial-body-close') {
+      const sql = make({ connect_timeout: 2 })
+      await marker(sql)
+      const hung = settle(sql.unsafe('select hang', [], { simple: true }))
+      await until(() => server.events.some(x => x.sql === 'select hang'))
+      const description = message('T', Buffer.alloc(40, 1))
+      const cut = description.subarray(0, name === 'partial-header-close' ? 3 : 20)
+      server.sockets.forEach(socket => socket.end(cut))
+      const queryOutcome = await hung
+      assert.strictEqual(queryOutcome.slice(0, 8), 'rejected', 'in-flight query settled as ' + queryOutcome)
+      assert.strictEqual(await marker(sql), 42)
       const endOutcome = await settle(sql.end())
       assert.strictEqual(endOutcome, 'resolved', 'sql.end() settled as ' + endOutcome)
     } else if (name === 'gap-query') {
