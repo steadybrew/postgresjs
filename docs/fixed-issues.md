@@ -51,6 +51,7 @@ Bugs from [porsager/postgres](https://github.com/porsager/postgres) that this fo
 | [#1154](https://github.com/porsager/postgres/issues/1154), [#1208](https://github.com/porsager/postgres/issues/1208), [#1133](https://github.com/porsager/postgres/issues/1133) | A reserved or transaction connection that the server or network closes rejects its later statements, and `sql.begin()`'s own `ROLLBACK` or `COMMIT`, with `CONNECTION_CLOSED` instead of crashing the process with `Cannot read properties of null (reading 'write')`. | 4.0.0 |
 | [#1192](https://github.com/porsager/postgres/issues/1192), [#1205](https://github.com/porsager/postgres/issues/1205), [#1086](https://github.com/porsager/postgres/issues/1086) | A failed or cancelled type query at startup rejects the query instead of crashing the process | 4.0.0 |
 | [#1088](https://github.com/porsager/postgres/issues/1088) | Timers no longer fail on Cloudflare Workers | 4.0.0 |
+| [#975](https://github.com/porsager/postgres/issues/975) | `COPY ... TO STDOUT` streams and `sql.subscribe()` no longer fail on Cloudflare Workers with `socket.resume is not a function` | Unreleased |
 | [#1227](https://github.com/porsager/postgres/issues/1227) | Assigning `err.stack` on a query error no longer throws on Node 22 and newer | 4.5.0 |
 | [#1009](https://github.com/porsager/postgres/pull/1009) | The `camel` and `pascal` transforms no longer throw on a column name ending with an underscore | 4.5.0 |
 
