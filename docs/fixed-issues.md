@@ -42,7 +42,7 @@ Bugs from [porsager/postgres](https://github.com/porsager/postgres) that this fo
 | [#1234](https://github.com/porsager/postgres/issues/1234) | Concurrent queries in `sql.begin()` after a column type change roll the transaction back and return the connection to the pool | 4.4.0 |
 | [#1255](https://github.com/porsager/postgres/issues/1255), [#1261](https://github.com/porsager/postgres/issues/1261) | A reserved connection whose `max_lifetime` passed is closed when released, and `sql.end()` called before the release resolves | 4.0.0 |
 | [#1016](https://github.com/porsager/postgres/pull/1016) | Queries no longer hang after a `COPY ... TO STDOUT` whose reader fell behind | 4.5.0 |
-| [#1213](https://github.com/porsager/postgres/issues/1213) | On Cloudflare Workers, connecting over TLS to a server whose certificate chains to a private CA, such as Supabase's, rejects at once with `TLS_CLOSED` instead of hanging or waiting out `connect_timeout` | Unreleased |
+| [#1213](https://github.com/porsager/postgres/issues/1213) | On Cloudflare Workers, connecting over TLS to a server whose certificate chains to a private CA, such as Supabase's, rejects at once with `TLS_CLOSED` instead of hanging or waiting out `connect_timeout` | 4.6.0-rc1 |
 
 **Crashes**
 
@@ -51,7 +51,7 @@ Bugs from [porsager/postgres](https://github.com/porsager/postgres) that this fo
 | [#1154](https://github.com/porsager/postgres/issues/1154), [#1208](https://github.com/porsager/postgres/issues/1208), [#1133](https://github.com/porsager/postgres/issues/1133) | A reserved or transaction connection that the server or network closes rejects its later statements, and `sql.begin()`'s own `ROLLBACK` or `COMMIT`, with `CONNECTION_CLOSED` instead of crashing the process with `Cannot read properties of null (reading 'write')`. | 4.0.0 |
 | [#1192](https://github.com/porsager/postgres/issues/1192), [#1205](https://github.com/porsager/postgres/issues/1205), [#1086](https://github.com/porsager/postgres/issues/1086) | A failed or cancelled type query at startup rejects the query instead of crashing the process | 4.0.0 |
 | [#1088](https://github.com/porsager/postgres/issues/1088) | Timers no longer fail on Cloudflare Workers | 4.0.0 |
-| [#975](https://github.com/porsager/postgres/issues/975) | `COPY ... TO STDOUT` streams and `sql.subscribe()` no longer fail on Cloudflare Workers with `socket.resume is not a function` | Unreleased |
+| [#975](https://github.com/porsager/postgres/issues/975) | `COPY ... TO STDOUT` streams and `sql.subscribe()` no longer fail on Cloudflare Workers with `socket.resume is not a function` | 4.6.0-rc1 |
 | [#1227](https://github.com/porsager/postgres/issues/1227) | Assigning `err.stack` on a query error no longer throws on Node 22 and newer | 4.5.0 |
 | [#1009](https://github.com/porsager/postgres/pull/1009) | The `camel` and `pascal` transforms no longer throw on a column name ending with an underscore | 4.5.0 |
 

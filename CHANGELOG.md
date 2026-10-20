@@ -1,5 +1,24 @@
 # Changelog
 
+## v4.6.0-rc1 - 2026-10-20
+
+Cheaper new connections, and fixes for Cloudflare Workers. Nothing breaks; on Workers, a server with an untrusted certificate now fails with a new error code instead of `CONNECTION_CLOSED`.
+
+### Features
+
+- **Opening a connection costs less CPU with SCRAM-SHA-256 passwords.** Connections in the same process, or the same Cloudflare Workers isolate, reuse the keys derived from the password for five minutes instead of running PBKDF2 again. On Cloudflare's network the median CPU per request that connects, runs `select 1` and ends fell from 4 to 3 ms; on Node.js the median per connection fell by about 40%. The keys stay in memory up to five minutes after `sql.end()`; see [SCRAM key cache](docs/api.md#scram-key-cache). Closes #167 and #168.
+
+### Fixes
+
+- **On Cloudflare Workers, `COPY ... TO STDOUT` streams and `sql.subscribe()` work.** They failed with `socket.resume is not a function`. Closes #152. Fixes porsager/postgres#975.
+- **On Cloudflare Workers, a server whose certificate Workers don't trust, such as Supabase's, fails at once with [`TLS_CLOSED`](docs/api.md#tls_closed).** The attempt waited out `connect_timeout` and failed with `CONNECTION_CLOSED`, which said nothing about TLS. Workers verify certificates against public roots only; reach such a server through [Hyperdrive](docs/api.md#hyperdrive). Closes #174. Fixes porsager/postgres#1213.
+- **On Cloudflare Workers, `ssl: 'prefer'` connects without TLS when the server doesn't offer it,** instead of failing with `CONNECT_TIMEOUT`. Closes #153.
+- **On Deno, `sslnegotiation: 'direct'` connects to PostgreSQL 18.** The server closed the connection because the driver offered no ALPN protocol.
+
+### Documentation
+
+- **The [Cloudflare Workers section](docs/api.md#cloudflare-workers-support) covers TLS and Hyperdrive:** certificates are always verified against public roots, and Hyperdrive in front of Supabase's direct connection with `verify-full` and Supabase's CA is tested in CI on Cloudflare's network.
+
 ## v4.5.1 - 2026-10-18
 
 Documentation only: the code is the same as 4.5.0, so there is nothing to change when upgrading.
