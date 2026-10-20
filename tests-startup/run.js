@@ -25,7 +25,8 @@ const startupNames = ['first-types', 'first-types-no-fetch', 'first-types-transf
                       'backoff-end-query', 'backoff-end-reserve', 'backoff-close']
 
 const phaseNames = ['stale-ending-lifetime', 'stale-ending-close', 'stale-ending-rst', 'backoff-budget', 'tls-throw', 'reserve-end',
-                    'cancel-initial', 'factory-backoff', 'fin-inflight', 'rst-inflight', 'gap-query', 'all-down', 'churn',
+                    'cancel-initial', 'factory-backoff', 'fin-inflight', 'rst-inflight', 'partial-header-close',
+                    'partial-body-close', 'gap-query', 'all-down', 'churn',
                     'failover-timeout', 'late-error', 'drain-pipeline', 'drain-reserved', 'drain-reservation-queued', 'release-closed',
                     'prefer-standby-first', 'prefer-standby-last', 'outage-recover', 'forced-queued', 'reentrant-onclose', 'fatal-storm',
                     'ending-fatal-paced', 'lifetime-startup',
