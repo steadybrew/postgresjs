@@ -36,6 +36,7 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
       - run: |
+          npm run test:unit
           npm run build
           npm run test:startup
           node tests-startup/run.js --cjs
