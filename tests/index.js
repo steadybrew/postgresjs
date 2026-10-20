@@ -681,6 +681,40 @@ t('Support dynamic async password function', async() => {
   })`select true as x`)[0].x]
 })
 
+t('SCRAM derives keys once per password, salt and iteration count', async() => {
+  const pbkdf2Sync = crypto.pbkdf2Sync
+  const reset = ['-c', 'alter user postgres_js_test_scram with password \'postgres_js_test_scram\'']
+  let derived = 0
+  let asked = 0
+  const rotating = () => (asked++, 'postgres_js_test_scram')
+  const login = async pass => {
+    const sql = postgres({ ...options, ...login_scram, pass })
+    try {
+      return (await sql`select 1 as x`)[0].x
+    } catch (e) {
+      return e.code
+    } finally {
+      await sql.end()
+    }
+  }
+  crypto.pbkdf2Sync = (...xs) => (derived++, pbkdf2Sync(...xs))
+  try {
+    await exec('psql', reset)
+    const seen = []
+    for (const pass of ['postgres_js_test_scram', rotating, 'wrong'])
+      seen.push(await login(pass), derived)
+    await exec('psql', reset)
+    seen.push(await login(rotating), derived, asked)
+    const later = performance.now() + 5 * 60 * 1000 + 1
+    performance.now = () => later
+    seen.push(await login(rotating), derived)
+    return ['1,1,1,1,28P01,2,1,3,2,1,4', seen.join(',')]
+  } finally {
+    crypto.pbkdf2Sync = pbkdf2Sync
+    delete performance.now
+  }
+})
+
 t('Point type', async() => {
   const sql = postgres({
     ...options,

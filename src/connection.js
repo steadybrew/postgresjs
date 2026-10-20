@@ -23,6 +23,10 @@ const Sync = b().S().end()
     , DescribeUnnamed = b().D().str('S').str(b.N).end()
     , noop = () => { /* noop */ }
 
+const scramKeyCache = new Map()
+const scramKeyCacheSize = 16
+const scramKeyTtl = 5 * 60 * 1000
+
 const Phase = { Closed: 0, Backoff: 1, Connecting: 2, Initializing: 3, Ready: 4, Draining: 5, Closing: 6 }
 const phaseNames = Object.keys(Phase)
 
@@ -985,23 +989,16 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     const clientNonce = nonce
     const res = x.toString('utf8', 9).split(',').reduce((acc, x) => (acc[x[0]] = x.slice(2), acc), {})
 
-    const saltedPassword = await crypto.pbkdf2Sync(
-      await Pass(),
-      Buffer.from(res.s, 'base64'),
-      parseInt(res.i), 32,
-      'sha256'
-    )
-
-    const clientKey = await hmac(saltedPassword, 'Client Key')
+    const { clientKey, storedKey, serverKey } = await scramKeys(await Pass(), res.s, res.i)
 
     const auth = 'n=*,r=' + clientNonce + ','
                + 'r=' + res.r + ',s=' + res.s + ',i=' + res.i
                + ',c=biws,r=' + res.r
 
-    const signature = (await hmac(await hmac(saltedPassword, 'Server Key'), auth)).toString('base64')
+    const signature = (await hmac(serverKey, auth)).toString('base64')
 
     const payload = 'c=biws,r=' + res.r + ',p=' + xor(
-      clientKey, Buffer.from(await hmac(await sha256(clientKey), auth))
+      clientKey, Buffer.from(await hmac(storedKey, auth))
     ).toString('base64')
 
     if (attempt !== generation)
@@ -1330,6 +1327,33 @@ function parseError(x) {
     }
   }
   return error
+}
+
+async function scramKeys(password, salt, iterations) {
+  const now = performance.now()
+  for (const [id, entry] of scramKeyCache)
+    entry.expires <= now && scramKeyCache.delete(id)
+  const id = Buffer.from(await sha256(salt + ',' + iterations + ',' + password)).toString('hex')
+  let entry = scramKeyCache.get(id)
+  if (entry) {
+    scramKeyCache.delete(id)
+  } else {
+    entry = { keys: deriveScramKeys(password, salt, iterations), expires: now + scramKeyTtl }
+    entry.keys.catch(() => scramKeyCache.get(id) === entry && scramKeyCache.delete(id))
+    scramKeyCache.size >= scramKeyCacheSize && scramKeyCache.delete(scramKeyCache.keys().next().value)
+  }
+  scramKeyCache.set(id, entry)
+  return entry.keys
+}
+
+async function deriveScramKeys(password, salt, iterations) {
+  const saltedPassword = await crypto.pbkdf2Sync(password, Buffer.from(salt, 'base64'), parseInt(iterations), 32, 'sha256')
+  const clientKey = await hmac(saltedPassword, 'Client Key')
+  return {
+    clientKey,
+    storedKey: await sha256(clientKey),
+    serverKey: await hmac(saltedPassword, 'Server Key')
+  }
 }
 
 function md5(x) {
