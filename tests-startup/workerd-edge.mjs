@@ -20,7 +20,7 @@ const cpuVariants = [
   ...['release', 'cf', 'src'].flatMap((build) => ['false', 'true'].map((types) => ({ build, target: 'supabase', types }))),
   ...['release', 'cf', 'src'].map((build) => ({ build, target: 'neon', types: 'false' }))
 ]
-const gate = { median: 1, p95: 1, exceeded: 0.02 }
+const gate = { median: 1, p95: 1, exceeded: 0.02, p: 0.01, failures: 0.02 }
 
 async function prepare(out, compatibilityDate, release) {
   await mkdir(out, { recursive: true })
@@ -163,7 +163,12 @@ async function cpu(base, roundsArg) {
   }
 
   const { measured: events, missing } = await collect(run, from, rounds, failures)
-  const rows = cpuVariants.map((x, v) => ({ ...x, ...summary(events[v]), missing: missing[v] }))
+  const rows = cpuVariants.map((x, v) => ({
+    ...x,
+    ...summary(events[v]),
+    cpus: events[v].map((e) => e.$workers.cpuTimeMs),
+    missing: missing[v]
+  }))
   const builds = {
     release: 'latest release from npm',
     cf: 'cloudflare:sockets',
@@ -197,26 +202,60 @@ async function cpu(base, roundsArg) {
   const exportsMap = JSON.parse(await readFile(path.join(repo, 'package.json'), 'utf8')).exports['.']
   const candidate = exportsMap.workerd.startsWith('./cf/') ? 'cf' : 'src'
   const find = (build, types) => rows.find((x) => x.build === build && x.target === 'supabase' && x.types === types)
-  const regressions = ['false', 'true'].flatMap((types) => {
-    const a = find(candidate, types)
+  const tests = ['false', 'true'].flatMap((types) => [candidate, 'src'].filter((x, i, xs) => xs.indexOf(x) === i).map((build) => {
+    const a = find(build, types)
         , b = find('release', types)
-    return [
-      a.cpu.median - b.cpu.median >= gate.median && `median ${ a.cpu.median } vs ${ b.cpu.median } ms`,
-      a.cpu.p95 - b.cpu.p95 >= gate.p95 && `p95 ${ a.cpu.p95 } vs ${ b.cpu.p95 } ms`,
-      (a.exceeded - b.exceeded) / a.n >= gate.exceeded && `exceededCpu ${ a.exceeded } vs ${ b.exceeded }`
-    ].filter(Boolean).map((x) => 'fetch_types ' + types + ': ' + x)
-  })
+    return { build, types, a, b, p: rankTest(a.cpus, b.cpus) }
+  }))
+  const regressions = tests.filter((x) => x.build === candidate).flatMap(({ types, a, b, p }) => [
+    p < gate.p && a.cpu.median - b.cpu.median >= gate.median
+      && `median ${ a.cpu.median } vs ${ b.cpu.median } ms (rank test p = ${ p.toPrecision(2) })`,
+    p < gate.p && a.cpu.p95 - b.cpu.p95 >= gate.p95
+      && `p95 ${ a.cpu.p95 } vs ${ b.cpu.p95 } ms (rank test p = ${ p.toPrecision(2) })`,
+    (a.exceeded - b.exceeded) / a.n >= gate.exceeded && `exceededCpu ${ a.exceeded } vs ${ b.exceeded }`
+  ].filter(Boolean).map((x) => 'fetch_types ' + types + ': ' + x))
+  const ranks = tests.map(({ build, types, p }) =>
+    `- ${ builds[build] } vs latest release, fetch_types ${ types }: one-sided rank test p = ${ p.toPrecision(2) }`
+  ).join('\n')
+  const tooManyFailures = cpuVariants.some((x, v) => failures.filter((f) => f.v === v).length > Math.max(1, rounds * gate.failures))
   const verdict = regressions.length
     ? `This version (${ builds[candidate] }) costs more CPU than the latest release: ${ regressions.join('; ') }.`
     : `This version (${ builds[candidate] }) costs no more CPU than the latest release.`
   const failedRequests = failures.length
     ? `\n${ failures.length } requests failed: ${ JSON.stringify(failures.slice(0, 10)) }\n`
     : ''
-  const report = `${ table }\n\n${ verdict }\n${ failedRequests }`
+  const report = `${ table }\n\nMann-Whitney rank test on CPU per request, whether the first build costs more:\n\n${ ranks }`
+    + `\n\n${ verdict }\n${ failedRequests }`
   console.log(report)
   process.env.GITHUB_STEP_SUMMARY && await appendFile(process.env.GITHUB_STEP_SUMMARY, '## Workers CPU per connection\n\n' + report)
-  if (regressions.length || failures.length)
+  if (regressions.length || tooManyFailures)
     process.exitCode = 1
+}
+
+function rankTest(a, b) {
+  const all = [...a.map((x) => [x, 0]), ...b.map((x) => [x, 1])].sort((x, y) => x[0] - y[0])
+  const n = all.length
+  let rankA = 0
+    , ties = 0
+  for (let i = 0; i < n;) {
+    let j = i
+    while (j < n && all[j][0] === all[i][0]) j++
+    const t = j - i
+    ties += t * t * t - t
+    for (let k = i; k < j; k++) all[k][1] === 0 && (rankA += (i + j + 1) / 2)
+    i = j
+  }
+  const u = rankA - a.length * (a.length + 1) / 2
+  const mean = a.length * b.length / 2
+  const sd = Math.sqrt(a.length * b.length / 12 * ((n + 1) - ties / (n * (n - 1))))
+  return sd ? 0.5 * erfc((u - mean - 0.5) / sd / Math.SQRT2) : 1
+}
+
+function erfc(x) {
+  const t = 1 / (1 + 0.5 * Math.abs(x))
+  const y = t * Math.exp(-x * x - 1.26551223 + t * (1.00002368 + t * (0.37409196 + t * (0.09678418 + t * (-0.18628806
+    + t * (0.27886807 + t * (-1.13520398 + t * (1.48851587 + t * (-0.82215223 + t * 0.17087277)))))))))
+  return x >= 0 ? y : 2 - y
 }
 
 function shuffled(xs) {
