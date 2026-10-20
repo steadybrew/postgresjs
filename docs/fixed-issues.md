@@ -67,7 +67,7 @@ Bugs from [porsager/postgres](https://github.com/porsager/postgres) that this fo
 
 | Issue | What happens now | Since |
 | --- | --- | --- |
-| [#823](https://github.com/porsager/postgres/issues/823), [#1189](https://github.com/porsager/postgres/issues/1189), [#1210](https://github.com/porsager/postgres/issues/1210) | `sql.begin()` no longer fails with `UNSAFE_TRANSACTION` or sends a second `BEGIN` on a busy connection when transactions and queries run concurrently, at the pipeline limit, under write backpressure or with `max_pipeline: 0` | 4.0.0 |
+| [#823](https://github.com/porsager/postgres/issues/823), [#1189](https://github.com/porsager/postgres/issues/1189), [#1210](https://github.com/porsager/postgres/issues/1210), [#1264](https://github.com/porsager/postgres/issues/1264) | `sql.begin()` no longer fails with `UNSAFE_TRANSACTION` or sends a second `BEGIN` on a busy connection when transactions and queries run concurrently, at the pipeline limit, under write backpressure or with `max_pipeline: 0` | 4.0.0 |
 | [#1063](https://github.com/porsager/postgres/issues/1063) | `onnotice: false` silences notices | 4.4.0 |
 | [#1087](https://github.com/porsager/postgres/issues/1087) | `sql.subscribe()` no longer adds a listener on each subscribe or loses changes after a transform throws | 4.4.0 |
 
