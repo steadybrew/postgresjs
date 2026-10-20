@@ -218,6 +218,13 @@ const scenarios = {
     await sql.end()
     return { n }
   },
+  async rows() {
+    const sql = target.postgres(target.supabaseUrl, { max: 1, prepare: false, fetch_types: false, connect_timeout: 10 })
+    const rows = await sql`select i, 'name ' || i as name, md5(i::text) as hash, i % 2 = 0 as even, i * 1.5 as score
+      from generate_series(1, 1000) i`
+    await sql.end({ timeout: 5 })
+    return { n: rows.length }
+  },
   hyperdrive: () => hyperdrive(target.hyperdrive),
   'hyperdrive-pooled': () => hyperdrive(target.hyperdrivePooled),
   'hyperdrive-supabase': () => hyperdrive(target.hyperdriveSupabase)
