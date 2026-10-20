@@ -645,7 +645,7 @@ function Postgres(a, b) {
       if (query.reserve) {
         query.reject(Errors.connection('CONNECTION_ENDED', options))
       } else if (reconnectFailed) {
-        query.reject(e)
+        query.reject(e === undefined ? Errors.connection('CONNECTION_CLOSED', options) : e)
       } else {
         reconnecting = c
         connect(c, query)

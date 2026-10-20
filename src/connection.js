@@ -467,7 +467,9 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     nonce = serverSignature = null
   }
 
-  function enterClosed(err = Errors.connection('CONNECTION_CLOSED', options, socket), reported = err) {
+  function enterClosed(err, reported = err) {
+    if (err === undefined && (stream || final || query || sent.length || acquisition || connection.owner))
+      err = reported = Errors.connection('CONNECTION_CLOSED', options, socket)
     const a = acquisition
     const waiters = endWaiters
     clearAcquisitionTimers()

@@ -1025,6 +1025,21 @@ export async function phases(name, postgres, onEvent) {
       await marker(sql)
       assert.strictEqual(await settle(sql.end(), 2000), 'resolved')
       await until(() => timeouts() <= before, 500)
+    } else if (name === 'closing-no-error') {
+      const capture = Error.captureStackTrace
+      const built = []
+      Error.captureStackTrace = (error, fn) => (fn && fn.name === 'connection' && built.push(error.code), capture(error, fn))
+      try {
+        const graceful = make()
+        await marker(graceful)
+        await graceful.end()
+        const forced = make()
+        await marker(forced)
+        await forced.end({ timeout: 0 })
+        assert.deepStrictEqual(built, [])
+      } finally {
+        Error.captureStackTrace = capture
+      }
     } else if (name === 'handout-idle' || name === 'handout-lifetime' || name === 'handout-reserve' || name === 'handout-fresh') {
       const sql = make(name === 'handout-lifetime' ? { max_lifetime: 0.2 } : { idle_timeout: name === 'handout-fresh' ? 5 : 0.2 })
       assert.strictEqual(await settle(marker(sql)), 'resolved')
