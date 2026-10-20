@@ -22,9 +22,10 @@ const cpuVariants = [
 ]
 const gate = { median: 1, p95: 1, exceeded: 0.02, p: 0.01, failures: 0.02 }
 
-async function prepare(out, compatibilityDate, release) {
+async function prepare(out, compatibilityDate, release, base) {
   await mkdir(out, { recursive: true })
   await cp(path.join(repo, 'cf'), path.join(out, 'cf'), { recursive: true })
+  base && await cp(path.join(base, 'cf'), path.join(out, 'base/cf'), { recursive: true })
   await cp(path.join(repo, 'src'), path.join(out, 'src'), { recursive: true })
   await cp(path.join(repo, 'tests-startup/workerd-worker.js'), path.join(out, 'worker.js'))
   await writeFile(path.join(out, 'driver.js'), [
@@ -32,6 +33,7 @@ async function prepare(out, compatibilityDate, release) {
     'export { default as cf } from \'./cf/src/index.js\'',
     'export { default as src } from \'./src/index.js\'',
     ...(release ? ['export { default as release } from \'@steadybrew/postgresjs\''] : []),
+    ...(base ? ['export { default as base } from \'./base/cf/src/index.js\''] : []),
     ''
   ].join('\n'))
   release && execFileSync('npm', ['install', '--prefix', out, '--no-save', '--no-audit', '--no-fund', release], { stdio: 'inherit' })
@@ -268,12 +270,92 @@ function shuffled(xs) {
   return xs
 }
 
-async function collect(run, from, rounds, failed) {
+async function ab(base, roundsArg, targetArg, baseRef) {
+  await telemetry(Date.now() - 60000, [{ key: '$workers.scriptName', operation: 'eq', type: 'string', value: 'postgresjs-edge' }])
+  const headers = await ready(base)
+  const rounds = Number(roundsArg) || 150
+  const [target, types] = (targetArg || 'supabase-false').split('-')
+  const variants = ['base', 'cf'].map((build) => ({ build, target, types }))
+  const run = Date.now().toString(36)
+  console.log('Run ' + run)
+  const from = Date.now() - 60000
+  const failures = []
+  const served = variants.map(() => new Map())
+  for (let n = -2; n < rounds; n++) {
+    for (const [v, x] of shuffled([...variants.entries()])) {
+      const query = new URLSearchParams({ case: 'cpu', build: x.build, target: x.target, fetch_types: x.types, run, v, n })
+      try {
+        const { res } = await fetchWorker(new URL('/?' + query, base), headers)
+        const body = await res.json().catch(() => null)
+        body?.passed ? served[v].set(n, body.result) : failures.push({ v, n, status: res.status, error: body?.error?.message })
+      } catch (error) {
+        failures.push({ v, n, error: error.message })
+      }
+    }
+  }
+
+  const { measured, missing } = await collect(run, from, rounds, failures, variants)
+  const requests = measured.map((events, v) => events.map((e) => {
+    const n = Number(e.$workers.event.search.n)
+    return { n, cpu: e.$workers.cpuTimeMs, wall: e.$workers.wallTimeMs, outcome: e.$workers.outcome, ...served[v].get(n) }
+  }))
+  const pct = (xs, p) => xs.length ? xs[Math.min(xs.length - 1, Math.ceil(p * xs.length) - 1)] : '-'
+  const stats = (xs) => {
+    const cpus = xs.map((x) => x.cpu).sort((a, b) => a - b)
+    return [xs.length, pct(cpus, 0.5), pct(cpus, 0.95), pct(cpus, 0.99), cpus.length ? cpus[cpus.length - 1] : '-']
+  }
+  const slowest = (xs) => [...xs].sort((p, q) => q.cpu - p.cpu).slice(0, 8)
+  const names = { base: 'base (' + baseRef + ')', cf: 'this branch' }
+  const row = (cells) => '| ' + cells.join(' | ') + ' |'
+  const [a, b] = requests.map((xs) => xs.map((x) => x.cpu))
+  const lines = [
+    `cloudflare:sockets builds of ${ baseRef } and this branch, ${ target }, fetch_types ${ types }, ${ rounds } rounds each`
+      + ' in shuffled order. CPU is Workers Logs cpuTimeMs in whole ms. A build\'s first request in an isolate pays any per-isolate'
+      + ' work for that build (SCRAM keys, its module\'s first use); the isolate\'s first request also pays loading the Worker.',
+    '',
+    row(['Build', 'n', 'Not in Workers Logs', 'Isolates', 'CPU median', 'CPU p95', 'CPU p99', 'CPU max']),
+    row(Array(8).fill('---')),
+    ...variants.map((x, v) => {
+      const [n, ...cpu] = stats(requests[v])
+      return row([names[x.build], n, missing[v], new Set(requests[v].map((r) => r.isolate)).size, ...cpu])
+    }),
+    '',
+    `Mann-Whitney rank test on CPU per request: this branch costs more, p = ${ rankTest(b, a).toPrecision(2) }; `
+      + `costs less, p = ${ rankTest(a, b).toPrecision(2) }.`,
+    '',
+    '### By request position in its isolate',
+    '',
+    row(['Build', 'Requests', 'n', 'CPU median', 'CPU p95', 'CPU p99', 'CPU max']),
+    row(Array(7).fill('---')),
+    ...variants.flatMap((x, v) => [
+      ['first in its isolate', (r) => r.served === 1],
+      ['first of this build in its isolate', (r) => r.served > 1 && r.buildServed === 1],
+      ['later', (r) => r.buildServed > 1]
+    ].map(([label, test]) => row([names[x.build], label, ...stats(requests[v].filter(test))]))),
+    '',
+    '### Slowest requests',
+    '',
+    row(['Build', 'Round', 'CPU', 'Wall', 'Outcome', 'Isolate', 'Isolate request', 'Build request in isolate']),
+    row(Array(8).fill('---')),
+    ...variants.flatMap((x, v) => slowest(requests[v]).map((r) =>
+      row([names[x.build], r.n, r.cpu, r.wall, r.outcome, (r.isolate || '-').slice(0, 8), r.served ?? '-', r.buildServed ?? '-'])
+    )),
+    '',
+    failures.length ? `${ failures.length } requests failed: ${ JSON.stringify(failures.slice(0, 10)) }` : 'No request failed.'
+  ]
+  const report = lines.join('\n')
+  console.log(report)
+  process.env.GITHUB_STEP_SUMMARY && await appendFile(process.env.GITHUB_STEP_SUMMARY, '## Workers CPU, A/B\n\n' + report + '\n')
+  const tooManyFailures = variants.some((x, v) => failures.filter((f) => f.v === v).length > Math.max(1, rounds * gate.failures))
+  tooManyFailures && (process.exitCode = 1)
+}
+
+async function collect(run, from, rounds, failed, variants = cpuVariants) {
   const deadline = Date.now() + 600000
   let previous = -1
   for (;;) {
     const events = []
-    for (const v of cpuVariants.keys()) {
+    for (const v of variants.keys()) {
       events.push(await telemetry(from, [
         { key: '$workers.scriptName', operation: 'eq', type: 'string', value: 'postgresjs-edge' },
         { key: '$workers.event.search.run', operation: 'eq', type: 'string', value: run },
@@ -345,15 +427,17 @@ function retryAfter(value) {
 
 async function main([mode, ...args]) {
   if (mode === 'prepare')
-    return prepare(path.resolve(args[0]), args[1], args[2])
+    return prepare(path.resolve(args[0]), args[1], args[2], args[3] && path.resolve(args[3]))
   if (mode === 'url')
     return console.log(previewUrl(JSON.parse(await readFile(args[0], 'utf8')).deployment) || '')
   if (mode === 'run')
     return run(args[0])
   if (mode === 'cpu')
     return cpu(args[0], args[1])
-  throw new Error('Usage: workerd-edge.mjs prepare <dir> <compatibility-date> [release-package] | url <preview.json> | run <preview-url>'
-    + ' | cpu <preview-url> [rounds]')
+  if (mode === 'ab')
+    return ab(args[0], args[1], args[2], args[3])
+  throw new Error('Usage: workerd-edge.mjs prepare <dir> <compatibility-date> [release-package] [base-checkout] | url <preview.json>'
+    + ' | run <preview-url> | cpu <preview-url> [rounds] | ab <preview-url> [rounds] [target-fetch_types] [base-ref]')
 }
 main(process.argv.slice(2)).catch((error) => {
   console.error(error)

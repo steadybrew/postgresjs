@@ -22,6 +22,9 @@ async function within(promise, ms, label) {
   try { return await Promise.race([promise, limit]) } finally { clearTimeout(timer) }
 }
 let target = null
+let isolate = null
+let served = 0
+const servedByBuild = {}
 function client(port, { ssl, ...options } = {}) {
   return target.url
     ? target.postgres(target.url, { prepare: false, fetch_types: false, ...options })
@@ -205,7 +208,9 @@ const scenarios = {
     })
     const [{ x }] = await sql`select 1 as x`
     await sql.end({ timeout: 5 })
-    return { x }
+    const build = q.get('build')
+    servedByBuild[build] = (servedByBuild[build] || 0) + 1
+    return { x, isolate, served, buildServed: servedByBuild[build] }
   },
   async 'no-end'(port) {
     const sql = client(port, { max: 1, connection: { application_name: target.search.get('tag') } })
@@ -243,6 +248,8 @@ export default {
       return new Response('unauthorized', { status: 401 })
     if (url.pathname === '/health') return Response.json({ ready: true })
     unhandled = []
+    isolate = isolate || crypto.randomUUID()
+    served++
     target = {
       postgres: drivers[url.searchParams.get('build')] || drivers.default,
       url: env.DATABASE_URL,
