@@ -1098,6 +1098,14 @@ const sql = postgres(url, {
 })
 ```
 
+The function is called for every new connection, including with SCRAM-SHA-256 authentication, where the keys derived from the password are cached.
+
+### SCRAM key cache
+
+With SCRAM-SHA-256 authentication, the driver derives keys from the password with PBKDF2 at the iteration count the server sends (4096 by default), the largest CPU cost of opening a connection. RFC 5802 allows a client to cache them, and the driver does: every client in the process, or in the Worker isolate on Cloudflare Workers, reuses them for five minutes from derivation, up to 16 entries, keyed by a SHA-256 of the password, salt and iteration count. A different password, or a new salt after the password is changed on the server, derives again; the nonces, the client proof and the check of the server's signature are still computed for each connection.
+
+The cached keys can log in as that role to servers that hold that salt, as the password can, and they stay in memory up to five minutes after `sql.end()` (an expired entry is removed at the next SCRAM login). The password is already in memory for the life of the client.
+
 ### SSL
 
 Although [vulnerable to MITM attacks](https://security.stackexchange.com/a/229297/174913), a common configuration for the `ssl` option for some cloud providers is to set `rejectUnauthorized` to `false` (if `NODE_ENV` is `production`):
@@ -1278,6 +1286,8 @@ compatibility_flags = ["nodejs_compat", "unhandled_rejection_after_microtask_che
 workerd also emulates Node's `node:net` and `node:tls` on top of `cloudflare:sockets`, but running the driver through that emulation costs more CPU per connection: measured on Cloudflare's network against a Supabase pooler, the median rose from 8 to 10 ms with `fetch_types` on, and 30% of connections went past the Workers Free limit of 10 ms, against 9 to 16% over `cloudflare:sockets`. The package therefore ships one Workers build, over `cloudflare:sockets`, with no option to switch ([measurements](https://github.com/steadybrew/postgresjs/issues/15)).
 
 Create the client inside the request handler: a Worker cannot reuse a connection opened by another request.
+
+Every request therefore authenticates a new connection. With SCRAM-SHA-256, the [SCRAM key cache](#scram-key-cache) lets later requests in the same isolate skip PBKDF2: on Cloudflare's network against the Supabase pooler, the median CPU per connect, `select 1` and end fell from 4 to 3 ms ([measurements](https://github.com/steadybrew/postgresjs/pull/170)).
 
 ```ts
 import postgres from '@steadybrew/postgresjs'
