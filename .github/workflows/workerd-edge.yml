@@ -13,7 +13,7 @@ on:
         description: Rounds per variant for the CPU measurement instead of the scenarios (0 runs the scenarios)
         default: '0'
       profile_rounds:
-        description: Requests per variant for a V8 CPU profile on local workerd instead of the scenarios (0 skips it)
+        description: Requests per variant for a CPU profile on local workerd and Node.js instead of the scenarios (0 skips it)
         default: '0'
   push:
     branches: [main]
@@ -109,7 +109,7 @@ jobs:
         run: npx --yes wrangler@4.151.1 preview delete --worker-name postgresjs-edge --name "$PREVIEW_NAME" --skip-confirmation
 
   profile:
-    name: Workers CPU profile on local workerd and PostgreSQL 18
+    name: CPU profile on local workerd and Node.js against PostgreSQL 18
     if: github.event_name == 'workflow_dispatch' && inputs.profile_rounds != '0'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -131,6 +131,7 @@ jobs:
           printf 'local all all trust\nhost all all all scram-sha-256\n' | sudo tee "/etc/postgresql/$POSTGRES_VERSION/profile/pg_hba.conf" >/dev/null
           sudo pg_ctlcluster "$POSTGRES_VERSION" profile reload
       - run: node tests-startup/workerd-profile.mjs "$RUNNER_TEMP/profile" postgres://postgres:postgres@127.0.0.1:55434/postgres "${{ inputs.profile_rounds }}"
+      - run: node tests-startup/node-cpu.mjs "$RUNNER_TEMP/node" postgres://postgres:postgres@127.0.0.1:55434/postgres "${{ inputs.profile_rounds }}"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: always()
         with:

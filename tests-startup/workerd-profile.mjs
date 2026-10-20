@@ -8,7 +8,12 @@ const wranglerVersion = '4.151.1'
 const devPort = 8787
 const inspectorPort = 9229
 const repo = path.resolve(new URL('..', import.meta.url).pathname)
-const variants = ['release', 'cf'].flatMap((build) => ['false', 'true'].map((types) => ({ build, types })))
+const variants = ['release', 'cf'].flatMap((build) => [
+  { build, scenario: 'cpu', types: 'false' },
+  { build, scenario: 'cpu', types: 'true' },
+  { build, scenario: 'rows', types: 'false' }
+])
+const scenarios = { cpu: 'connect, `select 1`, end', rows: '1000 rows of five columns' }
 const builds = { release: 'latest release from npm', cf: 'this version' }
 
 async function prepare(out, databaseUrl) {
@@ -135,7 +140,7 @@ function shuffled(xs) {
 }
 
 function report(results, rounds, us) {
-  const label = ({ build, types }) => `${ builds[build] }, fetch_types ${ types }`
+  const label = ({ build, scenario, types }) => `${ builds[build] }, ${ scenarios[scenario] }, fetch_types ${ types }`
   const stats = (xs) => {
     const sorted = xs.slice().sort((a, b) => a - b)
     return [0.5, 0.95, 0.99].map((p) => ms(pct(sorted, p) * us))
@@ -145,7 +150,7 @@ function report(results, rounds, us) {
   const modules = [...totals].sort((a, b) => b[1] - a[1]).slice(0, 12).map(([k]) => k)
   const lines = [
     `Local workerd (Wrangler ${ wranglerVersion }) with the V8 sampling profiler attached, one connection per request`
-      + ` (connect, SCRAM, \`select 1\`, end) against PostgreSQL on the runner. ${ rounds } requests per variant after two warm-up rounds.`
+      + ` with SCRAM against PostgreSQL on the runner. ${ rounds } requests per variant after two warm-up rounds.`
       + ` Workerd samples only while JavaScript runs, about every ${ ms(us) } ms, so CPU is samples times that interval;`
       + ' native work between samples is missed. The profiler slows workerd down, so compare rows with each other, not with edge numbers.'
       + ' Times in ms.',
@@ -190,7 +195,7 @@ async function main([outArg, databaseUrl, roundsArg]) {
     const failures = []
     for (let n = -2; n < rounds; n++) {
       for (const [v, variant] of shuffled([...variants.entries()])) {
-        const query = new URLSearchParams({ case: 'cpu', build: variant.build, target: 'supabase', fetch_types: variant.types })
+        const query = new URLSearchParams({ case: variant.scenario, build: variant.build, target: 'supabase', fetch_types: variant.types })
         await inspect.send('Profiler.start')
         const res = await fetch(`http://127.0.0.1:${ devPort }/?${ query }`)
         const body = await res.json().catch(() => null)
@@ -203,7 +208,7 @@ async function main([outArg, databaseUrl, roundsArg]) {
           r.requests.push({ samples: times.samples, byModule: times.byModule })
           r.total += times.samples
           times.byFunction.forEach((x, k) => r.byFunction.set(k, (r.byFunction.get(k) || 0) + x))
-          const file = path.join(out + '-profiles', `${ variant.build }-${ variant.types }-${ n }.cpuprofile`)
+          const file = path.join(out + '-profiles', `${ variant.build }-${ variant.scenario }-${ variant.types }-${ n }.cpuprofile`)
           await writeFile(file, JSON.stringify(result.profile))
         }
       }
