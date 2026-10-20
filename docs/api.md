@@ -1306,7 +1306,7 @@ export default {
 
 TLS on Workers differs from Node.js:
 
-- Certificates are always verified against public roots: `ssl: 'require'` behaves like `'verify-full'`, and `ca` and `rejectUnauthorized: false` are ignored. A server whose certificate chains to a private CA cannot be reached over TLS from a Worker; Hyperdrive can connect to it with its own CA setting. Supabase is one: its certificates chain to Supabase's own root CA, so reach it through Hyperdrive with that CA uploaded and `verify-full`.
+- Certificates are always verified against public roots: `ssl: 'require'` behaves like `'verify-full'`, and `ca` and `rejectUnauthorized: false` are ignored. A server whose certificate chains to a private CA cannot be reached over TLS from a Worker; Hyperdrive can connect to it with its own CA setting. Supabase is one: its certificates chain to Supabase's own root CA, so reach it through Hyperdrive with that CA uploaded and `verify-full`. Connecting to such a server directly fails at once with [`TLS_CLOSED`](#tls_closed), because Cloudflare closes the socket after the TLS upgrade without an error.
 - `sslnegotiation: 'direct'` is not supported.
 - The server name is sent, so hosts that route by it, such as Neon, need no extra option.
 
@@ -1549,6 +1549,11 @@ Making queries has to be done using the sql function as a [tagged template](http
 > The server does not support SSL connections
 
 The server answered the SSL request with a refusal while `ssl` is set to a mode other than `'prefer'`. The attempt fails at once for a single host. Use `ssl: 'prefer'` to fall back to an unencrypted connection, or enable SSL on the server. See [SSL](#ssl).
+
+### TLS_CLOSED
+> TLS_CLOSED: The server closed the connection after the TLS upgrade, before it replied. Workers verify certificates against public roots, so a server whose certificate chains to a private CA needs Hyperdrive
+
+Cloudflare Workers only. The server accepted the SSL request, and the connection closed after the TLS upgrade before the server sent anything. Cloudflare reports a certificate it doesn't trust this way, without an error of its own. The attempt fails at once for a single host, with `ssl: 'prefer'` too, since the server did accept SSL. See [Cloudflare Workers support](#cloudflare-workers-support).
 
 ### TARGET_SESSION_ATTRS
 > No host matched target_session_attrs=read-write: localhost:5432 is read-only

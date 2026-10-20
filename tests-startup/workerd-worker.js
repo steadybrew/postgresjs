@@ -181,6 +181,20 @@ const scenarios = {
     }
     return { tracingChannel: Boolean(tracing), events }
   },
+  async 'tls-private-ca'() {
+    const results = []
+    for (const ssl of ['require', 'prefer']) {
+      const sql = target.postgres(target.supabaseUrl, { max: 1, ssl, prepare: false, fetch_types: false, connect_timeout: 5 })
+      const started = Date.now()
+      const error = await within(sql`select 1`.then(() => null, (e) => e), 9000, 'private CA with ssl: ' + ssl)
+      const ms = Date.now() - started
+      await within(sql.end({ timeout: 0 }), 3000, 'end')
+      if (!error) throw new Error('Connected with ssl: ' + ssl + ' despite a private CA')
+      if (error.code !== 'TLS_CLOSED' || ms > 3000) throw new Error('ssl: ' + ssl + ' rejected with ' + error.code + ' after ' + ms + 'ms')
+      results.push({ ssl, code: error.code, ms })
+    }
+    return results
+  },
   async 'ssl-verify'(port) {
     const sql = client(port, { max: 1 })
     const [{ x }] = await within(sql`select 1 as x`, 10000, 'verified TLS query')

@@ -42,6 +42,7 @@ Bugs from [porsager/postgres](https://github.com/porsager/postgres) that this fo
 | [#1234](https://github.com/porsager/postgres/issues/1234) | Concurrent queries in `sql.begin()` after a column type change roll the transaction back and return the connection to the pool | 4.4.0 |
 | [#1255](https://github.com/porsager/postgres/issues/1255), [#1261](https://github.com/porsager/postgres/issues/1261) | A reserved connection whose `max_lifetime` passed is closed when released, and `sql.end()` called before the release resolves | 4.0.0 |
 | [#1016](https://github.com/porsager/postgres/pull/1016) | Queries no longer hang after a `COPY ... TO STDOUT` whose reader fell behind | 4.5.0 |
+| [#1213](https://github.com/porsager/postgres/issues/1213) | On Cloudflare Workers, connecting over TLS to a server whose certificate chains to a private CA, such as Supabase's, rejects at once with `TLS_CLOSED` instead of hanging or waiting out `connect_timeout` | Unreleased |
 
 **Crashes**
 

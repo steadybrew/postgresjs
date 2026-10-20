@@ -61,6 +61,7 @@ jobs:
         env:
           NEON_DATABASE_URL: ${{ secrets.NEON_DATABASE_URL }}
           NEON_POOLED_URL: ${{ secrets.NEON_POOLED_URL }}
+          SUPABASE_DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           COMPAT_DATE: ${{ matrix.compat_date }}
         run: |
@@ -69,7 +70,7 @@ jobs:
           EDGE_TOKEN=$(openssl rand -hex 24)
           echo "::add-mask::$EDGE_TOKEN"
           export EDGE_TOKEN
-          node -e 'require("fs").writeFileSync(process.argv[1], JSON.stringify({ DATABASE_URL: process.env.NEON_DATABASE_URL, POOLED_URL: process.env.NEON_POOLED_URL, EDGE_TOKEN: process.env.EDGE_TOKEN }), { mode: 0o600 })' "$RUNNER_TEMP/secrets.json"
+          node -e 'require("fs").writeFileSync(process.argv[1], JSON.stringify({ DATABASE_URL: process.env.NEON_DATABASE_URL, POOLED_URL: process.env.NEON_POOLED_URL, SUPABASE_URL: process.env.SUPABASE_DATABASE_URL, EDGE_TOKEN: process.env.EDGE_TOKEN }), { mode: 0o600 })' "$RUNNER_TEMP/secrets.json"
           (cd "$RUNNER_TEMP/edge" && npx --yes wrangler@4.151.1 preview --name "$name" --secrets-file "$RUNNER_TEMP/secrets.json" --json > "$RUNNER_TEMP/preview.json")
           rm "$RUNNER_TEMP/secrets.json"
           url=$(node tests-startup/workerd-edge.mjs url "$RUNNER_TEMP/preview.json")

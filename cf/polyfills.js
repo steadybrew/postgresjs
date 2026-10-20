@@ -114,9 +114,11 @@ export const tls = {
     tcp.writer.releaseLock()
     tcp.reader.releaseLock()
     tcp.readyState = 'upgrading'
+    tcp.upgraded = true
+    tcp.received = false
     tcp.raw = tcp.raw.startTls({ servername })
     tcp.raw.closed.then(
-      () => tcp.close(),
+      () => (tcp.closing || tcp.received || tcp.readyState === 'closed' || tcp.emit('error', tlsClosed()), tcp.close()),
       (e) => (tcp.closing || tcp.emit('error', e), tcp.close())
     )
     tcp.writer = tcp.raw.writable.getWriter()
@@ -233,10 +235,11 @@ function Socket() {
       let done
         , value
       while (({ done, value } = await tcp.reader.read(), !done)) {
+        tcp.received = true
         tcp.emit('data', Buffer.from(value))
         paused && await resumption()
       }
-      close()
+      tcp.upgraded && !tcp.received && tcp.readyState !== 'closed' ? error(tlsClosed()) : close()
       shut()
     } catch (err) {
       error(err)
@@ -260,6 +263,13 @@ function Socket() {
     tcp.closing || tcp.emit('error', err)
     close()
   }
+}
+
+function tlsClosed() {
+  return Object.assign(new Error(
+    'TLS_CLOSED: The server closed the connection after the TLS upgrade, before it replied. '
+    + 'Workers verify certificates against public roots, so a server whose certificate chains to a private CA needs Hyperdrive'
+  ), { code: 'TLS_CLOSED' })
 }
 
 function setImmediate(fn) {
