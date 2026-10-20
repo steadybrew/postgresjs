@@ -38,7 +38,7 @@
     "test:cjs": "npm run build:cjs && node tests-startup/run.js --integration --cjs && cd cjs/tests && node index.js && cd ../../ && node tests-startup/run.js --reports --cjs",
     "test:deno": "npm run test:deno-socket && npm run build:deno && cd deno/tests && deno run --no-lock --allow-all --unsafely-ignore-certificate-errors index.js && cd ../../",
     "lint": "eslint src && eslint tests && eslint tests-startup --ext .js,.mjs",
-    "diff:upstream": "git diff --no-color --no-ext-diff --full-index -M v3.4.9 -- src types > docs/changes-since-3.4.9.diff",
+    "diff:upstream": "git diff --no-color --no-ext-diff --full-index --diff-algorithm=myers -M v3.4.9 -- src types > docs/changes-since-3.4.9.diff",
     "prepare": "npm run build",
     "prepublishOnly": "npm run lint",
     "test:workerd": "npm install --no-save --no-audit --no-fund wrangler@4.151.1 && node tests-startup/workerd-run.mjs",

@@ -240,25 +240,12 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..2cd9f6d47f82f97d7278c0a26f2b8f95
  
 -  async function createSocket() {
 -    let x
--    try {
--      x = options.socket
--        ? (await Promise.resolve(options.socket(options)))
--        : new net.Socket()
--    } catch (e) {
--      error(e)
--      return
--    }
--    x.on('error', error)
--    x.on('close', closed)
--    x.on('drain', drain)
--    return x
 +  function transition(next) {
 +    check && check('edge', connection, phaseNames[phase], phaseNames[next])
 +    generation++
 +    phase = next
-   }
- 
--  async function cancel({ pid, secret }, resolve, reject) {
++  }
++
 +  function dispatch(event, arg) {
 +    const handler = on[phase][event]
 +    if (!handler)
@@ -266,19 +253,24 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..2cd9f6d47f82f97d7278c0a26f2b8f95
 +
 +    depth++
      try {
--      cancelMessage = b().i32(16).i32(80877102).i32(pid).i32(secret).end(16)
--      await connect()
--      socket.once('error', reject)
--      socket.once('close', resolve)
--    } catch (error) {
--      reject(error)
+-      x = options.socket
+-        ? (await Promise.resolve(options.socket(options)))
+-        : new net.Socket()
+-    } catch (e) {
+-      error(e)
+-      return
 +      return handler(arg)
 +    } finally {
 +      depth--
 +      check && depth === 0 && check('settled', connection, queues)
      }
+-    x.on('error', error)
+-    x.on('close', closed)
+-    x.on('drain', drain)
+-    return x
    }
  
+-  async function cancel({ pid, secret }, resolve, reject) {
 +  function refuse(request) {
 +    queryError(request, Errors.connection('CONNECTION_CLOSED', options))
 +  }
@@ -374,7 +366,13 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..2cd9f6d47f82f97d7278c0a26f2b8f95
 +  }
 +
 +  function upgrade() {
-+    try {
+     try {
+-      cancelMessage = b().i32(16).i32(80877102).i32(pid).i32(secret).end(16)
+-      await connect()
+-      socket.once('error', reject)
+-      socket.once('close', resolve)
+-    } catch (error) {
+-      reject(error)
 +      const raw = socket
 +      const config = tlsConfig(options, raw)
 +      raw.removeAllListeners()
@@ -383,9 +381,9 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..2cd9f6d47f82f97d7278c0a26f2b8f95
 +      listen(socket)
 +    } catch (err) {
 +      afterFailure(err, 'protocol')
-+    }
-+  }
-+
+     }
+   }
+ 
 +  function authenticate() {
 +    try {
 +      statements = {}
@@ -891,8 +889,7 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..2cd9f6d47f82f97d7278c0a26f2b8f95
      query = results = errorResponse = null
      result = new Result()
 -    connectTimer.cancel()
-+    rows = 0
- 
+-
 -    if (initial) {
 -      if (target_session_attrs) {
 -        if (!backendParameters.in_hot_standby || !backendParameters.default_transaction_read_only)
@@ -900,14 +897,15 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..2cd9f6d47f82f97d7278c0a26f2b8f95
 -        else if (tryNext(target_session_attrs, backendParameters))
 -          return terminate()
 -      }
-+    dispatch('ready')
-+  }
++    rows = 0
  
 -      if (needsTypes) {
 -        initial.reserve && (initial = null)
 -        return fetchArrayTypes()
 -      }
--
++    dispatch('ready')
++  }
+ 
 -      initial && !initial.reserve && execute(initial)
 -      options.shared.retries = retries = 0
 -      initial = null
@@ -1039,10 +1037,10 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..2cd9f6d47f82f97d7278c0a26f2b8f95
 -      parseInt(res.i), 32,
 -      'sha256'
 -    )
+-
+-    const clientKey = await hmac(saltedPassword, 'Client Key')
 +    const { clientKey, storedKey, serverKey } = await scramKeys(await Pass(), res.s, res.i)
  
--    const clientKey = await hmac(saltedPassword, 'Client Key')
--
 -    const auth = 'n=*,r=' + nonce + ','
 +    const auth = 'n=*,r=' + clientNonce + ','
                 + 'r=' + res.r + ',s=' + res.s + ',i=' + res.i
@@ -1089,9 +1087,8 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..2cd9f6d47f82f97d7278c0a26f2b8f95
        order by b.oid
 -    `], [], execute)
 -    types.forEach(({ oid, typarray }) => addArrayType(oid, typarray))
-+    `, types => types.forEach(({ oid, typarray }) => addArrayType(options, oid, typarray)))
-   }
- 
+-  }
+-
 -  function addArrayType(oid, typarray) {
 -    if (!!options.parsers[typarray] && !!options.serializers[typarray]) return
 -    const parser = options.parsers[oid]
@@ -1099,8 +1096,9 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..2cd9f6d47f82f97d7278c0a26f2b8f95
 -    options.parsers[typarray] = (xs) => arrayParser(xs, parser, typarray)
 -    options.parsers[typarray].array = true
 -    options.serializers[typarray] = (xs) => arraySerializer(xs, options.serializers[oid], options, typarray)
--  }
--
++    `, types => types.forEach(({ oid, typarray }) => addArrayType(options, oid, typarray)))
+   }
+ 
 -  function tryNext(x, xs) {
 +  function mismatchReason(x, xs) {
      return (
@@ -1263,15 +1261,14 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..2cd9f6d47f82f97d7278c0a26f2b8f95
    }
  
    function NoticeResponse(x) {
--    onnotice
--      ? onnotice(parseError(x))
--      : console.log(parseError(x)) // eslint-disable-line
 +    if (onnotice === false)
 +      return
- 
-+    onnotice
++
+     onnotice
+-      ? onnotice(parseError(x))
 +      ? callback(onnotice, parseError(x))
-+      : console.log(parseError(x)) // eslint-disable-line
+       : console.log(parseError(x)) // eslint-disable-line
+-
    }
  
    /* c8 ignore next 3 */
@@ -1637,12 +1634,7 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..bb8a5c0f71a3e37b117c9a9e5bcc0b6a
 +  async function lease(auto) {
 +    if (ending)
 +      throw Errors.connection('CONNECTION_ENDED', options)
- 
--    move(c, reserved)
--    c.reserved = () => queue.length
--      ? c.execute(queue.shift())
--      : move(c, reserved)
--    c.reserved.release = true
++
 +    const l = { state: null, connection: null, error: null, onclose: null, queue: Queue() }
 +    const idle = takeOpen()
 +    idle
@@ -1660,10 +1652,11 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..bb8a5c0f71a3e37b117c9a9e5bcc0b6a
 +    return l
 +  }
  
--    const sql = Sql(handler)
--    sql.release = () => {
--      c.reserved = null
--      onopen(c)
+-    move(c, reserved)
+-    c.reserved = () => queue.length
+-      ? c.execute(queue.shift())
+-      : move(c, reserved)
+-    c.reserved.release = true
 +  function own(c, l) {
 +    l.connection = c
 +    l.state = Lease.Active
@@ -1677,7 +1670,11 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..bb8a5c0f71a3e37b117c9a9e5bcc0b6a
 +    }
 +    return move(c, reserved)
 +  }
-+
+ 
+-    const sql = Sql(handler)
+-    sql.release = () => {
+-      c.reserved = null
+-      onopen(c)
 +  function send(l, q, expected = Lease.Active) {
 +    const c = l.connection
 +    l.state === expected
@@ -1747,10 +1744,8 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..bb8a5c0f71a3e37b117c9a9e5bcc0b6a
 +      return await Promise.race([transaction(), closing])
 +    } finally {
 +      settle(l, Lease.Discarded)
-     }
- 
--    async function scope(c, fn, name) {
--      const sql = Sql(handler)
++    }
++
 +    async function transaction() {
 +      await Sql(handler).unsafe('begin ' + options.replace(/[^a-z ]/ig, ''), []).execute().catch(e => {
 +        e instanceof PostgresError && settle(l, Lease.Released)
@@ -1770,8 +1765,10 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..bb8a5c0f71a3e37b117c9a9e5bcc0b6a
 +      }
 +      settle(l, Lease.Released)
 +      return result
-+    }
-+
+     }
+ 
+-    async function scope(c, fn, name) {
+-      const sql = Sql(handler)
 +    async function scope(fn, name) {
 +      const sql = Sql(track)
        sql.savepoint = savepoint
@@ -2335,16 +2332,16 @@ index 4f8934cc8277fc58d2c37838cfb1afc315bc0744..0fd5d4201123e4c08d85fd1c46396baa
 +    stream.on('error', reportConnection)
      stream.on('close', sql.close)
  
+-    return { stream, state: xs.state }
 +    // A walsender can miss the wakeup for a commit and sleep until its timeout; a status update wakes it.
 +    const status = setInterval(() => stream.writable && pong(), statusInterval)
 +    stream.on('close', () => clearInterval(status))
-+
-     return { stream, state: xs.state }
  
 -    function error(e) {
 -      console.error('Unexpected error during logical streaming - reconnecting', e) // eslint-disable-line
 -    }
--
++    return { stream, state: xs.state }
+ 
      function data(x) {
        if (x[0] === 0x77) {
 -        parse(x.subarray(25), state, sql.options.parsers, handle, options.transform)
@@ -2407,7 +2404,6 @@ index 4f8934cc8277fc58d2c37838cfb1afc315bc0744..0fd5d4201123e4c08d85fd1c46396baa
 -          type: x.readUInt32BE(i += 1),
 -          parser: parsers[x.readUInt32BE(i)],
 -          atttypmod: x.readUInt32BE(i += 4)
--        }
 +      try {
 +        while (i < x.length) {
 +          column = r.columns[columnIndex++] = {
@@ -2419,12 +2415,13 @@ index 4f8934cc8277fc58d2c37838cfb1afc315bc0744..0fd5d4201123e4c08d85fd1c46396baa
 +            parser: parsers[x.readUInt32BE(i)],
 +            atttypmod: x.readUInt32BE(i += 4)
 +          }
- 
--        column.key && r.keys.push(column)
--        i += 4
++
 +          column.key && r.keys.push(column)
 +          i += 4
-+        }
+         }
+-
+-        column.key && r.keys.push(column)
+-        i += 4
 +      } catch (error) {
 +        r.error = error
 +        r.failed = true
