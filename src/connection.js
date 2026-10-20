@@ -12,7 +12,7 @@ import clampedTimeout from './timeout.js'
 import { SSLRequest, tlsConfig, cancelRequest } from './transport.js'
 import { Query, CLOSE } from './query.js'
 import b from './bytes.js'
-import { Frames } from './messages.js'
+import { Frames, cell, text } from './messages.js'
 
 export { Connection }
 
@@ -742,10 +742,10 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
         : query.isRaw === true
           ? x.subarray(index, index += length)
           : column.parser === undefined
-            ? x.toString('utf8', index, index += length)
+            ? cell(x, index, index += length)
             : column.parser.array === true
-              ? column.parser(x.toString('utf8', index + 1, index += length))
-              : column.parser(x.toString('utf8', index, index += length))
+              ? column.parser(text(x, index + 1, index += length))
+              : column.parser(cell(x, index, index += length))
 
       query.isRaw
         ? (row[i] = query.isRaw === true
@@ -760,7 +760,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
   }
 
   function ParameterStatus(x) {
-    const [k, v] = x.toString('utf8', 5, x.length - 1).split(b.N)
+    const [k, v] = text(x, 5, x.length - 1).split(b.N)
     backendParameters[k] = v
     if (options.parameters[k] !== v) {
       options.parameters[k] = v
@@ -826,9 +826,9 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
 
     for (let i = x.length - 1; i > 0; i--) {
       if (x[i] === 32 && x[i + 1] < 58 && result.count === null)
-        result.count = +x.toString('utf8', i + 1, x.length - 1)
+        result.count = +text(x, i + 1, x.length - 1)
       if (x[i - 1] >= 65) {
-        result.command = x.toString('utf8', 5, i)
+        result.command = text(x, 5, i)
         result.state = backend
         break
       }
@@ -889,8 +889,8 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
       const type = x.readUInt32BE(index + 6)
       query.statement.columns[i] = {
         name: !query.initialization && transform.column.from
-          ? transform.column.from(x.toString('utf8', start, index - 1))
-          : x.toString('utf8', start, index - 1),
+          ? transform.column.from(text(x, start, index - 1))
+          : text(x, start, index - 1),
         parser: parsers[type],
         table,
         number,
@@ -955,7 +955,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
 
   async function SASLContinue(x, type, attempt) {
     const clientNonce = nonce
-    const res = x.toString('utf8', 9).split(',').reduce((acc, x) => (acc[x[0]] = x.slice(2), acc), {})
+    const res = text(x, 9).split(',').reduce((acc, x) => (acc[x[0]] = x.slice(2), acc), {})
 
     const saltedPassword = await crypto.pbkdf2Sync(
       await Pass(),
@@ -985,7 +985,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
   }
 
   function SASLFinal(x) {
-    if (x.toString('utf8', 9).split(b.N, 1)[0].slice(2) === serverSignature)
+    if (text(x, 9).split(b.N, 1)[0].slice(2) === serverSignature)
       return
     /* c8 ignore next 5 */
     dispatch('authFailed', Errors.generic('SASL_SIGNATURE_MISMATCH', 'The server did not return the correct signature'))
@@ -1075,8 +1075,8 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     while (x[index++] !== 0);
     callback(
       onnotify,
-      x.toString('utf8', 9, index - 1),
-      x.toString('utf8', index, x.length - 1)
+      text(x, 9, index - 1),
+      text(x, index, x.length - 1)
     )
   }
 
@@ -1297,7 +1297,7 @@ function parseError(x) {
   let start = 5
   for (let i = 5; i < x.length - 1; i++) {
     if (x[i] === 0) {
-      error[errorFields[x[start]]] = x.toString('utf8', start + 1, i)
+      error[errorFields[x[start]]] = text(x, start + 1, i)
       start = i + 1
     }
   }
