@@ -1,5 +1,9 @@
 # Changelog
 
+## v4.6.0 - 2026-10-21
+
+Promotes `4.6.0-rc1` unchanged; its entry below lists the changes: cheaper new connections with SCRAM-SHA-256 passwords, and `COPY ... TO STDOUT`, `sql.subscribe()`, `ssl: 'prefer'` and TLS errors fixed on Cloudflare Workers. In production for a day on one Node.js app and four Supabase Edge Functions, rc1 matched or beat 4.5.0 at median, p95 and p99 with no connection errors, and on Cloudflare's network a connection costs less CPU than on 4.5.1 at every percentile. Nothing breaks; on Workers, a server with an untrusted certificate now fails with `TLS_CLOSED` instead of `CONNECTION_CLOSED`.
+
 ## v4.6.0-rc1 - 2026-10-20
 
 Cheaper new connections, and fixes for Cloudflare Workers. Nothing breaks; on Workers, a server with an untrusted certificate now fails with a new error code instead of `CONNECTION_CLOSED`.
