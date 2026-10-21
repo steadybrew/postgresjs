@@ -25,6 +25,10 @@ const scenarios = {
   'cancel-inflight-unawaited': cancelInflightUnawaited,
   'terminated-inflight-then-query:prepared': postgres => terminatedInflightThenQuery(postgres, true),
   'terminated-inflight-then-query:unprepared': postgres => terminatedInflightThenQuery(postgres, false),
+  'begin-terminated-pool-rounds': beginTerminatedPoolRounds,
+  'begin-fatal-outage': beginFatalOutage,
+  'begin-terminated-in-commit': beginTerminatedInCommit,
+  'end-timeout-reserved-inflight': endTimeoutReservedInflight,
   ...Object.fromEntries(['idle-timeout', 'terminate'].flatMap(ender => ['return', 'statement'].map(next =>
     ['begin-after-session-ended:' + ender + ':' + next, postgres => beginAfterSessionEnded(postgres, ender, next)])))
 }
@@ -79,7 +83,10 @@ async function active(admin, pid) {
 
 async function proxy(intercept) {
   const pairs = []
+  const relay = { down: false }
   const server = net.createServer(client => {
+    if (relay.down)
+      return client.destroy()
     const upstream = net.connect(5432, 'localhost')
     pairs.push([client, upstream])
     client.on('error', noop)
@@ -91,7 +98,7 @@ async function proxy(intercept) {
   })
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
   const destroy = () => pairs.forEach(pair => pair.forEach(socket => socket.destroy()))
-  return {
+  return Object.assign(relay, {
     port: server.address().port,
     destroy,
     resetAndDestroy: () => pairs.forEach(([client, upstream]) => (client.resetAndDestroy(), upstream.destroy())),
@@ -99,7 +106,7 @@ async function proxy(intercept) {
       destroy()
       await new Promise(resolve => server.close(resolve))
     }
-  }
+  })
 }
 
 async function silent() {
@@ -742,6 +749,135 @@ async function cancelInflightUnawaited(postgres) {
     assert.strictEqual(await bounded(outcome(dropped)), '57014')
   } finally {
     fault.stop()
+    await bounded(sql.end({ timeout: 0 }), 2000)
+  }
+}
+
+async function poolRounds(postgres, options, disrupt) {
+  const fault = capture()
+  const admin = postgres({ ...pg, max: 1 })
+  const sql = postgres({ ...pg, ...options, fetch_types: true, max: 2, connect_timeout: 2 })
+  const round = () => bounded(Promise.all([0, 1].map(() =>
+    sql.begin(t => t`select pg_sleep(0.15)`).then(() => 'ok', error => error.code)
+  )), 5000)
+  try {
+    const warm = await bounded(Promise.all([0, 1].map(() => sql.begin(async t => {
+      const [{ pid }] = await t`select pg_backend_pid() as pid`
+      await t`select pg_sleep(0.15)`
+      return pid
+    }))))
+    let pidSeen
+    const pidKnown = new Promise(resolve => pidSeen = resolve)
+    const lost = outcome(sql.begin(async t => {
+      const [{ pid }] = await t`select pg_backend_pid() as pid`
+      pidSeen(pid)
+      await t`select pg_sleep(30)`
+    }))
+    const pid = await awaited(pidKnown, 'The statement')
+    await active(admin, pid)
+    await disrupt(admin, pid)
+    const rejected = code(await bounded(lost))
+    const rounds = []
+    for (let i = 0; i < 3; i++)
+      rounds.push(await round())
+    await sleep(3000)
+    rounds.push(await round())
+    await turn()
+    assert.deepStrictEqual(fault.errors, [])
+    assert.strictEqual(new Set(warm).size, 2)
+    assert.strictEqual(rejected, 'CONNECTION_CLOSED')
+    assert.deepStrictEqual(rounds, [['ok', 'ok'], ['ok', 'ok'], ['ok', 'ok'], ['ok', 'ok']])
+  } finally {
+    fault.stop()
+    await bounded(sql.end({ timeout: 0 }), 2000)
+    await bounded(admin.end({ timeout: 0 }), 2000)
+  }
+}
+
+function beginTerminatedPoolRounds(postgres) {
+  return poolRounds(postgres, {}, (admin, pid) => admin`select pg_terminate_backend(${ pid }, 5000)`)
+}
+
+async function beginFatalOutage(postgres) {
+  const relay = await proxy()
+  const application_name = 'report_outage_' + process.pid
+  try {
+    await poolRounds(postgres, { host: '127.0.0.1', port: relay.port, connection: { application_name } }, async admin => {
+      relay.down = true
+      await admin`
+        select pg_terminate_backend(pid, 5000) from pg_stat_activity
+        where application_name = ${ application_name }
+      `
+      await sleep(500)
+      relay.down = false
+    })
+  } finally {
+    await relay.close()
+  }
+}
+
+async function beginTerminatedInCommit(postgres) {
+  const fault = capture()
+  const admin = postgres({ ...pg, max: 1 })
+  const table = 'report_commit_' + process.pid
+  await admin`create table ${ admin(table) } (x int)`
+  await admin.unsafe(`create function ${ table }_sleep() returns trigger language plpgsql as $$
+    begin perform pg_sleep(30); return null; end $$`)
+  await admin.unsafe(`create constraint trigger ${ table }_sleep after insert on ${ table }
+    deferrable initially deferred for each row execute function ${ table }_sleep()`)
+  const sql = postgres({ ...pg, max: 1 })
+  try {
+    let pidSeen
+    const pidKnown = new Promise(resolve => pidSeen = resolve)
+    const committed = outcome(sql.begin(async t => {
+      const [{ pid }] = await t`select pg_backend_pid() as pid`
+      await t`insert into ${ t(table) } values (1)`
+      pidSeen(pid)
+    }))
+    const pid = await awaited(pidKnown, 'The insert')
+    for (let i = 0; ; i++) {
+      const [{ n }] = await admin`
+        select count(*)::int as n from pg_stat_activity
+        where pid = ${ pid } and state = 'active' and query ilike 'commit%' and wait_event = 'PgSleep'
+      `
+      if (n)
+        break
+      assert(i < 250, 'COMMIT never reached the deferred trigger on backend ' + pid)
+      await sleep(20)
+    }
+    const queued = sql`select 1 as x`.then(x => x[0].x, error => error.code)
+    await admin`select pg_terminate_backend(${ pid }, 5000)`
+    const rejected = code(await bounded(committed))
+    const next = await bounded(queued)
+    const after = await bounded(sql`select 1 as x`.then(x => x[0].x, error => error.code))
+    await turn()
+    assert.deepStrictEqual(fault.errors, [])
+    assert.strictEqual(next, 1)
+    assert.strictEqual(after, 1)
+    assert.strictEqual(rejected, 'CONNECTION_CLOSED')
+  } finally {
+    fault.stop()
+    await bounded(sql.end({ timeout: 0 }), 2000)
+    await admin`drop table ${ admin(table) }`
+    await admin.unsafe(`drop function ${ table }_sleep()`)
+    await bounded(admin.end({ timeout: 0 }), 2000)
+  }
+}
+
+async function endTimeoutReservedInflight(postgres) {
+  const sql = postgres({ ...pg })
+  try {
+    await sql`select 1`
+    const r = await sql.reserve()
+    const work = outcome(r`select pg_sleep(0.2)`.finally(() => r.release()))
+    await sleep(20)
+    const start = Date.now()
+    const ended = await bounded(sql.end({ timeout: 5 }).then(() => 'resolved'), 8000)
+    const took = Date.now() - start
+    assert.strictEqual(ended, 'resolved')
+    assert(took < 2000, 'end({ timeout: 5 }) took ' + took + ' ms after the reserved query finished at about 200 ms')
+    assert.strictEqual(await bounded(work), 'resolved')
+  } finally {
     await bounded(sql.end({ timeout: 0 }), 2000)
   }
 }
