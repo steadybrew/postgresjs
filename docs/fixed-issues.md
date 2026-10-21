@@ -10,7 +10,7 @@ Bugs from [porsager/postgres](https://github.com/porsager/postgres) that this fo
 | --- | --- | --- |
 | [#1082](https://github.com/porsager/postgres/issues/1082), [#729](https://github.com/porsager/postgres/issues/729) | A query whose values fail to serialize rejects on its own; the query running alongside no longer gets its error, and the next query no longer gets another query's rows | 4.3.0 |
 | [#1216](https://github.com/porsager/postgres/issues/1216) | A transaction handle whose connection closed rejects with `CONNECTION_CLOSED` instead of running inside the next user's transaction, so it can't read their rows through row-level security. | 4.0.0 |
-| [#1248](https://github.com/porsager/postgres/issues/1248) | Statements in a `sql.begin()` callback after its connection closes reject instead of running outside the transaction | 4.0.0 |
+| [#1248](https://github.com/porsager/postgres/issues/1248) | Statements in a `sql.begin()` callback after its connection closes reject instead of running outside the transaction, and the next transactions on the pool succeed, also after a server restart or a termination during `COMMIT` | 4.0.0 |
 | [#1204](https://github.com/porsager/postgres/issues/1204) | A transaction's connection is not handed to another `sql.begin()` when its socket drains late, so one transaction's `COMMIT` can't commit another's unfinished writes. | 4.0.0 |
 | [#1217](https://github.com/porsager/postgres/issues/1217) | `sql.begin()` rejects with `TRANSACTION_ROLLED_BACK` when the server rolled back the COMMIT | 4.4.0 |
 | [#1249](https://github.com/porsager/postgres/issues/1249), [#1226](https://github.com/porsager/postgres/issues/1226), [#1223](https://github.com/porsager/postgres/issues/1223) | The first query after a reconnect no longer rejects with an error from the closed session | 4.0.0 |
@@ -40,7 +40,7 @@ Bugs from [porsager/postgres](https://github.com/porsager/postgres) that this fo
 | [#1246](https://github.com/porsager/postgres/issues/1246) | A query sent between a socket error and its close settles, and a transaction reset mid-statement no longer loses a pool connection | 4.1.0 |
 | [#1193](https://github.com/porsager/postgres/issues/1193) | A connection closed during startup settles its first query instead of reconnecting in a tight loop | 4.0.0 |
 | [#1234](https://github.com/porsager/postgres/issues/1234) | Concurrent queries in `sql.begin()` after a column type change roll the transaction back and return the connection to the pool | 4.4.0 |
-| [#1255](https://github.com/porsager/postgres/issues/1255), [#1261](https://github.com/porsager/postgres/issues/1261) | A reserved connection whose `max_lifetime` passed is closed when released, and `sql.end()` called before the release resolves | 4.0.0 |
+| [#1255](https://github.com/porsager/postgres/issues/1255), [#1261](https://github.com/porsager/postgres/issues/1261) | A reserved connection whose `max_lifetime` passed is closed when released, and `sql.end()` called before the release, or with a timeout while a reserved query runs, resolves once it is released | 4.0.0 |
 | [#1016](https://github.com/porsager/postgres/pull/1016) | Queries no longer hang after a `COPY ... TO STDOUT` whose reader fell behind | 4.5.0 |
 | [#1213](https://github.com/porsager/postgres/issues/1213) | On Cloudflare Workers, connecting over TLS to a server whose certificate chains to a private CA, such as Supabase's, rejects at once with `TLS_CLOSED` instead of hanging or waiting out `connect_timeout` | 4.6.0 |
 
