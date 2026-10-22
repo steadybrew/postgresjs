@@ -3783,6 +3783,144 @@ t('a retried query whose rebuild throws rejects alone', { timeout: 10 }, async()
   ]
 })
 
+const command = x => x.command
+    , failure = e => e.code || e.name
+
+for (const [label, code, failing] of [
+  ['an undefined value', 'UNDEFINED_VALUE', sql => sql`insert into test (x) values (${ undefined })`],
+  ['too many parameters', 'MAX_PARAMETERS_EXCEEDED', sql => sql.unsafe('select 1', Array(70000).fill(1))]
+]) {
+  t(label + ' pipelined in a transaction on a reserved connection aborts the transaction', { timeout: 10 }, async() => {
+    const sql = postgres({ ...options, max: 1 })
+    await sql`create table test (x int)`
+    const reserved = await sql.reserve()
+    const results = await within(Promise.all([
+      reserved`begin`.then(command, failure),
+      reserved`insert into test (x) values (1)`.then(command, failure),
+      failing(reserved).then(command, failure),
+      reserved`insert into test (x) values (2)`.then(command, failure),
+      reserved`commit`.then(command, failure)
+    ]), 'transaction hung')
+    reserved.release()
+    const rows = (await sql`select count(*)::int as n from test`)[0].n
+    await delay(50)
+    const stats = pick(sql.stats())
+    await sql`drop table test`
+    await sql.end()
+
+    return [
+      JSON.stringify(['BEGIN', 'INSERT', code, '25P02', 'ROLLBACK', 0, idleStats]),
+      JSON.stringify([...results, rows, stats])
+    ]
+  })
+}
+
+for (const prepare of [true, false]) {
+  t('a value that fails to serialize after describe aborts the transaction it is pipelined in, prepare ' + prepare, { timeout: 10 }, async() => {
+    const sql = postgres({ ...options, max: 1, prepare })
+    await sql`create table test (x int, j jsonb)`
+    const reserved = await sql.reserve()
+    const results = await within(Promise.all([
+      reserved`begin`.then(command, failure),
+      reserved`insert into test (x) values (1)`.then(command, failure),
+      reserved`insert into test (j) values (${ { a: 1n } })`.then(command, failure),
+      reserved`insert into test (x) values (2)`.then(command, failure),
+      reserved`commit`.then(command, failure)
+    ]), 'transaction hung')
+    reserved.release()
+    const rows = (await sql`select count(*)::int as n from test`)[0].n
+    const next = (await sql`select 5 as x`)[0].x
+    await sql`drop table test`
+    await sql.end()
+
+    return [
+      JSON.stringify(['BEGIN', 'INSERT', 'TypeError', '25P02', 'ROLLBACK', 0, 5]),
+      JSON.stringify([...results, rows, next])
+    ]
+  })
+
+  t('a value that fails to serialize after describe rejects alone outside a transaction, prepare ' + prepare, { timeout: 10 }, async() => {
+    const sql = postgres({ ...options, max: 1, prepare })
+    await sql`create table test (x int, j jsonb)`
+    const results = await within(Promise.all([
+      sql`insert into test (x) values (1)`.then(command, failure),
+      sql`insert into test (j) values (${ { a: 1n } })`.then(command, failure),
+      sql`insert into test (x) values (2)`.then(command, failure),
+      sql`select count(*)::int as n from test`.then(x => x[0].n, failure)
+    ]), 'queries hung')
+    await delay(50)
+    const stats = pick(sql.stats())
+    await sql`drop table test`
+    await sql.end()
+
+    return [
+      JSON.stringify(['INSERT', 'TypeError', 'INSERT', 2, idleStats]),
+      JSON.stringify([...results, stats])
+    ]
+  })
+}
+
+t('a query that fails to build leaves its transaction failed until a savepoint rolls it back', { timeout: 10 }, async() => {
+  const sql = postgres({ ...options, max: 1 })
+  await sql`create table test (x int)`
+  const reserved = await sql.reserve()
+  await reserved`begin`
+  await reserved`insert into test values (1)`
+  await reserved`savepoint a`
+  const failed = await reserved`insert into test values (${ undefined })`.then(command, failure)
+  const after = await reserved`insert into test values (2)`.then(command, failure)
+  await reserved`rollback to savepoint a`
+  await reserved`insert into test values (3)`
+  const committed = await reserved`commit`.then(command, failure)
+  reserved.release()
+  const xs = (await sql`select array_agg(x order by x) as xs from test`)[0].xs
+  await sql`drop table test`
+  await sql.end()
+
+  return [
+    JSON.stringify(['UNDEFINED_VALUE', '25P02', 'COMMIT', [1, 3]]),
+    JSON.stringify([failed, after, committed, xs])
+  ]
+})
+
+t('a query that fails to build behind a running cursor rejects alone and the cursor completes', { timeout: 10 }, async() => {
+  const sql = postgres({ ...options, max: 1 })
+  await sql`select 1`
+  const seen = []
+  const results = await within(Promise.all([
+    sql`select generate_series(1, 3) as x`.cursor(1, ([row]) => { seen.push(row.x) }).then(() => seen, failure),
+    sql`select ${ undefined } as x`.then(x => x, failure),
+    sql`select 3 as x`.then(x => x[0].x, failure)
+  ]), 'queries hung')
+  await delay(50)
+  const stats = pick(sql.stats())
+  await sql.end()
+
+  return [
+    JSON.stringify([[1, 2, 3], 'UNDEFINED_VALUE', 3, idleStats]),
+    JSON.stringify([...results, stats])
+  ]
+})
+
+t('sql.begin rejects and commits nothing when a query that fails to build runs after the callback returned', { timeout: 10 }, async() => {
+  const sql = postgres({ ...options, max: 1 })
+  await sql`create table test (x int)`
+  const error = await within(sql.begin(s => {
+    s`insert into test values (${ 1 })`.execute()
+    s`insert into test values (${ undefined })`.execute().catch(noop)
+    return 'done'
+  }).then(x => x, e => e), 'begin hung')
+  const rows = (await sql`select count(*)::int as n from test`)[0].n
+  const next = (await sql`select 4 as x`)[0].x
+  await sql`drop table test`
+  await sql.end()
+
+  return [
+    JSON.stringify(['TRANSACTION_ROLLED_BACK', 'UNDEFINED_VALUE', 0, 4]),
+    JSON.stringify([error.code, error.cause && error.cause.code, rows, next])
+  ]
+})
+
 t('a throwing debug callback during type discovery still registers array types', async() => {
   const sentinel = new Error('debug sentinel')
   const sql = postgres({

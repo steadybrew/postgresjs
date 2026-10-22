@@ -6,7 +6,8 @@ import path from 'node:path'
 
 const scenarios = [
   'arrays-false', 'arrays-true', 'timers', 'end-timeout', 'end-plain', 'end-while-connecting', 'end-tls',
-  'copy-out', 'subscribe', 'diagnostics-channel', 'ssl-verify', 'tls-private-ca', 'pooled', 'no-end'
+  'copy-out', 'subscribe', 'diagnostics-channel', 'ssl-verify', 'tls-private-ca', 'pooled', 'no-end',
+  'abort-neon', 'abort-neon-pooled', 'abort-supabase-pooler', 'abort-hyperdrive', 'abort-hyperdrive-pooled', 'abort-hyperdrive-supabase'
 ]
 const hyperdrive = [
   { binding: 'HYPERDRIVE', id: '6cac003bd1af42849ca7e83e125d5a3d' },

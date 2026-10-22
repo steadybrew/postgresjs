@@ -239,7 +239,64 @@ const scenarios = {
   },
   hyperdrive: () => hyperdrive(target.hyperdrive),
   'hyperdrive-pooled': () => hyperdrive(target.hyperdrivePooled),
-  'hyperdrive-supabase': () => hyperdrive(target.hyperdriveSupabase)
+  'hyperdrive-supabase': () => hyperdrive(target.hyperdriveSupabase),
+  'abort-neon': () => aborts(target.url, [{ prepare: true }, { prepare: false }]),
+  'abort-neon-pooled': () => aborts(target.pooledUrl, [{ prepare: false }]),
+  'abort-supabase-pooler': () => aborts(target.supabaseUrl, [{ prepare: false }]),
+  'abort-hyperdrive': () => aborts(target.hyperdrive, [{ prepare: true, closes: true }, { prepare: false }]),
+  'abort-hyperdrive-pooled': () => aborts(target.hyperdrivePooled, [{ prepare: true, closes: true }, { prepare: false }]),
+  'abort-hyperdrive-supabase': () => aborts(target.hyperdriveSupabase, [{ prepare: true, closes: true }, { prepare: false }])
+}
+async function aborts(connectionString, variants) {
+  const results = {}
+  for (const variant of variants)
+    results['prepare-' + variant.prepare] = await abort(connectionString, variant)
+  return results
+}
+async function abort(connectionString, { prepare, closes = false }) {
+  const sql = target.postgres(connectionString, { max: 2, prepare, fetch_types: false, connect_timeout: 10 })
+  const command = (x) => x.command
+  const failure = (e) => e.code || e.name
+  await sql`create table if not exists workerd_abort (tag text, x int, j jsonb)`
+  const tag = crypto.randomUUID()
+  const pipelined = async(failing) => {
+    const reserved = await sql.reserve()
+    try {
+      return await within(Promise.all([
+        reserved`begin`.then(command, failure),
+        reserved`insert into workerd_abort (tag, x) values (${ tag }, 1)`.then(command, failure),
+        failing(reserved).then(command, failure),
+        reserved`insert into workerd_abort (tag, x) values (${ tag }, 2)`.then(command, failure),
+        reserved`commit`.then(command, failure)
+      ]), 10000, 'pipelined transaction')
+    } finally {
+      reserved.release()
+    }
+  }
+  const aborted = (results, code) => closes
+    ? equal([results[2], results[4]], [code, 'CONNECTION_CLOSED'])
+    : equal(results.slice(2), [code, '25P02', 'ROLLBACK'])
+  const undefinedValue = await pipelined((s) => s`insert into workerd_abort (tag, x) values (${ tag }, ${ undefined })`)
+  aborted(undefinedValue, 'UNDEFINED_VALUE')
+  const afterDescribe = await pipelined((s) => s`insert into workerd_abort (tag, j) values (${ tag }, ${ { a: 1n } })`)
+  aborted(afterDescribe, 'TypeError')
+  const begin = await within(sql.begin((s) => {
+    s`insert into workerd_abort (tag, x) values (${ tag }, 3)`.execute()
+    s`insert into workerd_abort (tag, x) values (${ tag }, ${ undefined })`.execute().catch(() => undefined)
+    return 'committed'
+  }).then((x) => x, (e) => [e.code, e.cause && e.cause.code]), 10000, 'sql.begin')
+  closes || equal(begin, ['TRANSACTION_ROLLED_BACK', 'UNDEFINED_VALUE'])
+  const outside = await within(Promise.all([
+    sql`insert into workerd_abort (tag, x) values (${ tag }, 4)`.then(command, failure),
+    sql`insert into workerd_abort (tag, x) values (${ tag }, ${ undefined })`.then(command, failure),
+    sql`insert into workerd_abort (tag, x) values (${ tag }, 5)`.then(command, failure)
+  ]), 10000, 'queries outside a transaction')
+  equal(outside, ['INSERT', 'UNDEFINED_VALUE', 'INSERT'])
+  const [{ xs }] = await sql`select array_agg(x order by x) as xs from workerd_abort where tag = ${ tag }`
+  equal(xs, [4, 5])
+  await sql`delete from workerd_abort where tag = ${ tag }`
+  await within(sql.end(), 3000, 'end')
+  return { undefinedValue, afterDescribe, begin, outside, xs }
 }
 async function hyperdrive(connectionString) {
   const sql = target.postgres(connectionString, { max: 5, fetch_types: false })
