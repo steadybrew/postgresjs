@@ -1326,19 +1326,9 @@ To elaborate, Hyperdrive is itself a pooler and relies on prepared statements: C
 
 CI runs concurrent prepared queries through Hyperdrive, with caching off, on every change: in front of Neon's direct and pooled endpoints, and in front of Supabase's direct connection, verified against Supabase's CA.
 
-If a query inside `sql.begin()` may fail and the transaction should carry on without it, for example an insert that may hit a duplicate key, run that query in a [savepoint](#savepoint-await-sqlsavepointname-fn---fn) and catch the error around the savepoint:
+Transactions need no change for Hyperdrive. When a query inside `sql.begin()` fails, its error ends `sql.begin()` and the transaction rolls back, as it does against the database directly. Only code that catches the error and keeps sending queries in the same transaction behaves differently, and that code fails on PostgreSQL too; to carry on after an error, use a [savepoint](#savepoint-await-sqlsavepointname-fn---fn).
 
-```ts
-await sql.begin(async sql => {
-  await sql.savepoint(sql => sql`insert into users ${ sql(user) }`)
-    .catch(e => { if (e.code !== '23505') throw e })
-  await sql`update stats set users = users + 1`
-})
-```
-
-The savepoint costs one extra round trip, and one more when its query fails. When the transaction should not carry on, let the error end `sql.begin()`, which rolls it all back.
-
-To elaborate, catching the error inside `sql.begin()` and sending more queries never works: after an error PostgreSQL rejects every statement in the transaction with `25P02` until it rolls back. Behind Hyperdrive it also costs the connection when the next statement is new to the connection and has a string, number or plain object value (see [Parameter types](#parameter-types)). That statement rejects with `Network connection lost.` instead of `25P02`, and the rest of the transaction with `CONNECTION_CLOSED`. Nothing is committed, and the next query opens a new connection. Rolling back to a savepoint and the rollback that ends `sql.begin()` are simple queries, which Hyperdrive handles normally.
+To elaborate, after an error PostgreSQL rejects every further statement in the transaction with `25P02`. Behind Hyperdrive the next statement can instead close the connection: when the connection has not run that statement yet and it has a string, number or plain object value (see [Parameter types](#parameter-types)), it rejects with `Network connection lost.` and the rest of the transaction with `CONNECTION_CLOSED`. Nothing is committed, and the next query opens a new connection. Savepoints and the rollback that ends `sql.begin()` work as usual.
 
 #### Next.js
 
