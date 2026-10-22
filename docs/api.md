@@ -558,7 +558,7 @@ await sql`
 
 Use `sql.begin` to start a new transaction. Postgres.js will reserve a connection for the transaction and supply a scoped `sql` instance for all transaction uses in the callback function. `sql.begin` will resolve with the returned value from the callback function.
 
-`BEGIN` is automatically sent with the optional options, such as `'read write'` or `'isolation level serializable'`; characters other than letters and spaces are removed from them. If the callback throws or a query in it fails, `ROLLBACK` is sent and `sql.begin` rejects with that error. If the server answers the `COMMIT` with `ROLLBACK`, for example after a failed query that was not awaited or a caught savepoint failure, `sql.begin` rejects with [`TRANSACTION_ROLLED_BACK`](#transaction_rolled_back) and nothing is committed.
+`BEGIN` is automatically sent with the optional options, such as `'read write'` or `'isolation level serializable'`; characters other than letters and spaces are removed from them. If the callback throws or a query in it fails, `ROLLBACK` is sent and `sql.begin` rejects with that error, including when the query failed before reaching the server, such as one with an `undefined` value. If the server answers the `COMMIT` with `ROLLBACK`, for example after a failed query that was not awaited or a caught savepoint failure, `sql.begin` rejects with [`TRANSACTION_ROLLED_BACK`](#transaction_rolled_back) and nothing is committed.
 
 The scoped `sql` only works inside the callback. Statements on it after the transaction has finished, including statements sent while its `COMMIT` or `ROLLBACK` is in flight, reject with `CONNECTION_ENDED`, and statements after its connection closed reject with `CONNECTION_CLOSED`.
 
@@ -1604,7 +1604,7 @@ A statement was sent on a `sql.reserve()` or `sql.begin()` handle while its copy
 ### TRANSACTION_ROLLED_BACK
 > The server rolled the transaction back instead of committing it
 
-This error is thrown by `sql.begin()` when the server answers the final `COMMIT` (or `PREPARE TRANSACTION`) with `ROLLBACK`, because the transaction was aborted by a statement whose error the callback did not surface, such as a failing query that was not awaited. Nothing was committed. When such a query's error was already recorded, it is the error's `cause`.
+This error is thrown by `sql.begin()` when the server answers the final `COMMIT` (or `PREPARE TRANSACTION`) with `ROLLBACK`, because the transaction was aborted by a statement whose error the callback did not surface, such as a failing query that was not awaited, whether the server refused it or it failed before it was sent. Nothing was committed. When such a query's error was already recorded, it is the error's `cause`.
 
 ### Other errors
 

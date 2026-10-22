@@ -21,6 +21,13 @@ const Sync = b().S().end()
     , Flush = b().H().end()
     , ExecuteUnnamed = Buffer.concat([b().E().str(b.N).i32(0).end(), Sync])
     , DescribeUnnamed = b().D().str('S').str(b.N).end()
+    , AbortStatement = 'do $$begin raise exception \'postgres.js: a query failed before it was sent; '
+      + 'this error takes its place so an open transaction cannot commit without it\'; end$$'
+    , Abort = Buffer.concat([
+      b().P().str(b.N).str(AbortStatement + b.N).i16(0).end(),
+      b().B().str(b.N).str(b.N).i16(0).i16(0).i16(0).end(),
+      ExecuteUnnamed
+    ])
     , noop = () => { /* noop */ }
 
 const scramKeyCache = new Map()
@@ -553,10 +560,17 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
         barrier = q
       return written && accepting()
     } catch (error) {
-      sent.remove(q) || write(Sync)
+      abort(q, error)
       queryError(q, error)
       return accepting()
     }
+  }
+
+  function abort(q, error) {
+    q.retried = error
+    q.describeFirst = false
+    q.cursorFn = null
+    write(Abort)
   }
 
   function mayCopy(q) {
@@ -668,7 +682,9 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
       try {
         handle(incoming.subarray(0, length + 1))
       } catch (e) {
-        query && (query.cursorFn || query.describeFirst) && write(Sync)
+        query && query.describeFirst && !query.onlyDescribe
+          ? abort(query, e)
+          : query && (query.cursorFn || query.describeFirst) && write(Sync)
         dispatch('protocolError', e)
       }
       if (socket !== source)
