@@ -1312,15 +1312,19 @@ TLS on Workers differs from Node.js:
 
 #### Hyperdrive
 
-[Hyperdrive](https://developers.cloudflare.com/hyperdrive/) pools connections to your database and can cache read queries. Pass its connection string to `postgres()`; Cloudflare recommends `max: 5` and `fetch_types: false`:
+[Hyperdrive](https://developers.cloudflare.com/hyperdrive/) pools connections to your database and can cache read queries. To use it:
+
+- Point Hyperdrive at the database's direct connection. For Supabase, use the direct connection string, not Supavisor.
+- Leave `prepare` at its default, `true`.
+- Pass Hyperdrive's connection string to `postgres()` with `max: 5`, and with `fetch_types: false` unless you need [array types](#auto-fetching-of-array-types) beyond the built-in ones.
 
 ```ts
 const sql = postgres(env.HYPERDRIVE.connectionString, { max: 5, fetch_types: false })
 ```
 
-CI runs concurrent prepared queries through Hyperdrive, with caching off, on every change: in front of Neon's direct and pooled endpoints, and in front of Supabase's direct connection, verified against Supabase's CA.
+To elaborate, Hyperdrive is itself a pooler and relies on prepared statements: Cloudflare [warns](https://developers.cloudflare.com/hyperdrive/examples/connect-to-postgres/postgres-drivers-and-libraries/postgres-js/) that with `prepare: false` queries can hang or fail. A chain of Worker, Hyperdrive, Supavisor's transaction mode and database fails with either setting, because Supavisor's transaction mode [does not support prepared statements](https://supabase.com/docs/guides/database/connecting-to-postgres): in CI every query failed, with `prepared statement does not exist` under `prepare: true` and with `CONNECTION_CLOSED` or a timeout under `prepare: false`. [Cloudflare's Supabase guide](https://developers.cloudflare.com/hyperdrive/examples/connect-to-postgres/postgres-database-providers/supabase/) also says to use the direct connection. `max: 5` keeps a request within Workers' limit on concurrent connections, and `fetch_types: false` saves a round trip on each new connection.
 
-Point Hyperdrive at the database itself, not at another pooler's transaction mode; for Supabase that is the direct connection, as [Cloudflare's Supabase guide](https://developers.cloudflare.com/hyperdrive/examples/connect-to-postgres/postgres-database-providers/supabase/) says. Hyperdrive pools in transaction mode and needs prepared statements: Cloudflare [discourages `prepare: false`](https://developers.cloudflare.com/hyperdrive/examples/connect-to-postgres/postgres-drivers-and-libraries/postgres-js/) behind it. Supavisor's transaction mode [does not support prepared statements](https://supabase.com/docs/guides/database/connecting-to-postgres), and in front of it queries fail with `prepared statement does not exist`.
+CI runs concurrent prepared queries through Hyperdrive, with caching off, on every change: in front of Neon's direct and pooled endpoints, and in front of Supabase's direct connection, verified against Supabase's CA.
 
 #### Next.js
 
