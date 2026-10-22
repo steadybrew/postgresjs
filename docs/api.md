@@ -1326,10 +1326,6 @@ To elaborate, Hyperdrive is itself a pooler and relies on prepared statements: C
 
 CI runs concurrent prepared queries through Hyperdrive, with caching off, on every change: in front of Neon's direct and pooled endpoints, and in front of Supabase's direct connection, verified against Supabase's CA.
 
-Transactions need no change for Hyperdrive. When a query inside `sql.begin()` fails, its error ends `sql.begin()` and the transaction rolls back, as it does against the database directly. Only code that catches the error and keeps sending queries in the same transaction behaves differently, and that code fails on PostgreSQL too; to carry on after an error, use a [savepoint](#savepoint-await-sqlsavepointname-fn---fn).
-
-To elaborate, after an error PostgreSQL rejects every further statement in the transaction with `25P02`. Behind Hyperdrive the next statement can instead close the connection: when the connection has not run that statement yet and it has a string, number or plain object value (see [Parameter types](#parameter-types)), it rejects with `Network connection lost.` and the rest of the transaction with `CONNECTION_CLOSED`. Nothing is committed, and the next query opens a new connection. Savepoints and the rollback that ends `sql.begin()` work as usual.
-
 #### Next.js
 
 Routes and middleware on the Next.js edge runtime have no TCP sockets, so no PostgreSQL driver can connect from them. Use the Node.js runtime for routes that query the database.
