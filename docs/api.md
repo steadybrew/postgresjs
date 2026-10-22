@@ -1322,13 +1322,23 @@ TLS on Workers differs from Node.js:
 const sql = postgres(env.HYPERDRIVE.connectionString, { max: 5, fetch_types: false })
 ```
 
-Hyperdrive is itself a pooler and relies on prepared statements: Cloudflare [warns](https://developers.cloudflare.com/hyperdrive/examples/connect-to-postgres/postgres-drivers-and-libraries/postgres-js/) that with `prepare: false` queries can hang or fail. A chain of Worker, Hyperdrive, Supavisor's transaction mode and database fails with either setting, because Supavisor's transaction mode [does not support prepared statements](https://supabase.com/docs/guides/database/connecting-to-postgres): in CI every query failed, with `prepared statement does not exist` under `prepare: true` and with `CONNECTION_CLOSED` or a timeout under `prepare: false`. [Cloudflare's Supabase guide](https://developers.cloudflare.com/hyperdrive/examples/connect-to-postgres/postgres-database-providers/supabase/) also says to use the direct connection. `max: 5` keeps a request within Workers' limit on concurrent connections, and `fetch_types: false` saves a round trip on each new connection.
+To elaborate, Hyperdrive is itself a pooler and relies on prepared statements: Cloudflare [warns](https://developers.cloudflare.com/hyperdrive/examples/connect-to-postgres/postgres-drivers-and-libraries/postgres-js/) that with `prepare: false` queries can hang or fail. A chain of Worker, Hyperdrive, Supavisor's transaction mode and database fails with either setting, because Supavisor's transaction mode [does not support prepared statements](https://supabase.com/docs/guides/database/connecting-to-postgres): in CI every query failed, with `prepared statement does not exist` under `prepare: true` and with `CONNECTION_CLOSED` or a timeout under `prepare: false`. [Cloudflare's Supabase guide](https://developers.cloudflare.com/hyperdrive/examples/connect-to-postgres/postgres-database-providers/supabase/) also says to use the direct connection. `max: 5` keeps a request within Workers' limit on concurrent connections, and `fetch_types: false` saves a round trip on each new connection.
 
 CI runs concurrent prepared queries through Hyperdrive, with caching off, on every change: in front of Neon's direct and pooled endpoints, and in front of Supabase's direct connection, verified against Supabase's CA.
 
-Inside `sql.begin()`, wrap a query you want to recover from in a [savepoint](#savepoint-await-sqlsavepointname-fn---fn), and otherwise let its error end the transaction. Do not catch the error and send more queries in the same transaction.
+If a query inside `sql.begin()` may fail and the transaction should carry on without it, for example an insert that may hit a duplicate key, run that query in a [savepoint](#savepoint-await-sqlsavepointname-fn---fn) and catch the error around the savepoint:
 
-PostgreSQL rejects every statement after an error in a transaction with `25P02` until it rolls back, so continuing never works. Behind Hyperdrive it also costs the connection: when the next statement is new to the connection and has a string, number or plain object value (see [Parameter types](#parameter-types)), Hyperdrive closes the connection. That statement rejects with `Network connection lost.` and the rest of the transaction with `CONNECTION_CLOSED`. Nothing is committed, and the next query opens a new connection. Rolling back a savepoint or ending `sql.begin()` is unaffected.
+```ts
+await sql.begin(async sql => {
+  await sql.savepoint(sql => sql`insert into users ${ sql(user) }`)
+    .catch(e => { if (e.code !== '23505') throw e })
+  await sql`update stats set users = users + 1`
+})
+```
+
+The savepoint costs one extra round trip, and one more when its query fails. When the transaction should not carry on, let the error end `sql.begin()`, which rolls it all back.
+
+To elaborate, catching the error inside `sql.begin()` and sending more queries never works: after an error PostgreSQL rejects every statement in the transaction with `25P02` until it rolls back. Behind Hyperdrive it also costs the connection when the next statement is new to the connection and has a string, number or plain object value (see [Parameter types](#parameter-types)). That statement rejects with `Network connection lost.` instead of `25P02`, and the rest of the transaction with `CONNECTION_CLOSED`. Nothing is committed, and the next query opens a new connection. Rolling back to a savepoint and the rollback that ends `sql.begin()` are simple queries, which Hyperdrive handles normally.
 
 #### Next.js
 
