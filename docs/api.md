@@ -1322,6 +1322,8 @@ CI runs concurrent prepared queries through Hyperdrive, with caching off, on eve
 
 Point Hyperdrive at the database itself, not at another pooler's transaction mode; for Supabase that is the direct connection, as [Cloudflare's Supabase guide](https://developers.cloudflare.com/hyperdrive/examples/connect-to-postgres/postgres-database-providers/supabase/) says. Hyperdrive pools in transaction mode and needs prepared statements: Cloudflare [discourages `prepare: false`](https://developers.cloudflare.com/hyperdrive/examples/connect-to-postgres/postgres-drivers-and-libraries/postgres-js/) behind it. Supavisor's transaction mode [does not support prepared statements](https://supabase.com/docs/guides/database/connecting-to-postgres), and in front of it queries fail with `prepared statement does not exist`.
 
+After an error inside a transaction, Hyperdrive closes the connection if the next statement is one the connection has not run yet and has a value whose type Postgres.js asks PostgreSQL for, such as a string, a number or a plain object (see [Parameter types](#parameter-types)). That statement rejects with `Network connection lost.` and the rest of the transaction with `CONNECTION_CLOSED`, where PostgreSQL would answer `25P02`. Nothing is committed, and the next query opens a new connection. An error that ends `sql.begin()` and a failed [savepoint](#savepoint-await-sqlsavepointname-fn---fn) are not affected, because their rollback is a simple query; neither is `parameter_types: 'client'`, which asks only for arrays of such values.
+
 #### Next.js
 
 Routes and middleware on the Next.js edge runtime have no TCP sockets, so no PostgreSQL driver can connect from them. Use the Node.js runtime for routes that query the database.
