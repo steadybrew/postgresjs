@@ -3783,6 +3783,78 @@ t('a retried query whose rebuild throws rejects alone', { timeout: 10 }, async()
   ]
 })
 
+t('a hand-run transaction on max: 1 does not carry on outside it after its connection is terminated while idle', { timeout: 10 }, async() => {
+  const sql = postgres({ ...options, max: 1, fetch_types: false })
+      , other = postgres({ ...options, max: 1 })
+      , result = x => x.command
+      , failure = e => e.code
+  await other`create table test_max1_idle (x int)`
+  await sql`begin`
+  await sql`insert into test_max1_idle values (1)`
+  const [{ pid }] = await sql`select pg_backend_pid() as pid`
+  await other`select pg_terminate_backend(${ pid })`
+  await delay(200)
+  const second = await sql`insert into test_max1_idle values (2)`.then(result, failure)
+  const commit = await sql`commit`.then(result, failure)
+  const xs = (await other`select x from test_max1_idle order by x`).map(x => x.x)
+  await other`drop table test_max1_idle`
+  await Promise.all([sql.end(), other.end()])
+  return [
+    JSON.stringify([[], 'CONNECTION_CLOSED', 'CONNECTION_CLOSED']),
+    JSON.stringify([xs, second, commit])
+  ]
+})
+
+t('a hand-run transaction on max: 1 does not carry on outside it after idle_in_transaction_session_timeout', { timeout: 10 }, async() => {
+  const sql = postgres({ ...options, max: 1, fetch_types: false, connection: { idle_in_transaction_session_timeout: 100 } })
+      , other = postgres({ ...options, max: 1 })
+      , result = x => x.command
+      , failure = e => e.code
+  await other`create table test_max1_timeout (x int)`
+  await sql`begin`
+  await sql`insert into test_max1_timeout values (1)`
+  await delay(500)
+  const second = await sql`insert into test_max1_timeout values (2)`.then(result, failure)
+  const commit = await sql`commit`.then(result, failure)
+  const xs = (await other`select x from test_max1_timeout order by x`).map(x => x.x)
+  await other`drop table test_max1_timeout`
+  await Promise.all([sql.end(), other.end()])
+  return [
+    JSON.stringify([[], 'CONNECTION_CLOSED', 'CONNECTION_CLOSED']),
+    JSON.stringify([xs, second, commit])
+  ]
+})
+
+for (const [label, connect] of [
+  ['max: 1', sql => sql],
+  ['a reserved connection', sql => sql.reserve()]
+]) {
+  t('a hand-run transaction pipelined on ' + label + ' commits nothing when its connection is lost midway', { timeout: 10 }, async() => {
+    const sql = postgres({ ...options, max: 1, fetch_types: false })
+        , other = postgres({ ...options, max: 1 })
+        , result = x => x.command
+        , failure = e => e.code
+    await other`create table test_max1_pipelined (x int)`
+    const tx = await connect(sql)
+    const results = await Promise.all([
+      tx`begin`.then(result, failure),
+      tx`insert into test_max1_pipelined values (${ 1 })`.then(result, failure),
+      tx`select pg_terminate_backend(pg_backend_pid())`.then(result, failure),
+      tx`insert into test_max1_pipelined values (${ 2 })`.then(result, failure),
+      tx`insert into test_max1_pipelined values (${ 3 })`.then(result, failure),
+      tx`commit`.then(result, failure)
+    ])
+    tx.release && tx.release()
+    const xs = (await other`select x from test_max1_pipelined order by x`).map(x => x.x)
+    await other`drop table test_max1_pipelined`
+    await Promise.all([sql.end(), other.end()])
+    return [
+      JSON.stringify([[], 'CONNECTION_CLOSED']),
+      JSON.stringify([xs, results[5]])
+    ]
+  })
+}
+
 t('a throwing debug callback during type discovery still registers array types', async() => {
   const sentinel = new Error('debug sentinel')
   const sql = postgres({
