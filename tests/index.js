@@ -3921,6 +3921,141 @@ t('sql.begin rejects and commits nothing when a query that fails to build runs a
   ]
 })
 
+const cancelled = q => (q.execute(), q.cancel(), q)
+
+t('a query cancelled before it is sent aborts the transaction it is pipelined in on a reserved connection', { timeout: 10 }, async() => {
+  const sql = postgres({ ...options, max: 1 })
+  await sql`create table test (x int)`
+  const reserved = await sql.reserve()
+  const results = await within(Promise.all([
+    reserved`begin`.then(command, failure),
+    reserved`insert into test (x) values (1)`.then(command, failure),
+    cancelled(reserved`insert into test (x) values (2)`).then(command, failure),
+    reserved`insert into test (x) values (3)`.then(command, failure),
+    reserved`commit`.then(command, failure)
+  ]), 'transaction hung')
+  reserved.release()
+  const rows = (await sql`select count(*)::int as n from test`)[0].n
+  await delay(50)
+  const stats = pick(sql.stats())
+  await sql`drop table test`
+  await sql.end()
+
+  return [
+    JSON.stringify(['BEGIN', 'INSERT', '57014', '25P02', 'ROLLBACK', 0, idleStats]),
+    JSON.stringify([...results, rows, stats])
+  ]
+})
+
+t('a query cancelled while queued on a reserved connection aborts its transaction', { timeout: 10 }, async() => {
+  const sql = postgres({ ...options, max: 1, max_pipeline: 0 })
+  await sql`create table test (x int)`
+  const reserved = await sql.reserve()
+  await reserved`begin`
+  await reserved`insert into test (x) values (1)`
+  const slow = reserved`select pg_sleep(0.1)`.execute()
+  const doomed = reserved`insert into test (x) values (2)`.execute()
+  await delay(20)
+  doomed.cancel()
+  const results = await within(Promise.all([
+    slow.then(command, failure),
+    doomed.then(command, failure),
+    reserved`commit`.then(command, failure)
+  ]), 'transaction hung')
+  reserved.release()
+  const rows = (await sql`select count(*)::int as n from test`)[0].n
+  await sql`drop table test`
+  await sql.end()
+
+  return [
+    JSON.stringify(['SELECT', '57014', 'ROLLBACK', 0]),
+    JSON.stringify([...results, rows])
+  ]
+})
+
+t('a query cancelled before it is sent rejects alone outside a transaction on a reserved connection', { timeout: 10 }, async() => {
+  const sql = postgres({ ...options, max: 1 })
+  await sql`create table test (x int)`
+  const reserved = await sql.reserve()
+  const results = await within(Promise.all([
+    reserved`insert into test (x) values (1)`.then(command, failure),
+    cancelled(reserved`insert into test (x) values (2)`).then(command, failure),
+    reserved`insert into test (x) values (3)`.then(command, failure),
+    reserved`select count(*)::int as n from test`.then(x => x[0].n, failure)
+  ]), 'queries hung')
+  reserved.release()
+  await sql`drop table test`
+  await sql.end()
+
+  return [
+    JSON.stringify(['INSERT', '57014', 'INSERT', 2]),
+    JSON.stringify(results)
+  ]
+})
+
+t('a query cancelled before it is sent aborts a transaction run by hand with max: 1', { timeout: 10 }, async() => {
+  const sql = postgres({ ...options, max: 1 })
+  await sql`create table test (x int)`
+  await sql`begin`
+  await sql`insert into test (x) values (1)`
+  const doomed = await cancelled(sql`insert into test (x) values (2)`).then(command, failure)
+  const committed = await sql`commit`.then(command, failure)
+  const rows = (await sql`select count(*)::int as n from test`)[0].n
+  await sql`drop table test`
+  await sql.end()
+
+  return [
+    JSON.stringify(['57014', 'ROLLBACK', 0]),
+    JSON.stringify([doomed, committed, rows])
+  ]
+})
+
+t('a query cancelled while queued in the pool aborts a transaction run by hand with max: 1', { timeout: 10 }, async() => {
+  const sql = postgres({ ...options, max: 1, max_pipeline: 0 })
+  await sql`create table test (x int)`
+  await sql`begin`
+  await sql`insert into test (x) values (1)`
+  const slow = sql`select pg_sleep(0.1)`.execute()
+  const doomed = sql`insert into test (x) values (2)`.execute()
+  await delay(20)
+  doomed.cancel()
+  const results = await within(Promise.all([
+    slow.then(command, failure),
+    doomed.then(command, failure),
+    sql`commit`.then(command, failure)
+  ]), 'transaction hung')
+  const rows = (await sql`select count(*)::int as n from test`)[0].n
+  await sql`drop table test`
+  await sql.end()
+
+  return [
+    JSON.stringify(['SELECT', '57014', 'ROLLBACK', 0]),
+    JSON.stringify([...results, rows])
+  ]
+})
+
+t('sql.begin rejects and commits nothing when a query queued after the callback returned is cancelled', { timeout: 10 }, async() => {
+  const sql = postgres({ ...options, max: 1, max_pipeline: 0 })
+  await sql`create table test (x int)`
+  let doomed
+  const error = await within(sql.begin(s => {
+    s`select pg_sleep(0.1)`.execute()
+    doomed = s`insert into test values (${ 1 })`.execute()
+    doomed.catch(noop)
+    setTimeout(() => doomed.cancel(), 20)
+    return 'done'
+  }).then(x => x, e => e), 'begin hung')
+  const rows = (await sql`select count(*)::int as n from test`)[0].n
+  const next = (await sql`select 4 as x`)[0].x
+  await sql`drop table test`
+  await sql.end()
+
+  return [
+    JSON.stringify(['TRANSACTION_ROLLED_BACK', '57014', 0, 4]),
+    JSON.stringify([error.code, error.cause && error.cause.code, rows, next])
+  ]
+})
+
 t('a throwing debug callback during type discovery still registers array types', async() => {
   const sentinel = new Error('debug sentinel')
   const sql = postgres({
