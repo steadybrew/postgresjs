@@ -68,10 +68,8 @@ jobs:
       matrix:
         include:
           - compat_date: '2025-01-01'
-            known_failures: tls-untrusted-ca
             close_rejections: logged
           - compat_date: '2025-09-15'
-            known_failures: tls-untrusted-ca
             close_rejections: logged
           - compat_date: '2025-01-01'
             flags: unhandled_rejection_after_microtask_checkpoint

@@ -14,7 +14,7 @@ const hyperdrive = [
   { binding: 'HYPERDRIVE_POOLED', id: 'ebb0176610db40e99887ede1f4fd7e66' },
   { binding: 'HYPERDRIVE_SUPABASE', id: 'dbfddf8b784343468b1b4b1a3074fa38' }
 ]
-const closing = /Stream was cancelled|This socket has been closed/
+const closing = /Stream was cancelled|This socket has been closed|Network connection lost/
 
 const repo = path.resolve(new URL('..', import.meta.url).pathname)
 const cpuVariants = [

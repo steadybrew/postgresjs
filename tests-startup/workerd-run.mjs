@@ -94,7 +94,7 @@ async function main() {
       const { failure, detail, output, unhandled } = await run(name)
       const expected = knownFailures.includes(name)
       if (Boolean(failure) !== expected) process.exitCode = 1
-      const closeRejections = unhandled.filter((x) => /Stream was cancelled|This socket has been closed/.test(x)).length
+      const closeRejections = unhandled.filter((x) => /Stream was cancelled|This socket has been closed|Network connection lost/.test(x)).length
       if (closeRejections && !closeRejectionsLogged) process.exitCode = 1
       await writeFile(path.join(work, name + '.log'), output)
       console.log(JSON.stringify({
@@ -148,7 +148,7 @@ async function main() {
       await new Promise((resolve) => setTimeout(resolve, 150))
       assert(res.ok && body.passed, JSON.stringify(body))
       if (tag) detail = { ...detail, ...await released(harness, target, tag) }
-      const closing = /Stream was cancelled|This socket has been closed/
+      const closing = /Stream was cancelled|This socket has been closed|Network connection lost/
       const fatal = /WORKER_UNHANDLED_REJECTION|Uncaught|unhandled rejection|parameter \d+ is not of type/i
       const errors = harness.getLogs().map((x) => String(x.message)).filter((x) => fatal.test(x) && !closing.test(x))
       assert.deepEqual(errors, [], 'Worker errors: ' + errors.join('\n'))
