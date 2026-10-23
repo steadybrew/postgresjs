@@ -47,13 +47,13 @@ export const changes = {
     level: 'review',
     since: '4.0.0',
     title: 'A reserved connection is used after release()',
-    advice: 'Queries on a released handle reject with CONNECTION_ENDED instead of running on whatever session the connection has next.'
+    advice: 'Queries on a released handle reject with CONNECTION_RELEASED (CONNECTION_ENDED before 4.7.0) instead of running on whatever session the connection has next.'
   },
   'transaction-handle-escapes': {
     level: 'review',
     since: '4.0.0',
     title: 'A transaction handle may be used after sql.begin() returns',
-    advice: 'Statements on a finished transaction handle reject with CONNECTION_ENDED instead of running outside the transaction. Keep them inside the callback and await them.'
+    advice: 'Statements on a finished transaction handle reject with TRANSACTION_ENDED (CONNECTION_ENDED before 4.7.0) instead of running outside the transaction. Keep them inside the callback and await them.'
   },
   'transaction-prepare-name': {
     level: 'review',
@@ -86,10 +86,10 @@ export const changes = {
     advice: 'Postgres.js still logged them with console.log.'
   },
   'connection-ended-check': {
-    level: 'review',
+    level: 'info',
     since: '4.0.0',
     title: 'Code checks for CONNECTION_ENDED',
-    advice: 'On 3.4.9 this code meant sql.end() was called. The fork also raises it for a query on a reserved connection after release(), on a transaction handle after the transaction ended, and for work sent while COMMIT runs. Code that reads it as "the pool is shutting down", or retries it as transient, now also sees these programming errors.'
+    advice: 'On the fork this still means only that sql.end() was called, as on 3.4.9. A reserved connection used after release() rejects with CONNECTION_RELEASED and a transaction handle used after its transaction ended with TRANSACTION_ENDED. Those are bugs to fix, so keep them out of any retry set.'
   },
   'postgres-via-dependency': {
     level: 'act',
