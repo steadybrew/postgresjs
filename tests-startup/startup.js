@@ -413,7 +413,8 @@ export async function phases(name, postgres, onEvent) {
                 'cancel-request-refused', 'cancel-unawaited', 'ending-queued-reconnect', 'ending-queued-down',
                 'ending-other-open', 'terminate-ready', 'terminate-draining', 'terminate-pipeline'].includes(name)
   const cause = name.startsWith('cause-') ? name.split('-')[2] : ''
-  const holding = ['reserve-end', 'cancel-initial', 'failover-timeout', 'deadline-attempt-error', 'deadline-attempt-timeout',
+  const holding = ['reserve-end', 'cancel-initial', 'cancel-initial-untyped', 'failover-timeout',
+                   'deadline-attempt-error', 'deadline-attempt-timeout',
                    'timeout-keeps-error', 'ending-during-retry', 'terminate-authenticating', 'lifetime-startup',
                    'cancel-query-unawaited'].includes(name) || cause === 'timeout'
   const server = await peer({ holdQuery: hang ? 'hang' : '', holdStartup: holding, readOnly: name === 'single-host-read-only',
@@ -423,6 +424,7 @@ export async function phases(name, postgres, onEvent) {
                               holdSession: name === 'terminate-initializing',
                               allowHalfOpen: name === 'terminate-closing' || name === 'closing-bounded' || name === 'handout-unanswered',
                               fatalAfterSession: name === 'fatal-initializing', fatalDuringSession: name === 'fatal-initializing-inflight',
+                              holdStatement: name === 'cancel-initial-catalog' ? 'pg_catalog.pg_type' : '',
                               sslReply: name === 'tls-throw' ? 'S' : '', failQuery: name === 'cancel-pipelined' ? 'fail c' : '',
                               failAuthentication: cause === 'server' ? 'always' : name === 'reentrant-onclose', onEvent })
   const hold = name === 'failover-timeout' ? server : null
@@ -490,6 +492,18 @@ export async function phases(name, postgres, onEvent) {
       server.releaseStartup()
       await sleep(50)
       assert.strictEqual(await settle(marker(sql), 2000), 'resolved')
+      await sql.end()
+    } else if (name === 'cancel-initial-catalog' || name === 'cancel-initial-untyped') {
+      const sql = make({ connect_timeout: 5, fetch_types: name === 'cancel-initial-catalog' })
+      const query = sql.unsafe('select 42 as marker', [], { simple: true })
+      const first = settle(query)
+      await until(() => name === 'cancel-initial-catalog' ? server.heldStatement() : startups(server) === 1)
+      await query.cancel()
+      assert.strictEqual(await first, 'rejected:57014')
+      name === 'cancel-initial-catalog' ? server.releaseStatement() : server.releaseStartup()
+      await sleep(50)
+      assert.strictEqual(await settle(marker(sql), 2000), 'resolved')
+      assert.strictEqual(startups(server), 1)
       await sql.end()
     } else if (name === 'factory-backoff') {
       let calls = 0
