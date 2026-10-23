@@ -6,4 +6,4 @@ nodes:
     type: automatic
     steps:
       - name: Run @steadybrew/postgresjs-migrate --switch
-        run: npx -y @steadybrew/postgresjs-migrate@0.1.1 . --switch
+        run: npx -y @steadybrew/postgresjs-migrate@0.2.0 . --switch

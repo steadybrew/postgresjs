@@ -1,6 +1,6 @@
 {
   "name": "@steadybrew/postgresjs-migrate",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Check a Postgres.js 3.x project and switch it to @steadybrew/postgresjs",
   "license": "Unlicense",
   "type": "module",
