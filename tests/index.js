@@ -5500,7 +5500,7 @@ t('reserved dispose releases the connection', async() => {
   const code = await reserved`select 1`.catch(x => x.code)
   const [{ x }] = await sql`select 1 as x`
   await sql.end()
-  return ['CONNECTION_ENDED 1', code + ' ' + x]
+  return ['CONNECTION_RELEASED 1', code + ' ' + x]
 })
 
 t('reserved asyncDispose releases the connection', async() => {
@@ -5510,7 +5510,7 @@ t('reserved asyncDispose releases the connection', async() => {
   const code = await reserved`select 1`.catch(x => x.code)
   const [{ x }] = await sql`select 1 as x`
   await sql.end()
-  return ['CONNECTION_ENDED 1', code + ' ' + x]
+  return ['CONNECTION_RELEASED 1', code + ' ' + x]
 })
 
 t('reserved dispose after release does not throw', async() => {
@@ -5521,6 +5521,22 @@ t('reserved dispose after release does not throw', async() => {
   await reserved[Symbol.asyncDispose]()
   await sql.end()
   return [true, true]
+})
+
+t('handle misuse rejects with its own code, not a connection error', async() => {
+  const sql = postgres({ ...options, max: 2 })
+  const reserved = await sql.reserve()
+  reserved.release()
+  let leaked
+  await sql.begin(async tx => { leaked = tx; await tx`select 1` })
+  const shape = e => [e.code, e.message.startsWith(e.code + ': '), 'address' in e, 'port' in e].join(' ')
+  const afterRelease = await reserved`select 1`.catch(shape)
+  const afterCommit = await leaked`select 1`.catch(shape)
+  await sql.end()
+  return [
+    'CONNECTION_RELEASED true false false|TRANSACTION_ENDED true false false',
+    afterRelease + '|' + afterCommit
+  ]
 })
 
 t('transaction and savepoint handles are not disposable', async() => {
@@ -5557,7 +5573,7 @@ t('using declarations end the pool and release the reservation', async() => {
       }
       const released = await handle\`select 1\`.catch(x => x.code)
       const [{ x }] = await sql\`select 1 as x\`
-      if (released !== 'CONNECTION_ENDED' || x !== 1)
+      if (released !== 'CONNECTION_RELEASED' || x !== 1)
         return 'reservation not released'
     }
     return await pool\`select 1\`.catch(x => x.code)

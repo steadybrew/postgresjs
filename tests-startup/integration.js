@@ -348,7 +348,7 @@ async function finishedHandles(postgres, admin) {
     const held = await sql.reserve()
     await held`select 1 as x`
     held.release()
-    assert.strictEqual(await outcome(held`insert into lease_probe values (5)`), 'CONNECTION_ENDED')
+    assert.strictEqual(await outcome(held`insert into lease_probe values (5)`), 'CONNECTION_RELEASED')
     const leaks = []
     await sql.begin(async t => {
       leaks.push(t)
@@ -365,7 +365,7 @@ async function finishedHandles(postgres, admin) {
     })
     await admin.unsafe(`rollback prepared 'lease_finished_${ process.pid }'`)
     for (const leak of [...leaks, ...prepared])
-      assert.strictEqual(await outcome(leak`insert into lease_probe values (6)`), 'CONNECTION_ENDED')
+      assert.strictEqual(await outcome(leak`insert into lease_probe values (6)`), 'TRANSACTION_ENDED')
     assert.strictEqual((await admin`select count(*)::int as n from lease_probe`)[0].n, 0)
     assert.strictEqual((await sql`select 1 as x`)[0].x, 1)
   } finally {

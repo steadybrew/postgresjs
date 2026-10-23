@@ -16,10 +16,11 @@ export const leaseNames = ['reserve-close', 'reserve-release-close', 'reserve-st
                            'settling-end-commit', 'settling-end-rollback', 'settling-end-prepare',
                            'settling-fail-rollback', 'settling-fail-prepare',
                            'outcome-commit-released', 'outcome-release-released', 'reserve-release-after-error', 'begin-late-drain',
-                           'begin-queued-reset', 'begin-inflight-end', 'begin-inflight-end-reset']
+                           'begin-queued-reset', 'begin-inflight-end', 'begin-inflight-end-reset', 'begin-close-leaked']
 
 const closed = 'rejected:CONNECTION_CLOSED'
-const ended = 'rejected:CONNECTION_ENDED'
+const released = 'rejected:CONNECTION_RELEASED'
+const transactionEnded = 'rejected:TRANSACTION_ENDED'
 const select = (client, text) => client.unsafe(text, [], { simple: true })
 const sent = (server, text) => server.events.filter(x => x.type === 'Q' && x.sql === text)
 
@@ -120,8 +121,10 @@ export async function leases(name, postgres, onEvent) {
       const held = await sql.reserve()
       await marker(held)
       sockets[0].emit('error', new Error('socket failed'))
+      assert.strictEqual(await settle(select(held, 'select before release')), closed)
+      assert.strictEqual(sent(server, 'select before release').length, 0)
       held.release()
-      assert.strictEqual(await settle(select(held, 'select stale')), closed)
+      assert.strictEqual(await settle(select(held, 'select stale')), released)
       assert.strictEqual(sent(server, 'select stale').length, 0)
       await sleep(100)
       assert.strictEqual(await settle(marker(sql)), 'resolved')
@@ -151,7 +154,7 @@ export async function leases(name, postgres, onEvent) {
       const second = await sql.reserve()
       const pool = settle(select(sql, 'select 44 as marker'))
       first.release()
-      assert.strictEqual(await settle(select(first, 'select stale')), ended)
+      assert.strictEqual(await settle(select(first, 'select stale')), released)
       assert.strictEqual((await select(second, 'select 42 as marker')).state.pid, pid)
       assert.strictEqual(sent(server, 'select 44 as marker').length, 0)
       assert.strictEqual(sent(server, 'select stale').length, 0)
@@ -166,6 +169,21 @@ export async function leases(name, postgres, onEvent) {
         await marker(t)
       }))
       assert.strictEqual(await outcome, closed)
+      assert.strictEqual(await settle(marker(sql)), 'resolved')
+      assert.strictEqual(await settle(sql.end()), 'resolved')
+    } else if (name === 'begin-close-leaked') {
+      let leaked
+      const outcome = settle(sql.begin(async t => {
+        leaked = t
+        await marker(t)
+        server.disconnect()
+        await sleep(50)
+      }))
+      assert.strictEqual(await outcome, closed)
+      await sleep(100)
+      assert.strictEqual(await settle(select(leaked, 'select stale')), transactionEnded)
+      assert.strictEqual(await settle(leaked.savepoint(async() => undefined)), transactionEnded)
+      assert.strictEqual(sent(server, 'select stale').length, 0)
       assert.strictEqual(await settle(marker(sql)), 'resolved')
       assert.strictEqual(await settle(sql.end()), 'resolved')
     } else if (name === 'begin-stale') {
@@ -297,7 +315,7 @@ export async function leases(name, postgres, onEvent) {
       const held = await sql.reserve()
       await marker(held)
       held.release()
-      assert.strictEqual(await settle(select(held, 'select stale')), ended)
+      assert.strictEqual(await settle(select(held, 'select stale')), released)
       assert.strictEqual(sent(server, 'select stale').length, 0)
       assert.strictEqual(await settle(marker(sql)), 'resolved')
       assert.strictEqual(await settle(sql.end()), 'resolved')
@@ -306,7 +324,7 @@ export async function leases(name, postgres, onEvent) {
       const results = ['select hang 1', 'select hang 2', 'select hang 3'].map(text => settle(select(held, text)))
       await until(() => sent(server, 'select hang 1').length === 1)
       held.release()
-      assert.deepStrictEqual(await Promise.all(results.slice(1)), [ended, ended])
+      assert.deepStrictEqual(await Promise.all(results.slice(1)), [released, released])
       assert.strictEqual(sent(server, 'select hang 2').length, 0)
       assert.strictEqual(await settle(sql.end({ timeout: 0 })), 'resolved')
     } else if (name === 'begin-leaked-commit' || name === 'begin-leaked-rollback' || name === 'begin-leaked-savepoint') {
@@ -317,8 +335,8 @@ export async function leases(name, postgres, onEvent) {
         name === 'begin-leaked-rollback' && assert.fail('mine')
       }))
       assert.strictEqual(await outcome, name === 'begin-leaked-rollback' ? 'rejected:ERR_ASSERTION' : 'resolved')
-      assert.strictEqual(await settle(select(leaked, 'select stale')), ended)
-      assert.strictEqual(await settle(leaked.savepoint(async() => { /* Never entered. */ })), ended)
+      assert.strictEqual(await settle(select(leaked, 'select stale')), transactionEnded)
+      assert.strictEqual(await settle(leaked.savepoint(async() => { /* Never entered. */ })), transactionEnded)
       assert.strictEqual(sent(server, 'select stale').length, 0)
       assert.strictEqual(await settle(marker(sql)), 'resolved')
       assert.strictEqual(await settle(sql.end()), 'resolved')
@@ -368,8 +386,8 @@ export async function leases(name, postgres, onEvent) {
       }))
       await until(() => server.heldStatement())
       const pooled = settle(select(sql, 'select 43 as marker'))
-      assert.strictEqual(await settle(select(leaked, 'select late')), ended)
-      assert.strictEqual(await settle(leaked.savepoint(async() => undefined)), ended)
+      assert.strictEqual(await settle(select(leaked, 'select late')), transactionEnded)
+      assert.strictEqual(await settle(leaked.savepoint(async() => undefined)), transactionEnded)
       await sleep(30)
       assert.strictEqual(sent(server, 'select late').length, 0)
       assert.strictEqual(sent(server, 'select 43 as marker').length, 0)
@@ -409,7 +427,7 @@ export async function leases(name, postgres, onEvent) {
     } else if (name === 'begin-leaked-savepoint-late') {
       let leaked
       assert.strictEqual(await settle(sql.begin(async t => { leaked = t.savepoint(async() => { await sleep(50) }) })), 'resolved')
-      assert.strictEqual(await leaked.then(() => 'resolved', e => e === null ? 'null' : e.code), 'CONNECTION_ENDED')
+      assert.strictEqual(await leaked.then(() => 'resolved', e => e === null ? 'null' : e.code), 'TRANSACTION_ENDED')
       assert.strictEqual(await settle(sql.end()), 'resolved')
     } else if (name.endsWith('-cancel-before-send')) {
       const cancelled = async client => {
@@ -514,7 +532,9 @@ export async function leases(name, postgres, onEvent) {
     } else if (settling.length) {
       const [, mode, statement] = settling
       const first = (await select(sql, 'select 42 as marker')).state.pid
+      let leaked
       const outcome = settle(sql.begin(async t => {
+        leaked = t
         await marker(t)
         statement === 'prepare' && t.prepare('tx1')
         if (statement === 'rollback')
@@ -522,6 +542,11 @@ export async function leases(name, postgres, onEvent) {
       }))
       await until(() => server.heldStatement())
       const pooled = settle(sql`select 43 as marker`)
+      if (statement !== 'commit') {
+        assert.strictEqual(await settle(select(leaked, 'select late')), transactionEnded)
+        assert.strictEqual(await settle(leaked.savepoint(async() => undefined)), transactionEnded)
+        assert.strictEqual(sent(server, 'select late').length, 0)
+      }
       await sleep(5)
       let ending
       if (mode === 'disconnect') {
@@ -535,6 +560,11 @@ export async function leases(name, postgres, onEvent) {
       }
       assert.strictEqual(await outcome, mode === 'disconnect' ? closed : mode === 'fail' ? 'rejected:40002'
         : statement === 'rollback' ? 'rejected:USER' : 'resolved')
+      if (mode === 'disconnect') {
+        assert.strictEqual(await settle(select(leaked, 'select after loss')), transactionEnded)
+        assert.strictEqual(await settle(leaked.savepoint(async() => undefined)), transactionEnded)
+        assert.strictEqual(sent(server, 'select after loss').length, 0)
+      }
       assert.strictEqual(await pooled, 'resolved')
       mode === 'fail' && assert.strictEqual(startups(server), 2)
       mode === 'fail' && assert.notStrictEqual((await select(sql, 'select 42 as marker')).state.pid, first)
