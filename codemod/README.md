@@ -21,7 +21,7 @@ Every finding has a file and line, grouped by what to do about it:
 
 `--json` prints the findings and the facts behind them (clients, ORMs, tracers, lockfiles) instead.
 
-The full list of behaviour changes is in the fork's [migration guide](https://github.com/steadybrew/postgresjs/blob/main/docs/upgrading.md#upgrading-to-400) and [changelog](https://github.com/steadybrew/postgresjs/blob/main/CHANGELOG.md).
+The full list of behaviour changes is in the fork's [migration guide](https://github.com/steadybrew/postgresjs/blob/main/docs/upgrading.md#upgrading-to-4x) and [changelog](https://github.com/steadybrew/postgresjs/blob/main/CHANGELOG.md).
 
 ## What `--switch` changes
 

@@ -40,7 +40,9 @@ node --import ./sentry-postgres.mjs --import @sentry/node/import app.js
 
 This covers Sentry's runtime hook, not its bundler plugins. With pnpm, add `@sentry/server-utils` at the same version as `@sentry/node` so the file can import it.
 
-## Upgrading to 4.0.0
+<a id="upgrading-to-400"></a>
+
+## Upgrading to 4.x
 
 What changes for code written against Postgres.js 3.4 or `@steadybrew/postgresjs` 3.x. Version 4.0.0 holds the breaking changes; the later items are behaviour changes in 4.x releases.
 
