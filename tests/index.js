@@ -1437,7 +1437,7 @@ t('stats count a reserved connection at the pipeline limit as reserved with queu
   ]
 })
 
-t('stats drop a query cancelled in a reserved connection queue', async() => {
+t('stats count a query cancelled in a reserved connection queue until the statement sent in its place has run', async() => {
   const sql = postgres({ ...options, max: 1, max_pipeline: 1 })
   const reserved = await sql.reserve()
   const queries = [1, 2, 3].map(() => reserved`select pg_sleep(0.05)`.execute())
@@ -1447,11 +1447,13 @@ t('stats drop a query cancelled in a reserved connection queue', async() => {
   await queries[2].cancel()
   const after = sql.stats().waitingCount
   await Promise.all(queries.slice(0, 2))
+  await delay(50)
+  const drained = sql.stats().waitingCount
   reserved.release()
   await sql.end()
   return [
-    JSON.stringify(['57014', 2, 1]),
-    JSON.stringify([await cancelled, before, after])
+    JSON.stringify(['57014', 2, 2, 0]),
+    JSON.stringify([await cancelled, before, after, drained])
   ]
 })
 

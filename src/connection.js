@@ -543,7 +543,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
       return true
     }
 
-    if (q.cancelled)
+    if (q.cancelled && !connection.owner && max !== 1)
       return true
 
     q.owner === undefined && (q.owner = connection.owner)
@@ -553,6 +553,12 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
       query
         ? sent.push(q)
         : (query = q, query.active = true)
+
+      if (q.cancelled) {
+        q.cancelled = null
+        abort(q, Errors.generic('57014', 'canceling statement due to user request'))
+        return accepting()
+      }
 
       build(q)
       const written = write(toBuffer(q))

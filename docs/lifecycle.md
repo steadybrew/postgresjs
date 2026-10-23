@@ -210,7 +210,7 @@ The connection drives its own queue through four callbacks:
 
 **Cancel.**
 
-- **A query still waiting in the pool:** removed and rejected with 57014.
+- **A query not yet written:** rejected with 57014 at once. If it belongs to a lease, or the pool has `max: 1`, it stays in its queue, and when it reaches the connection the connection writes the refused statement from a failed build in its place, so an open transaction fails. Otherwise it is removed from the pool queue, or skipped if it reaches a connection.
 - **A query pipelined behind another:** marked, and its CancelRequest is sent once it becomes the current query. It is settled by its own response.
 - **The current query:** the CancelRequest is sent at once.
 

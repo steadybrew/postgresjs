@@ -504,7 +504,7 @@ setTimeout(() => query.cancel(), 100)
 const result = await query
 ```
 
-A cancelled query rejects with code `57014`. A cancel can arrive too late, in which case the query may still complete, or fail with its own error. `query.cancel()` resolves once the cancel request has been sent. A cancelled query you don't await does not cause an unhandled rejection. A query cancelled before it was sent is removed from the queue and rejects with `57014` without contacting the server.
+A cancelled query rejects with code `57014`. A cancel can arrive too late, in which case the query may still complete, or fail with its own error. `query.cancel()` resolves once the cancel request has been sent. A cancelled query you don't await does not cause an unhandled rejection. A query cancelled before it was sent rejects with `57014` at once. On a reserved connection, in a transaction, or on a pool with `max: 1`, it keeps its place in line and the driver sends a statement the server refuses in its place, so an open transaction fails instead of committing without it. Elsewhere it is removed from the queue without contacting the server.
 
 The cancel request opens its own connection with the same `ssl`, `sslnegotiation` and `socket` options, bounded by `connect_timeout`. With [several hosts](#multi-host-connections---high-availability-ha) it always goes to the first one, so a query running on another host is not cancelled.
 
@@ -1195,7 +1195,7 @@ sql.stats()
 | `max` | The `max` option |
 | `totalCount` | Connections that exist: connecting, idle or in use |
 | `idleCount` | Connections with a live session that are not in use. A connection released while its reserved handle still has queries in flight is idle with `executingCount` above 0 |
-| `waitingCount` | Issued queries and `reserve()` or `begin()` calls that are not running yet: those in the pool queue, those held by a connection that is still opening, those pipelined behind a connection's running query, and those a reserved handle or transaction has queued behind its own connection |
+| `waitingCount` | Issued queries and `reserve()` or `begin()` calls that are not running yet: those in the pool queue, those held by a connection that is still opening, those pipelined behind a connection's running query, and those a reserved handle or transaction has queued behind its own connection. A query cancelled while queued on a reserved handle, a transaction or a pool with `max: 1` counts until the statement sent in its place has run |
 | `activeCount` | `busyCount + reservedCount`, connections in use |
 | `availableCount` | `idleCount` plus the slots the pool can still open (`max - totalCount - closingCount`): connections a query can get without waiting behind other work |
 | `busyCount` | Pool connections running queries, including connections at the pipeline limit |
@@ -1572,7 +1572,7 @@ Thrown by [`sql.prepare(name)`](#prepare-transaction-sqlpreparename) inside `sql
 ### 57014
 > canceling statement due to user request
 
-The code PostgreSQL uses for a cancelled statement. A query [cancelled](#canceling-queries-in-progress) before it was sent rejects with a plain `Error` carrying this code, so `err.code === '57014'` matches a cancel whether the server or the client settled it.
+The code PostgreSQL uses for a cancelled statement. A query [cancelled](#canceling-queries-in-progress) before it was sent rejects with a plain `Error` carrying this code, so `err.code === '57014'` matches a cancel whether the server or the client settled it. If it was in a transaction, the transaction fails as after a server error.
 
 ### CONNECTION_CLOSED
 > write CONNECTION_CLOSED host:port

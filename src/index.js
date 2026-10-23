@@ -540,7 +540,7 @@ function Postgres(a, b) {
       if (query.state) {
         query.cancelled = { resolve, reject }
       } else {
-        (query.queue || queries).remove(query)
+        query.queue || options.max === 1 || queries.remove(query)
         query.cancelled = true
         query.reject(Errors.generic('57014', 'canceling statement due to user request'))
         resolve()
