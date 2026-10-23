@@ -560,7 +560,7 @@ Use `sql.begin` to start a new transaction. Postgres.js will reserve a connectio
 
 `BEGIN` is automatically sent with the optional options, such as `'read write'` or `'isolation level serializable'`; characters other than letters and spaces are removed from them. If the callback throws or a query in it fails, `ROLLBACK` is sent and `sql.begin` rejects with that error, including when the query failed before reaching the server, such as one with an `undefined` value. If the server answers the `COMMIT` with `ROLLBACK`, for example after a failed query that was not awaited or a caught savepoint failure, `sql.begin` rejects with [`TRANSACTION_ROLLED_BACK`](#transaction_rolled_back) and nothing is committed.
 
-The scoped `sql` only works inside the callback. Statements on it after the transaction has finished, including statements sent while its `COMMIT` or `ROLLBACK` is in flight, reject with `CONNECTION_ENDED`, and statements after its connection closed reject with `CONNECTION_CLOSED`.
+The scoped `sql` only works inside the callback. Statements on it after the transaction has finished, including statements sent while its `COMMIT` or `ROLLBACK` is in flight, reject with [`TRANSACTION_ENDED`](#transaction_ended), and statements after its connection closed reject with `CONNECTION_CLOSED` for as long as the callback is still running.
 
 ```js
 const [user, account] = await sql.begin(async sql => {
@@ -1507,7 +1507,7 @@ using reserved = await sql.reserve()
 await reserved`select * from users`
 ```
 
-After release, queries through that reserved handle reject with [`CONNECTION_ENDED`](#connection_ended). Call `sql.reserve()` again to acquire a new handle. A reserved handle whose connection has closed rejects with `CONNECTION_CLOSED` and cannot be reused after reconnect.
+After release, queries through that reserved handle reject with [`CONNECTION_RELEASED`](#connection_released). Call `sql.reserve()` again to acquire a new handle. A reserved handle whose connection has closed rejects with `CONNECTION_CLOSED` until it is released, and cannot be reused after reconnect.
 
 ## Error handling
 
@@ -1582,9 +1582,17 @@ This error is thrown if the connection was closed, or could not be opened, witho
 ### CONNECTION_ENDED
 > write CONNECTION_ENDED host:port
 
-This error is thrown if the user has called [`sql.end()`](#teardown--cleanup) and performed a query afterward.
+This error is thrown if the user has called [`sql.end()`](#teardown--cleanup) and then starts a query, `sql.reserve()` or `sql.begin()`, or one of the last two was still waiting for a connection when `sql.end()` was called. A reserved handle or transaction handle that is already held is not affected: it keeps working until it is released or its transaction finishes. If `sql.end({ timeout })` closes its connection first, a statement in flight and `sql.begin()` reject with `CONNECTION_DESTROYED`, and statements sent afterwards reject with `CONNECTION_CLOSED`. Before 4.7.0 it was also raised for the handle misuse described under [`TRANSACTION_ENDED`](#transaction_ended) and [`CONNECTION_RELEASED`](#connection_released).
 
-A reserved `sql` used after `release()`, or a transaction `sql` used after `begin()` has committed, rolled back or prepared, or while its `COMMIT` or `ROLLBACK` is in flight, also rejects with `CONNECTION_ENDED`.
+### TRANSACTION_ENDED
+> TRANSACTION_ENDED: Transaction handle used after its transaction ended
+
+A statement was sent on a `sql.begin()` handle, or a savepoint handle in it, after the transaction had committed, rolled back or prepared, or while its `COMMIT`, `ROLLBACK` or `PREPARE TRANSACTION` is in flight. The statement is not sent. A savepoint whose callback was still running when the outer transaction ended rejects with it too, though no statement was sent. This also holds after the callback finished on a transaction whose connection had closed. This is a bug in the calling code, for example a handle that escaped the callback or a query that was not awaited, so fix it rather than retry it. Since 4.7.0; before, `CONNECTION_ENDED`, or `CONNECTION_CLOSED` when the connection had closed before the callback finished.
+
+### CONNECTION_RELEASED
+> CONNECTION_RELEASED: Reserved connection used after release()
+
+A statement was sent on a [`sql.reserve()`](#reserving-connections) handle after `release()`, or after it was disposed. Statements sent before `release()` that were still waiting behind an earlier one reject with it as well. This holds even if the connection had closed before `release()`. The statement is not sent, because the connection may already belong to someone else. This is a bug in the calling code, so fix it rather than retry it; call `sql.reserve()` again for a new handle. Since 4.7.0; before, `CONNECTION_ENDED`, or `CONNECTION_CLOSED` when the connection had closed before `release()`.
 
 ### CONNECTION_DESTROYED
 > write CONNECTION_DESTROYED host:port

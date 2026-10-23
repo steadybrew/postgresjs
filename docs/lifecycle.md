@@ -140,37 +140,29 @@ An asynchronous result can arrive after the phase or attempt that started it is 
 
 ## Leases
 
-`reserve()` and `begin()` take a connection out of the pool through a lease. The lease is the only owner of that connection until it settles.
+`reserve()` and `begin()` take a connection out of the pool through a lease. The lease's state says what the handle is doing now.
 
-| State | Entered by | Meaning |
+| State | The handle is | A statement on it |
 |---|---|---|
-| Active | `own(c, l)`, before `reserve()`/`begin()` resolve | The connection is owned; statements run, or wait in the lease's queue under backpressure. |
-| Settling | `begin()` sending COMMIT, ROLLBACK or PREPARE TRANSACTION | Only that statement may run. |
-| Released | `settle(l, Released)` | Terminal. The connection returns to the pool. |
-| Discarded | `settle(l, Discarded)` | Terminal. The connection is terminated, so the server rolls back anything open. |
-| Closed | `settle(l, Closed, err)` from the pool's `onclose` | Terminal. The connection is already gone; the lease only records why. |
+| Active | in use | Runs, or waits in the lease's queue while the connection is `full` or not accepting; rejects with `COPY_IN_PROGRESS` while the connection's COPY stream is open |
+| Closed | in use, but its connection closed | `CONNECTION_CLOSED` |
+| Settling | a transaction finishing its COMMIT, ROLLBACK or PREPARE TRANSACTION; only that statement runs | `TRANSACTION_ENDED` |
+| Ended | a transaction that is over | `TRANSACTION_ENDED` |
+| Released | a reservation that has been released | `CONNECTION_RELEASED` |
 
-`settle` does nothing for a lease that is already terminal. Otherwise it clears the connection's owner, rejects every statement still waiting in the lease's queue, and then releases the connection, terminates it, or records the error.
+A reservation ends at `release()` or dispose. A transaction ends when its callback has finished, even if `begin()` already rejected because the connection closed. Statements still waiting in the lease's queue when it ends reject with its code, and so does a savepoint callback still running when its transaction ended.
 
-Who decides the outcome:
+`own(c, l)` makes a lease Active before `reserve()` or `begin()` resolve. `finish()` makes an Active transaction lease Settling. When a connection closes, the pool's `onclose` marks an Active lease Closed, records the error, clears the connection's owner, rejects the statements waiting in the lease's queue with `CONNECTION_CLOSED` and tells `begin()`, which rejects with that error: `CONNECTION_CLOSED` with the FATAL or socket error as `cause`, or `CONNECTION_DESTROYED` after a forced `end({ timeout })` with a statement in flight.
 
-| Situation | Outcome |
-|---|---|
-| `sql.release()` on a reserved handle | Released |
-| `begin()`: COMMIT, ROLLBACK or PREPARE TRANSACTION succeeded | Released |
-| `begin()`: the server refused BEGIN with a `PostgresError` | Released; the connection is healthy |
-| `begin()`: the settle statement failed | Discarded, and the error is rethrown |
-| `begin()`: any other way out of the callback | Discarded (no effect if the lease is already terminal) |
-| The connection closed while owned | Closed; `begin()` rejects with `CONNECTION_CLOSED`, whose `cause` is the FATAL or socket error |
+Ending a lease goes through `stop(l, state)`, which sets Ended or Released, rejects the statements still waiting in its queue, and returns the connection only if the lease still holds it. The caller then returns the connection to the pool with `c.release()` or closes it with `c.terminate()`:
 
-What a statement sent on a lease handle gets:
-
-| Lease state | Result |
-|---|---|
-| Active | Runs, or waits in the lease's queue while the connection is `full` or not accepting; rejects with `COPY_IN_PROGRESS` while the connection's COPY stream is open |
-| Settling | `CONNECTION_ENDED`, except the settle statement itself |
-| Released, Discarded | `CONNECTION_ENDED` |
-| Closed | `CONNECTION_CLOSED` |
+| Situation | State | Connection |
+|---|---|---|
+| `sql.release()` or dispose on a reserved handle | Released | returned to the pool |
+| `begin()`: COMMIT, ROLLBACK or PREPARE TRANSACTION succeeded | Ended | returned to the pool |
+| `begin()`: the server refused BEGIN with a `PostgresError` | Ended | returned to the pool; the session is healthy |
+| `begin()`: the settle statement failed | Ended | closed, and the error is rethrown |
+| `begin()`: the callback finished in any other way | Ended | closed, so the server rolls back anything open |
 
 A query records its owner when it is sent. `UNSAFE_TRANSACTION` is decided by that owner, so a raw `BEGIN` sent through the pool rejects even if a lease takes the same connection before it completes. A prepared statement is retried after a plan-invalidation error only under the same owner it was sent with.
 
@@ -201,7 +193,7 @@ The connection drives its own queue through four callbacks:
 | `onopen(c, request)` | hand-off; a ReadyForQuery with nothing pipelined and no owner; a released lease; socket `drain` | hands `c` to a waiting reservation, files it in `open`, or runs the request and up to its share of queued queries and files it `busy` or `full` |
 | `onend(c)` | the connection starts ending | files it in `ended` |
 | `ondrain(c)` | a Draining connection has gone idle | if the pool is ending, runs queued plain queries on it (rejecting queued reservations with `CONNECTION_ENDED`) and keeps it Draining; otherwise lets it close |
-| `onclose(c, err)` | `enterClosed` | files it in `closed`, settles its lease as Closed, and either starts the next queued request on it or, while ending, handles the queue as described below |
+| `onclose(c, err)` | `enterClosed` | files it in `closed`, marks its lease Closed, and either starts the next queued request on it or, while ending, handles the queue as described below |
 
 **User callbacks.** Filing a connection in `open` starts its idle timer and calls the user's `onidle(c.id)`. The internal listen and subscribe pools do not inherit `onidle`. These user callbacks (`onidle`, `onclose`, `onnotice`, `onparameter`, `onnotify`, `debug`, and the `sql.listen()` and `sql.subscribe()` callbacks and `onlisten`, `onsubscribe` and `onerror`) go through the `callback` helper in `src/errors.js`, which calls them synchronously and rethrows anything they throw in a microtask, so a user error cannot reach the phase table. A transform or type parser that throws while `src/subscribe.js` decodes a change is caught there: the change is skipped and the error goes to the matching subscribers' `onerror`, so it does not reach `protocolError`, unless the change's relation is unknown or the message is not an insert, update or delete, in which case the stream restarts as before. The error is rethrown as an uncaught exception when a matching subscription has no `onerror`.
 
