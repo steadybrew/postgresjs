@@ -741,7 +741,7 @@ t('Tracing a query that fails to build while it is routed settles its pool span 
     at(events, 'pool:connect', 'asyncEnd') < at(events, 'query', 'asyncEnd')
   ]
   return [
-    JSON.stringify([[plain, failed, 1, 1, true], [failed, failed, 1, 1, true]]),
+    JSON.stringify([[plain, failed, 1, 1, true], [plain, failed, 1, 1, true]]),
     JSON.stringify([summary(idle.events), summary(busy.events)])
   ]
 })
@@ -774,6 +774,45 @@ t('Tracing a lease taken on a busy connection reports the queries ahead of it', 
   })
   stop()
   await slow
+  await sql.end()
+  const [span] = spans(events)
+  return [JSON.stringify([1, true]), JSON.stringify([span.queuedBehind, span.client.reused])]
+})
+
+const reconnected = async(queued) => {
+  const sql = postgres(options)
+  const killer = postgres({ ...options, max: 1 })
+  const [{ pid }] = await sql`select pg_backend_pid() as pid`
+  await killer`select 1`
+  const { events, stop } = collect('query', 'pool:connect')
+  const running = sql`select pg_sleep(${ 5 })`.execute()
+  await settle()
+  const waiting = queued === 'lease' ? sql.reserve() : sql`select 2 as x`.execute()
+  await killer`select pg_terminate_backend(${ pid })`
+  const [, outcome] = await Promise.allSettled([running, waiting])
+  stop()
+  outcome.status === 'fulfilled' && queued === 'lease' && outcome.value.release()
+  await Promise.all([sql.end(), killer.end()])
+  return JSON.stringify([outcome.status, spans(events).filter(x => x.client && x.client.reused === false).length])
+}
+
+t('Tracing a query served by the reconnect of a closed connection reports that it opened the connection', async() =>
+  [JSON.stringify(['fulfilled', 1]), await reconnected('query')]
+)
+
+t('Tracing a lease served by the reconnect of a closed connection reports that it opened the connection', async() =>
+  [JSON.stringify(['fulfilled', 1]), await reconnected('lease')]
+)
+
+t('Tracing a lease served after the initial query of a connection counts that query as ahead of it', async() => {
+  const sql = postgres(options)
+  const { events, stop } = collect('pool:connect')
+  const first = sql`select pg_sleep(0.1)`.execute()
+  await settle()
+  const reserved = await sql.reserve()
+  reserved.release()
+  stop()
+  await first
   await sql.end()
   const [span] = spans(events)
   return [JSON.stringify([1, true]), JSON.stringify([span.queuedBehind, span.client.reused])]
