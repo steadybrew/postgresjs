@@ -830,7 +830,7 @@ declare namespace postgres {
     error?: Error;
   }
 
-  /** Context of the `postgres:pool:connect` tracing channel, for `sql.reserve()` and `sql.begin()`. */
+  /** Context of the `postgres:pool:connect` tracing channel: every wait for a connection, for `sql.reserve()`, `sql.begin()` and plain pooled queries. */
   interface PoolConnectTraceContext {
     pool: {
       totalCount: number;
@@ -838,6 +838,10 @@ declare namespace postgres {
       waitingCount: number;
       maxSize: number;
     };
+    /** Epoch milliseconds at which the connection took the call over; set before `asyncStart` on success. `handoverTime` minus the `start` time is the wait for a connection. */
+    handoverTime?: number;
+    /** Queries the connection already had running or waiting when it took this one over; 0 for a lease. The time from `handoverTime` to `asyncStart` is spent behind them. */
+    queuedBehind?: number;
     /** Set before `asyncStart` on success */
     client?: {
       processID: number | undefined;

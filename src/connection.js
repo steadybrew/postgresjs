@@ -21,7 +21,9 @@ import {
   connectContext,
   connectAttempt,
   connectSecured,
-  querySent,
+  queryBuilt,
+  poolHandover,
+  poolStarted,
   poolRemoved
 } from './tracing.js'
 
@@ -589,12 +591,13 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
       return true
 
     q.owner === undefined && (q.owner = connection.owner)
+    q.poolWait && poolHandover(q, (query ? 1 : 0) + sent.length, session())
 
     try {
       q.state = backend
       query
         ? sent.push(q)
-        : (query = q, query.active = true)
+        : (query = q, query.active = true, q.poolWait && poolStarted(q))
 
       if (q.cancelled) {
         q.cancelled = null
@@ -687,7 +690,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
       : { string, types, name: q.prepare ? statementId + statementCount++ : '' }
 
     typeof options.debug === 'function' && callback(options.debug, id, string, parameters, types)
-    q.trace && querySent(q, session())
+    q.trace && queryBuilt(q, session())
   }
 
   function write(x, fn) {
@@ -897,6 +900,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     query = sent.length ? sent.shift() : null
     if (query) {
       query.active = true
+      query.poolWait && poolStarted(query)
       query.cancelled && cancelRequest(options, query.state).then(query.cancelled.resolve, query.cancelled.reject)
     }
 

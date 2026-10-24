@@ -32,6 +32,7 @@ import {
   transactionChannel,
   poolConnectChannel,
   watched,
+  run,
   traceAsync,
   transactionContext,
   transactionSession,
@@ -521,6 +522,15 @@ function Postgres(a, b) {
   }
 
   function handler(query) {
+    if (query.trace && watched(poolConnectChannel)) {
+      query.poolWait = poolContext(stats())
+      return run(poolConnectChannel, query.poolWait, route, query)
+    }
+
+    route(query)
+  }
+
+  function route(query) {
     if (ending)
       return query.reject(Errors.connection('CONNECTION_ENDED', options, options))
 
@@ -529,7 +539,7 @@ function Postgres(a, b) {
       return go(idle, query)
 
     if (closed.length)
-      return connect(closed.shift(), query)
+      return (query.poolWait && (query.fresh = true), connect(closed.shift(), query))
 
     const c = takeBusy()
     c

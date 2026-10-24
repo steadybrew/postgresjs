@@ -31,7 +31,7 @@ new postgres.PostgresError(42)
 const client: postgres.TraceClient = { database: 'a', host: 'localhost', port: 5432, user: 'b', ssl: false, processID: undefined }
 const queryTrace: postgres.QueryTraceContext = { query: { text: undefined, name: undefined }, client }
 const connectTrace: postgres.ConnectTraceContext = { connection: { database: 'a', host: 'localhost', port: 5432, user: 'b', ssl: false } }
-const poolConnectTrace: postgres.PoolConnectTraceContext = { pool: { totalCount: 1, idleCount: 0, waitingCount: 0, maxSize: 10 }, client: { processID: 1, reused: true } }
+const poolConnectTrace: postgres.PoolConnectTraceContext = { pool: { totalCount: 1, idleCount: 0, waitingCount: 0, maxSize: 10 }, handoverTime: 1, queuedBehind: 0, client: { processID: 1, reused: true } }
 const transactionTrace: postgres.TransactionTraceContext = { client, options: 'read write', savepoint: undefined, prepared: undefined, result: { committed: true } }
 const releaseMessage: postgres.PoolReleaseMessage = { client: { processID: 1 }, error: undefined }
 const removeMessage: postgres.PoolRemoveMessage = { client: { processID: 1 }, error: undefined }

@@ -1,4 +1,5 @@
 import dc from 'diagnostics_channel'
+import { performance } from 'perf_hooks'
 
 const supported = Boolean(dc) && typeof dc.tracingChannel === 'function'
 
@@ -6,7 +7,6 @@ export const queryChannel = supported ? dc.tracingChannel('postgres:query') : un
 export const connectChannel = supported ? dc.tracingChannel('postgres:connect') : undefined
 export const transactionChannel = supported ? dc.tracingChannel('postgres:transaction') : undefined
 export const poolConnectChannel = supported ? dc.tracingChannel('postgres:pool:connect') : undefined
-export const sendChannel = supported ? dc.channel('postgres:query:send') : undefined
 export const poolReleaseChannel = supported ? dc.channel('postgres:pool:release') : undefined
 export const poolRemoveChannel = supported ? dc.channel('postgres:pool:remove') : undefined
 
@@ -86,7 +86,28 @@ export function poolContext({ totalCount, idleCount, waitingCount, max }) {
 }
 
 export function poolAcquired(context, processID, reused) {
+  context.handoverTime = performance.timeOrigin + performance.now()
+  context.queuedBehind = 0
   context.client = { processID, reused }
+}
+
+export function poolHandover(q, queuedBehind, session) {
+  const context = q.poolWait
+  context.handoverTime = performance.timeOrigin + performance.now()
+  context.queuedBehind = queuedBehind
+  context.client = { processID: session.processID, reused: !q.fresh }
+}
+
+export function poolStarted(q) {
+  const context = q.poolWait
+  q.poolWait = undefined
+  resolved(poolConnectChannel, context)
+}
+
+function poolFailed(q, error) {
+  const context = q.poolWait
+  q.poolWait = undefined
+  rejected(poolConnectChannel, context, error)
 }
 
 export function poolReleased(connection, error) {
@@ -103,18 +124,18 @@ export function traceQuery(q, fn) {
   return run(queryChannel, q.trace, fn, q)
 }
 
-export function querySent(q, session) {
+export function queryBuilt(q, session) {
   const context = q.trace
   context.query.text = q.string
   context.query.name = q.statement.name || undefined
   Object.assign(context.client, session)
-  sendChannel.hasSubscribers && sendChannel.publish(context)
 }
 
 export function querySettled(q, result) {
   if (q.streaming && result && typeof result.pipe === 'function')
     return
 
+  q.poolWait && poolStarted(q)
   const context = q.trace
   q.trace = undefined
   context.result = result
@@ -122,6 +143,7 @@ export function querySettled(q, result) {
 }
 
 export function queryFailed(q, error) {
+  q.poolWait && poolFailed(q, error)
   const context = q.trace
   q.trace = undefined
   rejected(queryChannel, context, error)
