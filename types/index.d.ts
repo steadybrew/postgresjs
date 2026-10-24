@@ -840,7 +840,7 @@ declare namespace postgres {
     };
     /** Epoch milliseconds at which the connection took the call over; set before `asyncStart` once a connection took the call over. `handoverTime` minus the `start` time is the wait for a connection. */
     handoverTime?: number;
-    /** Queries the connection already had running or waiting when it took this one over. The time from `handoverTime` to `asyncStart` is spent behind them. */
+    /** Queries the connection already had running or waiting when it took this one over. For a plain query, the time from `handoverTime` to `asyncStart` is spent behind them; a lease span ends a microtask after the hand-over, so that time falls inside its first statement. */
     queuedBehind?: number;
     /** Set with `handoverTime` */
     client?: {

@@ -1592,10 +1592,10 @@ The text is known only after the driver has serialized the query for a connectio
 | `handoverTime` | before `asyncStart`, once a connection took the call over: the epoch milliseconds at which it did |
 | `queuedBehind` | with `handoverTime`: how many queries the connection already had running or waiting when it took the call over |
 | `client.processID` | with `handoverTime` |
-| `client.reused` | with `handoverTime`: false when the wait included opening the connection |
+| `client.reused` | with `handoverTime`: false when this call had to open the connection; a call that waited while another call opened it reports true |
 | `error` | before `error`: a connection error, `CONNECTION_ENDED` after `sql.end()`, `COPY_IN_PROGRESS`, or the cancellation or connection error of a plain query that settled before it started |
 
-`handoverTime` minus the time of `start` is the wait for a connection, which is what OpenTelemetry's `db.client.connection.wait_time` measures. When `queuedBehind` is above 0, the time from `handoverTime` to `asyncStart` was spent behind those queries on the same connection. Take the `start` time yourself in the `start` subscriber. On Cloudflare Workers `performance.now()` advances only after I/O, so within a request both times can be equal.
+`handoverTime` minus the time of `start` is the wait for a connection, which is what OpenTelemetry's `db.client.connection.wait_time` measures. For a plain query with `queuedBehind` above 0, the time from `handoverTime` to `asyncStart` was spent behind those queries on the same connection. A lease span ends a microtask after the hand-over, so the time behind those queries falls inside the lease's first statement. Take the `start` time yourself in the `start` subscriber. On Cloudflare Workers `performance.now()` advances only after I/O, so within a request both times can be equal.
 
 ```js
 import dc from 'node:diagnostics_channel'
