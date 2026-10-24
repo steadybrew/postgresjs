@@ -32,7 +32,7 @@ import {
   transactionChannel,
   poolConnectChannel,
   watched,
-  run,
+  traceRoute,
   traceAsync,
   transactionContext,
   transactionSession,
@@ -523,7 +523,7 @@ function Postgres(a, b) {
 
   function handler(query) {
     const refusal = query.trace && watched(poolConnectChannel)
-      ? run(poolConnectChannel, query.poolWait = poolContext(stats()), route, query)
+      ? traceRoute(query, poolContext(stats()), route)
       : route(query)
     refusal && query.reject(refusal)
   }

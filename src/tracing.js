@@ -98,7 +98,27 @@ export function poolHandover(q, queuedBehind, session) {
   context.client = { processID: session.processID, reused: !q.fresh }
 }
 
+export function traceRoute(q, context, fn) {
+  q.poolWait = context
+  q.poolState = 1
+  let refusal
+  try {
+    refusal = run(poolConnectChannel, context, fn, q)
+  } finally {
+    const early = q.poolState === 2
+    q.poolState = 0
+    early && poolStarted(q)
+  }
+
+  return refusal
+}
+
 export function poolStarted(q) {
+  if (q.poolState === 1) {
+    q.poolState = 2
+    return
+  }
+
   const context = q.poolWait
   q.poolWait = undefined
   resolved(poolConnectChannel, context)
