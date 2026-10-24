@@ -1519,7 +1519,7 @@ The driver publishes `diagnostics_channel` events for queries, connections and t
 | `postgres:query` | `TracingChannel` | One span per query, from the call that runs it until the server answers or the query fails. |
 | `postgres:connection` | `TracingChannel` | One span per connection acquisition: socket, TLS, authentication, startup and type fetching, up to the connection serving queries. Retries and other hosts stay inside the same span. |
 | `postgres:transaction` | `TracingChannel` | `sql.begin()` and, nested in it, each `sql.savepoint()`. |
-| `postgres:query:send` | `Channel` | The query's context again, each time it is written to a connection. |
+| `postgres:query:send` | `Channel` | The query's context again, each time it is written to a connection. Published only for queries that had a `postgres:query` subscriber when they started. |
 | `postgres:connection:close` | `Channel` | `{ connectionId, error }` whenever a connection closes, including a failed connection attempt. `error` is undefined for a normal close. |
 
 The `TracingChannel`s publish in the order Node's `tracePromise` does: `start` and `end` in the caller's synchronous code, then for a failure `error`, and for both outcomes `asyncStart` and `asyncEnd`, with `context.result` or `context.error` set first. `start` is published with `runStores`, so a store bound to it, such as an `AsyncLocalStorage` span context, is current in the code that starts the query. Every query publishes `asyncStart` and `asyncEnd` exactly once. That includes cursors read with `for await` or a callback, `forEach`, `COPY` streams (once the copy is over), `describe()`, `simple()`, `unsafe()`, `file()`, pipelined queries, retried queries and queries cancelled before they were sent. The driver's own startup queries (type fetching, `target_session_attrs`) are not published; they belong to the connection span.
@@ -1540,7 +1540,7 @@ The context objects are the `QueryTraceContext`, `ConnectionTraceContext` and `T
 | `savepoint` | transaction | at `start` for `sql.savepoint()`: the savepoint name as sent, such as `s0_name` |
 | `prepared` | transaction | when `sql.prepare(name)` is called |
 
-The text and parameters are known only after the driver has serialized the query for a connection, so they are not in the context at `start`. Read them at `asyncEnd` or `error`, or rename the span then. A query written again after a retry publishes `postgres:query:send` again, with the same context. The time between `start` and the first `postgres:query:send` is the wait for a connection, and between that and `asyncEnd` the time on the server.
+The `result` and `error` keys do not exist on a context until they are set, so a subscriber can tell a finished call from a started one by `'result' in context || 'error' in context`. The text and parameters are known only after the driver has serialized the query for a connection, so they are not in the context at `start`. Read them at `asyncEnd` or `error`, or rename the span then. A query written again after a retry publishes `postgres:query:send` again, with the same context. The time between `start` and the first `postgres:query:send` is the wait for a connection, and between that and `asyncEnd` the time on the server.
 
 Parameters are included as they are. Decide in your subscriber what to record, since values can hold personal data.
 
@@ -1556,7 +1556,7 @@ channel.subscribe({
   end() {},
   asyncStart() {},
   asyncEnd(context) {
-    console.log(context.query, context.result.count, performance.now() - context.startedAt)
+    console.log(context.query, context.result?.count, performance.now() - context.startedAt)
   },
   error(context) {
     console.error(context.query, context.error)
