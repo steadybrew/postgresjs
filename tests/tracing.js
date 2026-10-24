@@ -45,7 +45,7 @@ const plain = 'start end asyncStart asyncEnd'
 const failed = 'start end error asyncStart asyncEnd'
 const count = (events, stage, name = 'query') => of(events, name).filter(x => x.stage === stage).length
 const settled = (events, name = 'query') => JSON.stringify([count(events, 'start', name), count(events, 'asyncEnd', name)])
-const server = o => ({ address: o.path || o.host[0], port: o.path ? undefined : o.port[0] })
+const server = o => ({ host: o.path || o.host[0], port: o.path ? undefined : o.port[0] })
 
 async function traced(names, fn) {
   const sql = postgres(options)
@@ -61,24 +61,35 @@ async function traced(names, fn) {
 
 t('Tracing publishes a query in order with the context filled in as it is built', async() => {
   const sql = postgres(options)
-  const { events, stop } = collect('query', 'postgres:query:send')
+  const { events, stop } = collect('query', 'postgres:query:send', 'postgres:pool:remove')
   await sql`select ${ 5 }::int as x`
-  stop()
   await sql.end()
+  stop()
   const [done] = ended(events)
   const [send] = of(events, 'postgres:query:send')
-  const { address, port } = server(sql.options)
+  const [remove] = of(events, 'postgres:pool:remove')
+  const { host, port } = server(sql.options)
   return [
     JSON.stringify([
-      'start end publish asyncStart asyncEnd', 'select $1::int as x', [5], 'SELECT', 1,
-      sql.options.database, sql.options.user, address, port, true, true
+      'start end publish asyncStart asyncEnd', 'select $1::int as x', null, 'SELECT', 1,
+      sql.options.database, sql.options.user, host, port, false, true, true, false, true
     ]),
     JSON.stringify([
-      events.map(x => x.stage).join(' '), done.query, done.values, done.result.command, done.result.count,
-      done.database, done.user, done.serverAddress, done.serverPort, typeof done.connectionId === 'number',
-      send.context.connectionId === done.connectionId
+      events.filter(x => x.name !== 'postgres:pool:remove').map(x => x.stage).join(' '), done.query.text, done.query.name || null,
+      done.result.command, done.result.count, done.client.database, done.client.user, done.client.host, done.client.port, done.client.ssl,
+      typeof done.client.processID === 'number', send.context.client === done.client, 'values' in done,
+      remove.context.client.processID === done.client.processID
     ])
   ]
+})
+
+t('Tracing names a prepared statement and leaves an unnamed one without a name', async() => {
+  const events = await traced(['query'], async sql => {
+    await sql`select 1 as x`
+    await sql`select 2 as x`.simple()
+  })
+  const [prepared, simple] = ended(events)
+  return [JSON.stringify([true, null]), JSON.stringify([typeof prepared.query.name === 'string', simple.query.name || null])]
 })
 
 t('Tracing publishes error before asyncStart and keeps the error on the context', async() => {
@@ -121,7 +132,7 @@ t('Tracing COPY streams settles each query once, when the copy is over', async()
     await new Promise(resolve => readable.on('end', resolve))
     await sql`select 1`
   })
-  const copies = ended(events).filter(x => /^copy/.test(x.query))
+  const copies = ended(events).filter(x => /^copy/.test(x.query.text))
   return [
     JSON.stringify([4, 4, ['COPY', 'COPY']]),
     JSON.stringify([count(events, 'start'), count(events, 'asyncEnd'), copies.map(x => x.result.command)])
@@ -143,7 +154,7 @@ t('Tracing pipelined queries settle once each with their own context', async() =
   const events = await traced(['query'], sql => Promise.all([sql`select 1 as x`, sql`select 2 as x`, sql`select 3 as x`]))
   return [
     JSON.stringify(['select 1 as x', 'select 2 as x', 'select 3 as x']),
-    JSON.stringify(ended(events).map(x => x.query))
+    JSON.stringify(ended(events).map(x => x.query.text))
   ]
 })
 
@@ -158,7 +169,7 @@ t('Tracing a query cancelled before it is sent settles with the cancellation and
   const result = await code
   stop()
   await sql.end()
-  const never = of(events, 'query').find(x => x.stage === 'asyncEnd' && x.context.query === undefined)
+  const never = of(events, 'query').find(x => x.stage === 'asyncEnd' && x.context.query.text === undefined)
   const own = events.filter(x => x.id === never.id)
   return [
     JSON.stringify(['57014', failed]),
@@ -190,7 +201,7 @@ t('Tracing a transaction publishes begin, its queries and a savepoint', async() 
     ]),
     JSON.stringify([
       sequence(events, 'transaction'), transaction.options, savepoint.savepoint, transaction.result, savepoint.result || null,
-      ended(events).map(x => x.query)
+      ended(events).map(x => x.query.text)
     ])
   ]
 })
@@ -203,24 +214,27 @@ t('Tracing a rolled back transaction publishes the error', async() => {
   return [failed + '|stop', sequence(events, 'transaction') + '|' + done.error.message]
 })
 
-t('Tracing a connection publishes its attempt and the close', async() => {
+t('Tracing a connection publishes its attempt and the removal', async() => {
   const sql = postgres(options)
-  const { events, stop } = collect('connection', 'postgres:connection:close')
+  const { events, stop } = collect('connect', 'postgres:pool:remove')
   await sql`select 1`
   await sql.end()
   stop()
-  const [done] = ended(events, 'connection')
-  const [close] = of(events, 'postgres:connection:close')
-  const { address, port } = server(sql.options)
+  const [done] = ended(events, 'connect')
+  const [remove] = of(events, 'postgres:pool:remove')
+  const { host, port } = server(sql.options)
   return [
-    JSON.stringify([plain, true, sql.options.database, address, port, true, null]),
-    JSON.stringify([sequence(events, 'connection'), typeof done.connectionId === 'number', done.database, done.serverAddress, done.serverPort,
-                    close.context.connectionId === done.connectionId, close.context.error || null])
+    JSON.stringify([plain, [sql.options.database, host, port, sql.options.user, false], true, null]),
+    JSON.stringify([
+      sequence(events, 'connect'),
+      [done.connection.database, done.connection.host, done.connection.port, done.connection.user, done.connection.ssl],
+      typeof remove.context.client.processID === 'number', remove.context.error || null
+    ])
   ]
 })
 
 t('Tracing a connection that fails to authenticate or to connect publishes the error', async() => {
-  const { events, stop } = collect('connection')
+  const { events, stop } = collect('connect')
   const codes = []
   const wrong = postgres({ ...options, user: 'postgres_js_test_md5', pass: 'wrong' })
   codes.push(await wrong`select 1`.catch(e => e.code))
@@ -229,7 +243,7 @@ t('Tracing a connection that fails to authenticate or to connect publishes the e
   stop()
   return [
     JSON.stringify([['28P01', 'ECONNREFUSED'], failed + ' ' + failed, ['28P01', 'ECONNREFUSED']]),
-    JSON.stringify([codes, sequence(events, 'connection'), ended(events, 'connection').map(x => x.error.code)])
+    JSON.stringify([codes, sequence(events, 'connect'), ended(events, 'connect').map(x => x.error.code)])
   ]
 })
 
@@ -280,8 +294,8 @@ t('Tracing a transaction runs its function inside the transaction context', asyn
 t('Nothing is published when nothing subscribes', async() => {
   const published = []
   const restore = []
-  const names = ['query', 'connection', 'transaction'].flatMap(name => stages.map(stage => 'tracing:postgres:' + name + ':' + stage))
-    .concat('postgres:query:send', 'postgres:connection:close')
+  const names = ['query', 'connect', 'transaction', 'pool:connect'].flatMap(name => stages.map(stage => 'tracing:postgres:' + name + ':' + stage))
+    .concat('postgres:query:send', 'postgres:pool:release', 'postgres:pool:remove')
   for (const name of names) {
     const channel = dc.channel(name)
     for (const method of ['publish', 'runStores']) {
@@ -301,6 +315,9 @@ t('Nothing is published when nothing subscribes', async() => {
       await sql`select 2 as x`
       await sql.savepoint(sql => sql`select 3 as x`)
     })
+    const reserved = await sql.reserve()
+    await reserved`select 4 as x`
+    reserved.release()
   } finally {
     await sql.end()
     restore.forEach(x => x())
@@ -310,12 +327,12 @@ t('Nothing is published when nothing subscribes', async() => {
 })
 
 t('Tracing contexts have no result or error key until one is set', async() => {
-  const events = await traced(['query', 'connection', 'transaction'], sql => sql.begin(async sql => {
+  const events = await traced(['query', 'connect', 'transaction', 'pool:connect'], sql => sql.begin(async sql => {
     await sql.savepoint(sql => sql`select 1 as x`)
   }))
   const early = events.filter(x => x.stage === 'start' || x.stage === 'end')
   return [
-    JSON.stringify([['connection', 'query', 'transaction'], 0]),
+    JSON.stringify([['connect', 'pool:connect', 'query', 'transaction'], 0]),
     JSON.stringify([[...new Set(early.map(x => x.name))].sort(), early.filter(x => 'result' in x.context || 'error' in x.context).length])
   ]
 })
@@ -357,7 +374,7 @@ t('Tracing a retried query settles once and is sent again', async() => {
   await sql`drop table tracing_retry`
   stop()
   await sql.end()
-  const sends = of(events, 'postgres:query:send').filter(x => x.context.query === 'select name from tracing_retry').length
+  const sends = of(events, 'postgres:query:send').filter(x => x.context.query.text === 'select name from tracing_retry').length
   return [JSON.stringify([1, 7, 7, 3]), JSON.stringify([row.name, count(events, 'start'), count(events, 'asyncEnd'), sends])]
 })
 
@@ -420,4 +437,81 @@ t('Tracing queries rejected because the pool is ending settle once', async() => 
   await Promise.allSettled([running, queued, sql.end()])
   stop()
   return [JSON.stringify([2, 2]), settled(events)]
+})
+
+t('Tracing a pool checkout reports the pool at start and whether the connection was reused', async() => {
+  const sql = postgres(options)
+  const { events, stop } = collect('pool:connect')
+  const first = await sql.reserve()
+  first.release()
+  const second = await sql.reserve()
+  second.release()
+  stop()
+  await sql.end()
+  const starts = of(events, 'pool:connect').filter(x => x.stage === 'start').map(x => x.context.pool)
+  const [one, two] = ended(events, 'pool:connect')
+  return [
+    JSON.stringify([
+      plain + ' ' + plain,
+      [{ totalCount: 0, idleCount: 0, waitingCount: 0, maxSize: 1 }, { totalCount: 1, idleCount: 1, waitingCount: 0, maxSize: 1 }],
+      [false, true], true
+    ]),
+    JSON.stringify([
+      sequence(events, 'pool:connect'), starts, [one.client.reused, two.client.reused],
+      typeof one.client.processID === 'number' && one.client.processID === two.client.processID
+    ])
+  ]
+})
+
+t('Tracing a pool checkout that fails publishes the error and no client', async() => {
+  const { events, stop } = collect('pool:connect')
+  const refused = postgres({ ...options, host: '127.0.0.1', port: 33333 })
+  const codes = [await refused.reserve().catch(e => e.code)]
+  const ended_ = postgres(options)
+  await ended_.end()
+  codes.push(await ended_.reserve().catch(e => e.code))
+  stop()
+  const done = ended(events, 'pool:connect')
+  return [
+    JSON.stringify([['ECONNREFUSED', 'CONNECTION_ENDED'], failed + ' ' + failed, [false, false], ['ECONNREFUSED', 'CONNECTION_ENDED']]),
+    JSON.stringify([codes, sequence(events, 'pool:connect'), done.map(x => 'client' in x), done.map(x => x.error.code)])
+  ]
+})
+
+t('Tracing a release publishes once, with the connection of the checkout', async() => {
+  const sql = postgres(options)
+  const { events, stop } = collect('pool:connect', 'postgres:pool:release')
+  const reserved = await sql.reserve()
+  reserved.release()
+  reserved.release()
+  stop()
+  await sql.end()
+  const releases = of(events, 'postgres:pool:release')
+  const [checkout] = ended(events, 'pool:connect')
+  return [
+    JSON.stringify([1, true, null]),
+    JSON.stringify([releases.length, releases[0].context.client.processID === checkout.client.processID, releases[0].context.error || null])
+  ]
+})
+
+t('Tracing a transaction publishes its release with the error that ended it', async() => {
+  const sql = postgres(options)
+  const { events, stop } = collect('pool:connect', 'postgres:pool:release', 'transaction')
+  await sql.begin(async sql => {
+    await sql`select 1`
+  })
+  await sql.begin(() => {
+    throw new Error('stop')
+  }).catch(() => undefined)
+  stop()
+  await sql.end()
+  const releases = of(events, 'postgres:pool:release').map(x => x.context)
+  const checkouts = ended(events, 'pool:connect')
+  return [
+    JSON.stringify([2, [null, 'stop'], [true, true], 2]),
+    JSON.stringify([
+      releases.length, releases.map(x => x.error ? x.error.message : null),
+      releases.map((x, i) => x.client.processID === checkouts[i].client.processID), checkouts.length
+    ])
+  ]
 })

@@ -186,17 +186,17 @@ const scenarios = {
     const { AsyncLocalStorage } = await import('node:async_hooks')
     const storage = new AsyncLocalStorage()
     const query = dc.tracingChannel('postgres:query')
-    const connection = dc.tracingChannel('postgres:connection')
+    const connection = dc.tracingChannel('postgres:connect')
     equal([typeof dc.tracingChannel, typeof query.start.runStores, typeof query.start.bindStore], ['function', 'function', 'function'])
     const seen = []
     const handlers = (name) => ({
       start: () => seen.push(name + ':start:' + storage.getStore()),
       end: () => seen.push(name + ':end'),
       asyncStart: () => seen.push(name + ':asyncStart'),
-      asyncEnd: (context) => seen.push(name + ':asyncEnd:' + (context.query || context.serverAddress)),
+      asyncEnd: (context) => seen.push(name + ':asyncEnd:' + (context.query ? context.query.text : context.connection.host)),
       error: (context) => seen.push(name + ':error:' + context.error.message)
     })
-    const subscribed = [[query, handlers('query')], [connection, handlers('connection')]]
+    const subscribed = [[query, handlers('query')], [connection, handlers('connect')]]
     query.start.bindStore(storage, () => 'span')
     subscribed.forEach(([channel, handler]) => channel.subscribe(handler))
     const sql = client(port, { max: 1 })
@@ -209,7 +209,7 @@ const scenarios = {
     }
     const address = sql.options.host[0]
     equal(seen, [
-      'query:start:span', 'query:end', 'connection:start:span', 'connection:end', 'connection:asyncStart', 'connection:asyncEnd:' + address,
+      'query:start:span', 'query:end', 'connect:start:span', 'connect:end', 'connect:asyncStart', 'connect:asyncEnd:' + address,
       'query:asyncStart', 'query:asyncEnd:select 1 as x'
     ])
     return { seen }
