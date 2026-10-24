@@ -1522,7 +1522,7 @@ These publish `start`, `end`, `asyncStart`, `asyncEnd` and `error`.
 |---|---|
 | `postgres:query` | Each query: from the call that runs it until the server answers or the query fails |
 | `postgres:connect` | Each connection acquisition: socket, TLS, authentication, startup and type fetching, up to the connection serving queries. Retries and other hosts stay inside one span. |
-| `postgres:pool:connect` | Each `sql.reserve()` and `sql.begin()`: acquiring a connection for exclusive use. Plain pooled queries do not publish it; `postgres:query:send` shows their wait. |
+| `postgres:pool:connect` | Each wait for a connection: `sql.reserve()`, `sql.begin()` and every plain pooled query that has a `postgres:query` subscriber. For a plain query it is a child of the query span and ends when the connection starts running the query. Statements sent on a reserved connection or in a transaction do not publish it. |
 | `postgres:transaction` | `sql.begin()` and, nested in it, each `sql.savepoint()` |
 
 ### Plain channels
@@ -1531,7 +1531,6 @@ These publish one message. Subscribe with `dc.channel(name).subscribe(callback)`
 
 | Channel | Fires for |
 |---|---|
-| `postgres:query:send` | A query is written to a connection. It carries the query's context, and is published only for queries that had a `postgres:query` subscriber when they started. |
 | `postgres:pool:release` | A reserved connection or a transaction gives its connection back |
 | `postgres:pool:remove` | A connection closes, including a failed connection attempt |
 
@@ -1542,12 +1541,15 @@ postgres:pool:connect        sql.reserve() or sql.begin() acquires a connection
  └─ postgres:connect         only if the acquisition had to open the connection
 postgres:transaction         sql.begin() runs its function
  └─ postgres:query           each statement, BEGIN and COMMIT included
-     └─ postgres:query:send  the statement is written to the connection
 postgres:pool:release        the connection goes back to the pool
 postgres:pool:remove         later, when the connection closes
+
+postgres:query               a plain pooled query
+ └─ postgres:pool:connect    the wait for a connection
+     └─ postgres:connect     only if the query had to open the connection
 ```
 
-A plain query publishes `postgres:query` and `postgres:query:send`, and `postgres:connect` when its connection has to be opened. `postgres:query:send` is published again when a query is retried.
+A plain query publishes `postgres:query` and, inside it, `postgres:pool:connect`. The pool span ends when the connection makes the query its active query, so a query that waits behind others on a busy connection, or in the pool's queue, is waiting inside it. A query that settles before then, because the pool is ending, a `COPY` holds every connection, it is cancelled, the connection attempt fails or the connection is lost, fails the pool span first and then itself.
 
 The `TracingChannel`s publish in the order Node's `tracePromise` does: `start` and `end` in the caller's synchronous code, then for a failure `error`, and for both outcomes `asyncStart` and `asyncEnd`, with `context.result` or `context.error` set first. `start` is published with `runStores`, so a store bound to it, such as an `AsyncLocalStorage` span context, is current in the code that starts the call. Every query publishes `asyncStart` and `asyncEnd` exactly once. That includes cursors read with `for await` or a callback, `forEach`, `COPY` streams (once the copy is over), `describe()`, `simple()`, `unsafe()`, `file()`, pipelined queries, retried queries and queries cancelled before they were sent. The driver's own startup queries (type fetching, `target_session_attrs`) are not published; they belong to the connect span.
 
@@ -1570,7 +1572,7 @@ The types are `QueryTraceContext`, `ConnectTraceContext`, `PoolConnectTraceConte
 | `result` | before `asyncStart`: the `Result` with `command` and `count`; for `describe()` the statement; for a `COPY` stream the `Result` of the finished copy, not the stream |
 | `error` | before `error` |
 
-The text is known only after the driver has serialized the query for a connection, so read it at `asyncEnd` or `error`, or rename the span then. The time between `start` and `postgres:query:send` is the wait for a connection, and between that and `asyncEnd` the time on the server.
+The text is known only after the driver has serialized the query for a connection, so read it at `asyncEnd` or `error`, or rename the span then. The `postgres:pool:connect` span inside a plain query is the wait for a connection, and the rest of the query span is the time on the server.
 
 ### postgres:connect
 
@@ -1587,9 +1589,32 @@ The text is known only after the driver has serialized the query for a connectio
 |---|---|
 | `pool.totalCount`, `pool.idleCount`, `pool.waitingCount` | at `start`, as `sql.stats()` reports them |
 | `pool.maxSize` | at `start`: the `max` option |
+| `handoverTime` | before `asyncStart` on success: the epoch milliseconds at which the connection took the call over |
+| `queuedBehind` | before `asyncStart` on success: how many queries the connection already had running or waiting when it took a plain query over; 0 for `sql.reserve()` and `sql.begin()` |
 | `client.processID` | before `asyncStart` on success |
 | `client.reused` | before `asyncStart` on success: false when the acquisition had to open the connection |
-| `error` | before `error`: a connection error, or `CONNECTION_ENDED` after `sql.end()` |
+| `error` | before `error`: a connection error, `CONNECTION_ENDED` after `sql.end()`, `COPY_IN_PROGRESS`, or the cancellation or connection error of a plain query that settled before it started |
+
+`handoverTime` minus the time of `start` is the wait for a connection, which is what OpenTelemetry's `db.client.connection.wait_time` measures. When `queuedBehind` is above 0, the time from `handoverTime` to `asyncStart` was spent behind those queries on the same connection. Take the `start` time yourself in the `start` subscriber. On Cloudflare Workers `performance.now()` advances only after I/O, so within a request both times can be equal.
+
+```js
+import dc from 'node:diagnostics_channel'
+import { trace } from '@opentelemetry/api'
+
+const pool = dc.tracingChannel('postgres:pool:connect')
+
+pool.subscribe({
+  start(context) {
+    context.span = trace.getActiveSpan()
+  },
+  end() {},
+  asyncStart() {},
+  asyncEnd(context) {
+    context.span?.addEvent('connection handed over', { 'postgres.queued_behind': context.queuedBehind }, context.handoverTime)
+  },
+  error() {}
+})
+```
 
 ### postgres:transaction
 
