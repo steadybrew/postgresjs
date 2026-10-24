@@ -1,5 +1,5 @@
 diff --git a/src/connection.js b/src/connection.js
-index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..5923e6cf00e74d4474ca38ad37fc05b51a18c6e6 100644
+index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..ca377594b31e766e39babed8fc568a08abe4a95a 100644
 --- a/src/connection.js
 +++ b/src/connection.js
 @@ -4,24 +4,42 @@ import crypto from 'crypto'
@@ -16,7 +16,7 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..5923e6cf00e74d4474ca38ad37fc05b5
 +import { SSLRequest, tlsConfig, cancelRequest } from './transport.js'
  import { Query, CLOSE } from './query.js'
  import b from './bytes.js'
-+import { connectionChannel, watched, run, resolved, rejected, serverOf, querySent, connectionClosed } from './tracing.js'
++import { connectionChannel, watched, run, resolved, rejected, connectionContext, connectionAttempt, querySent, connectionClosed } from './tracing.js'
  
 -export default Connection
 +export { Connection }
@@ -317,7 +317,7 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..5923e6cf00e74d4474ca38ad37fc05b5
 +    if (!watched(connectionChannel))
 +      return startAcquisition()
 +
-+    acquisition.trace = { connectionId: id, database, user, ...serverOf(options) }
++    acquisition.trace = connectionContext(id, options)
 +    run(connectionChannel, acquisition.trace, startAcquisition)
 +  }
 +
@@ -365,7 +365,7 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..5923e6cf00e74d4474ca38ad37fc05b5
 +    listen(created)
 +    socket = created
 +    serverIndex = hostIndex
-+    acquisition.trace && (acquisition.trace.serverAddress = serverAddress(), acquisition.trace.serverPort = serverPort())
++    acquisition.trace && connectionAttempt(acquisition.trace, serverAddress(), serverPort())
 +    acquisition.attempting = options.socket ? 'custom socket' : options.path || host[hostIndex] + ':' + port[hostIndex]
 +
 +    if (options.socket)
@@ -1509,7 +1509,7 @@ index 0ff83c428bec774e11417b8e1f033dc3305c18cf..023c3ba1bd113e6f5508ab079efcf220
        code: x,
        errno: x,
 diff --git a/src/index.js b/src/index.js
-index c7fba3dace20173f4cb13f3f138bb6d213b43683..c16beb85ae05b83b616c6fd59fdd41d0ac788951 100644
+index c7fba3dace20173f4cb13f3f138bb6d213b43683..f12e3a1810f7bd9a83123f918df3942f7f51a399 100644
 --- a/src/index.js
 +++ b/src/index.js
 @@ -3,10 +3,12 @@ import fs from 'fs'
@@ -1539,7 +1539,7 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..c16beb85ae05b83b616c6fd59fdd41d0
 +import { Errors, PostgresError, callback } from './errors.js'
  import Subscribe from './subscribe.js'
  import largeObject from './large.js'
-+import { transactionChannel, watched, traceAsync } from './tracing.js'
++import { transactionChannel, watched, traceAsync, transactionContext, transactionCommitted } from './tracing.js'
 +
 +const Lease = { Active: 0, Settling: 1, Released: 2, Ended: 3, Closed: 4 }
  
@@ -1695,7 +1695,7 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..c16beb85ae05b83b616c6fd59fdd41d0
      return { state: result.state, unlisten }
  
      async function unlisten() {
-@@ -200,62 +264,159 @@ function Postgres(a, b) {
+@@ -200,62 +264,155 @@ function Postgres(a, b) {
      return await sql`select pg_notify(${ channel }, ${ '' + payload })`
    }
  
@@ -1759,20 +1759,20 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..c16beb85ae05b83b616c6fd59fdd41d0
 +        ? Errors.generic('CONNECTION_RELEASED', 'Reserved connection used after release()')
 +        : Errors.generic('TRANSACTION_ENDED', 'Transaction handle used after its transaction ended')
 +  }
-+
-+  function stop(l, state) {
-+    if (l.state === Lease.Released || l.state === Lease.Ended)
-+      return null
  
 -    move(c, reserved)
 -    c.reserved = () => queue.length
 -      ? c.execute(queue.shift())
 -      : move(c, reserved)
 -    c.reserved.release = true
++  function stop(l, state) {
++    if (l.state === Lease.Released || l.state === Lease.Ended)
++      return null
+ 
 +    l.state = state
 +    while (l.queue.length)
 +      l.queue.shift().reject(leaseError(l))
- 
++
 +    const c = l.connection
 +    if (c.owner !== l)
 +      return null
@@ -1813,12 +1813,8 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..c16beb85ae05b83b616c6fd59fdd41d0
 +    if (!watched(transactionChannel))
 +      return transact(mode, fn)
 +
-+    const trace = transactionTrace(mode)
++    const trace = transactionContext(options, mode)
 +    return traceAsync(transactionChannel, trace, () => transact(mode, fn, trace))
-+  }
-+
-+  function transactionTrace(mode, savepoint) {
-+    return { database: options.database, user: options.user, options: mode, savepoint, prepared: undefined, result: undefined }
 +  }
 +
 +  async function transact(options, fn, trace) {
@@ -1863,15 +1859,15 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..c16beb85ae05b83b616c6fd59fdd41d0
 +    function release() {
 +      const c = stop(l, Lease.Ended)
 +      c && c.release()
++    }
++
++    function terminate() {
++      const c = stop(l, Lease.Ended)
++      c && c.terminate()
      }
  
 -    async function scope(c, fn, name) {
 -      const sql = Sql(handler)
-+    function terminate() {
-+      const c = stop(l, Lease.Ended)
-+      c && c.terminate()
-+    }
-+
 +    async function scope(fn, name) {
 +      const sql = Sql(track)
        sql.savepoint = savepoint
@@ -1891,7 +1887,7 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..c16beb85ae05b83b616c6fd59fdd41d0
        try {
          result = await new Promise((resolve, reject) => {
            const x = fn(sql)
-@@ -265,17 +426,29 @@ function Postgres(a, b) {
+@@ -265,17 +422,29 @@ function Postgres(a, b) {
          if (uncaughtError)
            throw uncaughtError
        } catch (e) {
@@ -1923,18 +1919,18 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..c16beb85ae05b83b616c6fd59fdd41d0
 +          )
 +        }
 +
-+        trace && (trace.result = { committed: prepare === null })
++        trace && transactionCommitted(trace, prepare === null)
        }
  
        return result
-@@ -285,23 +458,21 @@ function Postgres(a, b) {
+@@ -285,23 +454,21 @@ function Postgres(a, b) {
            return savepoint(sql => sql.apply(sql, arguments))
  
          arguments.length === 1 && (fn = name, name = null)
 -        return scope(c, fn, 's' + savepoints++ + (name ? '_' + name : ''))
 +        const id = 's' + savepoints++ + (name ? '_' + name : '')
 +        return watched(transactionChannel)
-+          ? traceAsync(transactionChannel, transactionTrace(undefined, id), () => scope(fn, id))
++          ? traceAsync(transactionChannel, transactionContext(options, undefined, id), () => scope(fn, id))
 +          : scope(fn, id)
        }
  
@@ -1960,7 +1956,7 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..c16beb85ae05b83b616c6fd59fdd41d0
      }
    }
  
-@@ -310,7 +481,7 @@ function Postgres(a, b) {
+@@ -310,7 +477,7 @@ function Postgres(a, b) {
      queue.push(c)
      c.queue = queue
      queue === open
@@ -1969,7 +1965,7 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..c16beb85ae05b83b616c6fd59fdd41d0
        : c.idleTimer.cancel()
      return c
    }
-@@ -330,15 +501,51 @@ function Postgres(a, b) {
+@@ -330,15 +497,51 @@ function Postgres(a, b) {
      if (ending)
        return query.reject(Errors.connection('CONNECTION_ENDED', options, options))
  
@@ -2026,7 +2022,7 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..c16beb85ae05b83b616c6fd59fdd41d0
    }
  
    function go(c, query) {
-@@ -348,17 +555,18 @@ function Postgres(a, b) {
+@@ -348,17 +551,18 @@ function Postgres(a, b) {
    }
  
    function cancel(query) {
@@ -2055,7 +2051,7 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..c16beb85ae05b83b616c6fd59fdd41d0
      })
    }
  
-@@ -368,13 +576,23 @@ function Postgres(a, b) {
+@@ -368,13 +572,23 @@ function Postgres(a, b) {
  
      await 1
      let timer
@@ -2086,7 +2082,7 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..c16beb85ae05b83b616c6fd59fdd41d0
    }
  
    async function close() {
-@@ -382,9 +600,9 @@ function Postgres(a, b) {
+@@ -382,9 +596,9 @@ function Postgres(a, b) {
    }
  
    async function destroy(resolve) {
@@ -2097,7 +2093,7 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..c16beb85ae05b83b616c6fd59fdd41d0
      resolve()
    }
  
-@@ -398,12 +616,18 @@ function Postgres(a, b) {
+@@ -398,12 +612,18 @@ function Postgres(a, b) {
      move(c, ended)
    }
  
@@ -2119,7 +2115,7 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..c16beb85ae05b83b616c6fd59fdd41d0
  
      while (ready && queries.length && max-- > 0) {
        const query = queries.shift()
-@@ -418,12 +642,60 @@ function Postgres(a, b) {
+@@ -418,12 +638,60 @@ function Postgres(a, b) {
        : move(c, full)
    }
  
@@ -2184,7 +2180,7 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..c16beb85ae05b83b616c6fd59fdd41d0
    }
  }
  
-@@ -453,16 +725,17 @@ function parseOptions(a, b) {
+@@ -453,16 +721,17 @@ function parseOptions(a, b) {
      connect_timeout : 30,
      max_lifetime    : max_lifetime,
      max_pipeline    : 100,
@@ -2204,7 +2200,7 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..c16beb85ae05b83b616c6fd59fdd41d0
      host            : Array.isArray(host) ? host : host.split(',').map(x => x.split(':')[0]),
      port            : Array.isArray(port) ? port : host.split(',').map(x => parseInt(x.split(':')[1] || port)),
      path            : o.path || host.indexOf('/') > -1 && host + '/.s.PGSQL.' + port,
-@@ -472,8 +745,8 @@ function parseOptions(a, b) {
+@@ -472,8 +741,8 @@ function parseOptions(a, b) {
      ...Object.entries(defaults).reduce(
        (acc, [k, d]) => {
          const value = k in o ? o[k] : k in query
@@ -2215,7 +2211,7 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..c16beb85ae05b83b616c6fd59fdd41d0
          acc[k] = typeof value === 'string' && ints.includes(k)
            ? +value
            : value
-@@ -488,16 +761,26 @@ function parseOptions(a, b) {
+@@ -488,16 +757,26 @@ function parseOptions(a, b) {
      },
      types           : o.types || {},
      target_session_attrs: tsa(o, url, env),
@@ -2243,7 +2239,7 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..c16beb85ae05b83b616c6fd59fdd41d0
  }
  
  function tsa(o, url, env) {
-@@ -508,8 +791,12 @@ function tsa(o, url, env) {
+@@ -508,8 +787,12 @@ function tsa(o, url, env) {
    throw new Error('target_session_attrs ' + x + ' is not supported')
  }
  
@@ -2259,7 +2255,7 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..c16beb85ae05b83b616c6fd59fdd41d0
  
  function max_lifetime() {
 diff --git a/src/query.js b/src/query.js
-index 0d44a15cd9e42beaf11d4be6ccde60223e09508a..b7bd3e66c5f16349d822427509720cb38af8ebca 100644
+index 0d44a15cd9e42beaf11d4be6ccde60223e09508a..4d25903697001cf4c04c4169706cc2c8716c592d 100644
 --- a/src/query.js
 +++ b/src/query.js
 @@ -1,3 +1,5 @@
@@ -2322,7 +2318,7 @@ index 0d44a15cd9e42beaf11d4be6ccde60223e09508a..b7bd3e66c5f16349d822427509720cb3
 +      return
 +
 +    this.executed = true
-+    if (!this.initialization && watched(queryChannel))
++    if (!this.initialization && !this.settled && watched(queryChannel))
 +      return traceQuery(this, dispatch)
 +
 +    await 1
@@ -2658,10 +2654,10 @@ index 0000000000000000000000000000000000000000..bcdf4c1894e0f84957d7ff3890bea9d8
 +}
 diff --git a/src/tracing.js b/src/tracing.js
 new file mode 100644
-index 0000000000000000000000000000000000000000..141a8bf28946f2154758bb539fec2b51dacc8b1d
+index 0000000000000000000000000000000000000000..455b379b2f255ae8dbb6ebbc453afcd1fa317d24
 --- /dev/null
 +++ b/src/tracing.js
-@@ -0,0 +1,93 @@
+@@ -0,0 +1,110 @@
 +import dc from 'diagnostics_channel'
 +
 +const supported = Boolean(dc) && typeof dc.tracingChannel === 'function'
@@ -2711,6 +2707,23 @@ index 0000000000000000000000000000000000000000..141a8bf28946f2154758bb539fec2b51
 +    : host.length === 1
 +      ? { serverAddress: host[0], serverPort: port[0] }
 +      : { serverAddress: undefined, serverPort: undefined }
++}
++
++export function connectionContext(connectionId, config) {
++  return { connectionId, database: config.database, user: config.user, ...serverOf(config) }
++}
++
++export function connectionAttempt(context, serverAddress, serverPort) {
++  context.serverAddress = serverAddress
++  context.serverPort = serverPort
++}
++
++export function transactionContext(config, options, savepoint) {
++  return { database: config.database, user: config.user, options, savepoint, prepared: undefined }
++}
++
++export function transactionCommitted(context, committed) {
++  context.result = { committed }
 +}
 +
 +export function traceQuery(q, fn) {
@@ -2985,7 +2998,7 @@ index 0000000000000000000000000000000000000000..e8a4bddf7c0f4b6c55ec7c5f33865888
 +  }
 +}
 diff --git a/types/index.d.ts b/types/index.d.ts
-index 13c3432f761e2c2ee5b7dc1bdafe93e49f993dc7..e1e888189740e0568616c628ebd0b2d31dcf456f 100644
+index 13c3432f761e2c2ee5b7dc1bdafe93e49f993dc7..8476e100a816110774c2607a5a5b0c6ccc69cb4f 100644
 --- a/types/index.d.ts
 +++ b/types/index.d.ts
 @@ -1,4 +1,4 @@
@@ -3210,7 +3223,7 @@ index 13c3432f761e2c2ee5b7dc1bdafe93e49f993dc7..e1e888189740e0568616c628ebd0b2d3
 +    /** The name given to `sql.prepare()` */
 +    prepared: string | undefined;
 +    /** Set by `sql.begin()` on success: `committed` is false when the transaction was prepared */
-+    result: { committed: boolean } | undefined;
++    result?: { committed: boolean };
 +    error?: Error;
 +  }
 +
