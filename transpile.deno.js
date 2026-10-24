@@ -25,7 +25,7 @@ fs.readdirSync('src').forEach(name =>
   )
 )
 
-fs.readdirSync('tests').forEach(name =>
+fs.readdirSync('tests').filter(name => name !== 'tracing.js').forEach(name =>
   fs.writeFileSync(
     path.join(tests, name),
     name.endsWith('.js')
@@ -44,8 +44,10 @@ function transpile(x, name, folder) {
            .replace(/\nexec\(/g, '\nawait exec(')
            .replace('{ spawnSync }', '{ spawn }')
     }
-    if (name === 'index.js')
+    if (name === 'index.js') {
+      x = x.replace('import \'./tracing.js\'\n', '')
       x += '\n;globalThis.addEventListener("unload", () => Deno.exit(process.exitCode))'
+    }
   }
 
   const buffer = x.includes('Buffer')
@@ -74,6 +76,7 @@ function transpile(x, name, folder) {
       '(query.writable.push({ chunk }), callback())'
     )
     .replace('socket.setKeepAlive(true, 1000 * keep_alive)', 'socket.setKeepAlive(true)')
+    .replace('from \'diagnostics_channel\'', 'from \'node:diagnostics_channel\'')
     .replace('node:stream', std + 'node/stream.ts')
     .replace('import net from \'net\'', 'import { net } from \'../polyfills.js\'')
     .replace('import tls from \'tls\'', 'import { tls } from \'../polyfills.js\'')

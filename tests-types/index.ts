@@ -27,3 +27,9 @@ new postgres.PostgresError({ code: '23505' })
 new postgres.PostgresError('boom')
 // @ts-expect-error
 new postgres.PostgresError(42)
+
+const queryTrace: postgres.QueryTraceContext = { query: undefined, values: undefined, database: 'a', user: 'b', serverAddress: undefined, serverPort: undefined, connectionId: undefined }
+const connectionTrace: postgres.ConnectionTraceContext = { connectionId: 1, database: 'a', user: 'b', serverAddress: 'localhost', serverPort: 5432 }
+const transactionTrace: postgres.TransactionTraceContext = { database: 'a', user: 'b', options: 'read write', savepoint: undefined, prepared: undefined, result: { committed: true } }
+const closeMessage: postgres.ConnectionCloseMessage = { connectionId: 1, error: undefined }
+void [queryTrace, connectionTrace, transactionTrace, closeMessage]

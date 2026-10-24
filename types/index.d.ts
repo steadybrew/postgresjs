@@ -798,6 +798,55 @@ declare namespace postgres {
     prepare<T>(name: string): Promise<UnwrapPromiseArray<T>>;
   }
 
+  /** Context of the `postgres:query` tracing channel. `query`, `values`, `serverAddress`, `serverPort` and `connectionId` are set when the query is written to a connection, after `start`. */
+  interface QueryTraceContext {
+    /** SQL text with `$n` placeholders as sent to the server */
+    query: string | undefined;
+    /** Parameters before they are serialized for the wire, raw */
+    values: unknown[] | undefined;
+    database: string;
+    user: string;
+    serverAddress: string | undefined;
+    serverPort: number | undefined;
+    connectionId: number | undefined;
+    /** Set before `asyncStart` when the query succeeded */
+    result?: ResultMeta<number | null> | Statement | Readable | Writable;
+    /** Set before `error` when the query failed */
+    error?: Error;
+  }
+
+  /** Context of the `postgres:connection` tracing channel, one span for each connection acquisition. */
+  interface ConnectionTraceContext {
+    connectionId: number;
+    database: string;
+    user: string;
+    /** The host of the latest attempt; undefined before the first attempt when several hosts are configured */
+    serverAddress: string | undefined;
+    serverPort: number | undefined;
+    error?: Error;
+  }
+
+  /** Context of the `postgres:transaction` tracing channel, for `sql.begin()` and `sql.savepoint()`. */
+  interface TransactionTraceContext {
+    database: string;
+    user: string;
+    /** The mode string passed to `sql.begin()`; undefined for a savepoint */
+    options: string | undefined;
+    /** The savepoint name as sent to the server; undefined for `sql.begin()` */
+    savepoint: string | undefined;
+    /** The name given to `sql.prepare()` */
+    prepared: string | undefined;
+    /** Set by `sql.begin()` on success: `committed` is false when the transaction was prepared */
+    result: { committed: boolean } | undefined;
+    error?: Error;
+  }
+
+  /** Payload of the `postgres:connection:close` channel. */
+  interface ConnectionCloseMessage {
+    connectionId: number;
+    error: Error | undefined;
+  }
+
   interface ReservedSql<TTypes extends Record<string, unknown> = {}> extends Sql<TTypes> {
     release(): void;
 

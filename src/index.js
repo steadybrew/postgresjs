@@ -28,6 +28,7 @@ import Queue from './queue.js'
 import { Errors, PostgresError, callback } from './errors.js'
 import Subscribe from './subscribe.js'
 import largeObject from './large.js'
+import { transactionChannel, watched, traceAsync } from './tracing.js'
 
 const Lease = { Active: 0, Settling: 1, Released: 2, Ended: 3, Closed: 4 }
 
@@ -94,6 +95,7 @@ function Postgres(a, b) {
 
   function Sql(handler) {
     handler.debug = options.debug
+    handler.config = options
 
     Object.entries(options.types).reduce((acc, [name, type]) => {
       acc[name] = (x) => new Parameter(x, type.to)
@@ -137,7 +139,7 @@ function Postgres(a, b) {
 
     function file(path, args = [], options = {}) {
       arguments.length === 2 && !Array.isArray(args) && (options = args, args = [])
-      const query = new Query([], args, (query) => {
+      const read = query => {
         fs.readFile(path, 'utf8', (err, string) => {
           if (err)
             return query.reject(err)
@@ -145,7 +147,9 @@ function Postgres(a, b) {
           query.strings = [string]
           handler(query)
         })
-      }, cancel, {
+      }
+      read.config = handler.config
+      const query = new Query([], args, read, cancel, {
         ...options,
         simple: 'simple' in options ? options.simple : args.length === 0
       })
@@ -346,8 +350,20 @@ function Postgres(a, b) {
     }
   }
 
-  async function begin(options, fn) {
-    !fn && (fn = options, options = '')
+  function begin(mode, fn) {
+    !fn && (fn = mode, mode = '')
+    if (!watched(transactionChannel))
+      return transact(mode, fn)
+
+    const trace = transactionTrace(mode)
+    return traceAsync(transactionChannel, trace, () => transact(mode, fn, trace))
+  }
+
+  function transactionTrace(mode, savepoint) {
+    return { database: options.database, user: options.user, options: mode, savepoint, prepared: undefined, result: undefined }
+  }
+
+  async function transact(options, fn, trace) {
     const l = await lease(true)
     let savepoints = 0
       , prepare = null
@@ -395,6 +411,7 @@ function Postgres(a, b) {
           throw Errors.generic('INVALID_TRANSACTION_NAME', 'sql.prepare requires a non-empty string without null bytes')
 
         prepare = 'E\'' + x.replace(/\\/g, '\\\\').replace(/'/g, '\'\'') + '\''
+        trace && (trace.prepared = x)
       }
       let uncaughtError
         , result
@@ -430,6 +447,8 @@ function Postgres(a, b) {
             uncaughtError && { cause: uncaughtError }
           )
         }
+
+        trace && (trace.result = { committed: prepare === null })
       }
 
       return result
@@ -439,7 +458,10 @@ function Postgres(a, b) {
           return savepoint(sql => sql.apply(sql, arguments))
 
         arguments.length === 1 && (fn = name, name = null)
-        return scope(fn, 's' + savepoints++ + (name ? '_' + name : ''))
+        const id = 's' + savepoints++ + (name ? '_' + name : '')
+        return watched(transactionChannel)
+          ? traceAsync(transactionChannel, transactionTrace(undefined, id), () => scope(fn, id))
+          : scope(fn, id)
       }
 
       function track(q) {

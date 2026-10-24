@@ -1,3 +1,5 @@
+import { queryChannel, watched, traceQuery, querySettled, queryFailed } from './tracing.js'
+
 const originCache = new Map()
     , originStackCache = new Map()
     , originError = Symbol('OriginError')
@@ -24,13 +26,14 @@ export class Query extends Promise {
     this.statement = null
 
     // dd-trace's load-time rewrite only accepts single-expression arrows here
-    this.resolve = x => (this.active = false, this.settled = true, resolve(x))
-    this.reject = x => (this.active = false, this.settled = true, reject(x))
+    this.resolve = x => (this.trace && querySettled(this, x), this.active = false, this.settled = true, resolve(x))
+    this.reject = x => (this.trace && queryFailed(this, x), this.active = false, this.settled = true, reject(x))
 
     this.active = false
     this.settled = false
     this.cancelled = null
     this.executed = false
+    this.trace = undefined
     this.signature = ''
 
     this[originError] = this.handler.debug
@@ -105,8 +108,8 @@ export class Query extends Promise {
               resolve({ value, done: false })
               return new Promise(r => prev = r)
             }
-            this.resolve = () => (this.active = false, resolve({ done: true }))
-            this.reject = x => (this.active = false, reject(x))
+            this.resolve = x => (this.trace && querySettled(this, x), this.active = false, resolve({ done: true }))
+            this.reject = x => (this.trace && queryFailed(this, x), this.active = false, reject(x))
           })
           this.execute()
           return promise
@@ -146,7 +149,15 @@ export class Query extends Promise {
   }
 
   async handle() {
-    !this.executed && (this.executed = true) && await 1 && this.handler(this)
+    if (this.executed)
+      return
+
+    this.executed = true
+    if (!this.initialization && watched(queryChannel))
+      return traceQuery(this, dispatch)
+
+    await 1
+    this.handler(this)
   }
 
   execute() {
@@ -168,6 +179,11 @@ export class Query extends Promise {
     this.handle()
     return super.finally.apply(this, arguments)
   }
+}
+
+async function dispatch(q) {
+  await 1
+  q.handler(q)
 }
 
 function cachedError(xs) {
