@@ -1539,7 +1539,7 @@ index 0ff83c428bec774e11417b8e1f033dc3305c18cf..023c3ba1bd113e6f5508ab079efcf220
        code: x,
        errno: x,
 diff --git a/src/index.js b/src/index.js
-index c7fba3dace20173f4cb13f3f138bb6d213b43683..271317afcfa47c1d5557a0ca96bce9651f4467e9 100644
+index c7fba3dace20173f4cb13f3f138bb6d213b43683..462dfe482408620ba51d557cb5cd1d8b98949438 100644
 --- a/src/index.js
 +++ b/src/index.js
 @@ -3,10 +3,12 @@ import fs from 'fs'
@@ -1763,21 +1763,21 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..271317afcfa47c1d5557a0ca96bce965
 +      throw Errors.connection('CONNECTION_ENDED', options)
 +
 +    const l = { state: null, connection: null, error: null, outcome: undefined, behind: 0, onclose: null, queue: Queue() }
-+    let reused = true
++    let waiter = null
 +    const idle = takeOpen()
 +    idle
 +      ? own(idle, l)
 +      : auto && !closed.length && busy.length
 +        ? own(busy.shift(), l)
 +        : await new Promise((resolve, reject) => {
-+          const query = { reserve: c => resolve(own(c, l)), reject }
++          const query = waiter = { reserve: c => resolve(own(c, l)), reject, fresh: false }
 +          closed.length
-+            ? (reused = false, connect(closed.shift(), query))
++            ? connect(closed.shift(), query)
 +            : allHeldByCopy()
 +              ? reject(copyInProgress())
 +              : queries.push(query)
 +        })
-+    trace && poolAcquired(trace, l.connection.session.processID, reused, l.behind)
++    trace && poolAcquired(trace, l.connection.session.processID, !(waiter && waiter.fresh), l.behind)
 +    return l
 +  }
 +
@@ -2168,7 +2168,7 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..271317afcfa47c1d5557a0ca96bce965
    }
  
    function connect(c, query) {
-+    query.poolWait && (query.poolWait.fresh = true)
++    query.reserve ? query.fresh = true : query.poolWait && (query.poolWait.fresh = true)
      move(c, connecting)
      c.connect(query)
      return c
@@ -2734,7 +2734,7 @@ index 0000000000000000000000000000000000000000..bcdf4c1894e0f84957d7ff3890bea9d8
 +}
 diff --git a/src/tracing.js b/src/tracing.js
 new file mode 100644
-index 0000000000000000000000000000000000000000..8fb3bc73ed1cbef4347748051e2c051fb3636ed0
+index 0000000000000000000000000000000000000000..42cefb340333894c94f101919e479387a169ebe0
 --- /dev/null
 +++ b/src/tracing.js
 @@ -0,0 +1,186 @@
@@ -2853,7 +2853,7 @@ index 0000000000000000000000000000000000000000..8fb3bc73ed1cbef4347748051e2c051f
 +    return
 +
 +  q.poolWait = undefined
-+  if (wait.activated)
++  if (wait.activated || wait.context.handoverTime !== undefined)
 +    resolved(poolConnectChannel, wait.context)
 +  else
 +    rejected(poolConnectChannel, wait.context, wait.failure.error)
@@ -3154,7 +3154,7 @@ index 0000000000000000000000000000000000000000..e8a4bddf7c0f4b6c55ec7c5f33865888
 +  }
 +}
 diff --git a/types/index.d.ts b/types/index.d.ts
-index 13c3432f761e2c2ee5b7dc1bdafe93e49f993dc7..394a76b1d6812d792c70f125acae62a5f4bc502a 100644
+index 13c3432f761e2c2ee5b7dc1bdafe93e49f993dc7..09ebd712094980b56257a6095a80510adec52af5 100644
 --- a/types/index.d.ts
 +++ b/types/index.d.ts
 @@ -1,4 +1,4 @@
@@ -3382,7 +3382,7 @@ index 13c3432f761e2c2ee5b7dc1bdafe93e49f993dc7..394a76b1d6812d792c70f125acae62a5
 +    };
 +    /** Epoch milliseconds at which the connection took the call over; set before `asyncStart` once a connection took the call over. `handoverTime` minus the `start` time is the wait for a connection. */
 +    handoverTime?: number;
-+    /** Queries the connection already had running or waiting when it took this one over. The time from `handoverTime` to `asyncStart` is spent behind them. */
++    /** Queries the connection already had running or waiting when it took this one over. For a plain query, the time from `handoverTime` to `asyncStart` is spent behind them; a lease span ends a microtask after the hand-over, so that time falls inside its first statement. */
 +    queuedBehind?: number;
 +    /** Set with `handoverTime` */
 +    client?: {
