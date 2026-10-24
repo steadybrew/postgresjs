@@ -289,21 +289,21 @@ function Postgres(a, b) {
       throw Errors.connection('CONNECTION_ENDED', options)
 
     const l = { state: null, connection: null, error: null, outcome: undefined, behind: 0, onclose: null, queue: Queue() }
-    let reused = true
+    let waiter = null
     const idle = takeOpen()
     idle
       ? own(idle, l)
       : auto && !closed.length && busy.length
         ? own(busy.shift(), l)
         : await new Promise((resolve, reject) => {
-          const query = { reserve: c => resolve(own(c, l)), reject }
+          const query = waiter = { reserve: c => resolve(own(c, l)), reject, fresh: false }
           closed.length
-            ? (reused = false, connect(closed.shift(), query))
+            ? connect(closed.shift(), query)
             : allHeldByCopy()
               ? reject(copyInProgress())
               : queries.push(query)
         })
-    trace && poolAcquired(trace, l.connection.session.processID, reused, l.behind)
+    trace && poolAcquired(trace, l.connection.session.processID, !(waiter && waiter.fresh), l.behind)
     return l
   }
 
@@ -642,7 +642,7 @@ function Postgres(a, b) {
   }
 
   function connect(c, query) {
-    query.poolWait && (query.poolWait.fresh = true)
+    query.reserve ? query.fresh = true : query.poolWait && (query.poolWait.fresh = true)
     move(c, connecting)
     c.connect(query)
     return c

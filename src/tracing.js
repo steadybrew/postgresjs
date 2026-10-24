@@ -113,7 +113,7 @@ function settleRouted(q, wait) {
     return
 
   q.poolWait = undefined
-  if (wait.activated)
+  if (wait.activated || wait.context.handoverTime !== undefined)
     resolved(poolConnectChannel, wait.context)
   else
     rejected(poolConnectChannel, wait.context, wait.failure.error)
