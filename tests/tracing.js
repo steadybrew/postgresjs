@@ -641,8 +641,9 @@ t('Tracing fails the pool span of a query refused during a COPY', async() => {
 
 t('Tracing fails the pool span of a query cancelled in the pool queue', async() => {
   const sql = postgres(options)
+  await sql`select 1`
   const { events, stop } = collect('query', 'pool:connect')
-  const first = sql`select pg_sleep(0.1)`.execute()
+  const first = sql`select pg_sleep(${ 0.1 })`.execute()
   const waiting = sql`select 2 as x`
   const code = waiting.then(() => 'resolved', e => e.code)
   await delay(10)
