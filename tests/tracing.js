@@ -100,8 +100,9 @@ t('Tracing a cursor read with for await settles once, to the end and on break', 
       rows.length
       break
     }
+    await sql`select 1`
   })
-  return [JSON.stringify([2, 2]), settled(events)]
+  return [JSON.stringify([3, 3]), settled(events)]
 })
 
 t('Tracing forEach settles once', async() => {
