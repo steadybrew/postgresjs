@@ -1,8 +1,8 @@
 diff --git a/src/connection.js b/src/connection.js
-index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..ca377594b31e766e39babed8fc568a08abe4a95a 100644
+index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..cdb40559e18d421939e1a863969edcaa7c1bb839 100644
 --- a/src/connection.js
 +++ b/src/connection.js
-@@ -4,24 +4,42 @@ import crypto from 'crypto'
+@@ -4,24 +4,53 @@ import crypto from 'crypto'
  import Stream from 'stream'
  import { performance } from 'perf_hooks'
  
@@ -16,9 +16,21 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..ca377594b31e766e39babed8fc568a08
 +import { SSLRequest, tlsConfig, cancelRequest } from './transport.js'
  import { Query, CLOSE } from './query.js'
  import b from './bytes.js'
-+import { connectionChannel, watched, run, resolved, rejected, connectionContext, connectionAttempt, querySent, connectionClosed } from './tracing.js'
- 
+-
 -export default Connection
++import {
++  connectChannel,
++  watched,
++  run,
++  resolved,
++  rejected,
++  connectContext,
++  connectAttempt,
++  connectSecured,
++  querySent,
++  poolRemoved
++} from './tracing.js'
++
 +export { Connection }
  
  let uid = 1
@@ -49,7 +61,7 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..ca377594b31e766e39babed8fc568a08
  const retryRoutines = new Set([
    'FetchPreparedStatement',
    'RevalidateCachedQuery',
-@@ -49,7 +67,7 @@ const errorFields = {
+@@ -49,7 +78,7 @@ const errorFields = {
    82  : 'routine'            // R
  }
  
@@ -58,7 +70,7 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..ca377594b31e766e39babed8fc568a08
    const {
      sslnegotiation,
      ssl,
-@@ -72,12 +90,20 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+@@ -72,12 +101,20 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
    const sent = Queue()
        , id = uid++
        , backend = { pid: null, secret: null }
@@ -83,7 +95,7 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..ca377594b31e766e39babed8fc568a08
      , errorResponse = null
      , result = new Result()
      , incoming = Buffer.alloc(0)
-@@ -86,82 +112,464 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+@@ -86,82 +123,472 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
      , statements = {}
      , statementId = Math.random().toString(36).slice(2)
      , statementCount = 1
@@ -92,6 +104,7 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..ca377594b31e766e39babed8fc568a08
      , hostIndex = 0
 -    , retries = 0
 +    , serverIndex = 0
++    , secured = false
      , length = 0
 -    , delay = 0
      , rows = 0
@@ -233,6 +246,7 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..ca377594b31e766e39babed8fc568a08
 +    get active() { return query ? 1 : 0 },
 +    get pipelined() { return sent.length },
 +    get accepting() { return accepting() },
++    get session() { return session() },
 +    get copying() { return stream !== null },
 +    get copyHeld() { return stream !== null && !stream.writableEnded },
 +    get acquiring() { return acquisition && !acquisition.owner.cancelled ? 1 : 0 },
@@ -304,6 +318,10 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..ca377594b31e766e39babed8fc568a08
 +    return options.path || host[serverIndex]
 +  }
 +
++  function session() {
++    return { host: serverAddress(), port: serverPort(), ssl: secured, processID: backend.pid }
++  }
++
 +  function serverPort() {
 +    return options.path ? undefined : port[serverIndex]
 +  }
@@ -314,11 +332,11 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..ca377594b31e766e39babed8fc568a08
 +
 +  function acquire(owner) {
 +    acquisition = { owner, ending: false, pass: 'standby', hostsTried: 0, attempting: null, mismatches: [], lastError: null, trace: undefined }
-+    if (!watched(connectionChannel))
++    if (!watched(connectChannel))
 +      return startAcquisition()
 +
-+    acquisition.trace = connectionContext(id, options)
-+    run(connectionChannel, acquisition.trace, startAcquisition)
++    acquisition.trace = connectContext(options)
++    run(connectChannel, acquisition.trace, startAcquisition)
 +  }
 +
 +  function startAcquisition() {
@@ -365,7 +383,8 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..ca377594b31e766e39babed8fc568a08
 +    listen(created)
 +    socket = created
 +    serverIndex = hostIndex
-+    acquisition.trace && connectionAttempt(acquisition.trace, serverAddress(), serverPort())
++    secured = false
++    acquisition.trace && connectAttempt(acquisition.trace, serverAddress(), serverPort())
 +    acquisition.attempting = options.socket ? 'custom socket' : options.path || host[hostIndex] + ':' + port[hostIndex]
 +
 +    if (options.socket)
@@ -404,6 +423,7 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..ca377594b31e766e39babed8fc568a08
 +      const config = tlsConfig(options, raw)
 +      raw.removeAllListeners()
 +      socket = tls.connect(config)
++      secured = true
 +      socket.on('secureConnect', () => dispatch('secure'))
 +      listen(socket)
 +    } catch (err) {
@@ -468,7 +488,7 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..ca377594b31e766e39babed8fc568a08
 +
 +        delay = backoffMs()
 +      }
-     }
++    }
 +
 +    clearTimeout(attemptTimer)
 +    attemptTimer = null
@@ -515,10 +535,10 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..ca377594b31e766e39babed8fc568a08
 +    acquisition = null
 +    endWaiters = []
 +    transition(Phase.Closed)
-+    a && a.trace && rejected(connectionChannel, a.trace, err)
++    a && a.trace && rejected(connectChannel, a.trace, err)
 +    a && queryError(a.owner, err)
 +    waiters.forEach(resolve => resolve())
-+    connectionClosed(id, reported)
++    poolRemoved(a ? undefined : backend.pid, reported)
 +    onclose(connection, reported)
 +  }
 +
@@ -541,15 +561,15 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..ca377594b31e766e39babed8fc568a08
 +      ms && (closeTimer = clampedTimeout(() => (closeTimer = null, dispatch('closeTimeout')), ms))
 +    } else {
 +      socket.destroy()
-+    }
-+  }
-+
+     }
+   }
+ 
 +  function handoff() {
 +    const { owner, ending, trace } = acquisition
 +    transition(Phase.Ready)
 +    clearAcquisitionTimers()
 +    acquisition = null
-+    trace && resolved(connectionChannel, trace)
++    trace && (connectSecured(trace, secured), resolved(connectChannel, trace))
 +    options.shared.retries = 0
 +    lifeTimer.start()
 +
@@ -561,8 +581,8 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..ca377594b31e766e39babed8fc568a08
 +    }
 +
 +    onopen(connection, owner.cancelled ? undefined : owner)
-   }
- 
++  }
++
    function execute(q) {
 -    if (terminated)
 -      return queryError(q, Errors.connection('CONNECTION_DESTROYED', options))
@@ -586,7 +606,7 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..ca377594b31e766e39babed8fc568a08
  
      try {
        q.state = backend
-@@ -169,19 +577,35 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+@@ -169,19 +596,35 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
          ? sent.push(q)
          : (query = q, query.active = true)
  
@@ -630,7 +650,7 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..ca377594b31e766e39babed8fc568a08
    function toBuffer(q) {
      if (q.parameters.length >= 65534)
        throw Errors.generic('MAX_PARAMETERS_EXCEEDED', 'Max number of parameters (65534) exceeded')
-@@ -206,7 +630,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+@@ -206,7 +649,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
  
    function prepared(q) {
      return Buffer.concat([
@@ -639,7 +659,7 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..ca377594b31e766e39babed8fc568a08
        q.cursorFn
          ? Execute('', q.cursorRows)
          : ExecuteUnnamed
-@@ -234,13 +658,17 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+@@ -234,13 +677,17 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
      q.signature = q.prepare && types + string
      q.onlyDescribe && (delete statements[q.signature])
      q.parameters = q.parameters || parameters
@@ -655,11 +675,11 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..ca377594b31e766e39babed8fc568a08
  
 -    typeof options.debug === 'function' && options.debug(id, string, parameters, types)
 +    typeof options.debug === 'function' && callback(options.debug, id, string, parameters, types)
-+    q.trace && querySent(q, id, serverAddress(), serverPort())
++    q.trace && querySent(q, session())
    }
  
    function write(x, fn) {
-@@ -252,52 +680,12 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+@@ -252,52 +699,12 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
    }
  
    function nextWrite(fn) {
@@ -713,7 +733,7 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..ca377594b31e766e39babed8fc568a08
    function data(x) {
      if (incomings) {
        incomings.push(x)
-@@ -312,6 +700,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+@@ -312,6 +719,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
          ? x
          : Buffer.concat([incoming, x], incoming.length + x.length)
  
@@ -721,7 +741,7 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..ca377594b31e766e39babed8fc568a08
      while (incoming.length > 4) {
        length = incoming.readUInt32BE(1)
        if (length >= incoming.length) {
-@@ -323,74 +712,34 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+@@ -323,74 +731,34 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
        try {
          handle(incoming.subarray(0, length + 1))
        } catch (e) {
@@ -810,7 +830,7 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..ca377594b31e766e39babed8fc568a08
    }
  
    function queryError(query, err) {
-@@ -401,7 +750,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+@@ -401,7 +769,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
        err = new Error(err)
  
      'query' in err || 'parameters' in err || Object.defineProperties(err, {
@@ -819,7 +839,7 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..ca377594b31e766e39babed8fc568a08
        query: { value: query.string, enumerable: options.debug },
        parameters: { value: query.parameters, enumerable: options.debug },
        args: { value: query.args, enumerable: options.debug },
-@@ -410,51 +759,14 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+@@ -410,51 +778,14 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
      query.reject(err)
    }
  
@@ -879,7 +899,7 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..ca377594b31e766e39babed8fc568a08
    }
  
    /* Handlers */
-@@ -495,6 +807,8 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+@@ -495,6 +826,8 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
      let column
      let value
  
@@ -888,7 +908,7 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..ca377594b31e766e39babed8fc568a08
      const row = query.isRaw ? new Array(query.statement.columns.length) : {}
      for (let i = 0; i < query.statement.columns.length; i++) {
        column = query.statement.columns[i]
-@@ -514,13 +828,13 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+@@ -514,13 +847,13 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
        query.isRaw
          ? (row[i] = query.isRaw === true
            ? value
@@ -906,7 +926,7 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..ca377594b31e766e39babed8fc568a08
    }
  
    function ParameterStatus(x) {
-@@ -528,19 +842,25 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+@@ -528,19 +861,25 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
      backendParameters[k] = v
      if (options.parameters[k] !== v) {
        options.parameters[k] = v
@@ -934,7 +954,7 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..ca377594b31e766e39babed8fc568a08
          query.resolve(results || result)
        }
      } else if (errorResponse) {
-@@ -549,42 +869,34 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+@@ -549,42 +888,34 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
  
      query = results = errorResponse = null
      result = new Result()
@@ -999,7 +1019,7 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..ca377594b31e766e39babed8fc568a08
    }
  
    function CommandComplete(x) {
-@@ -602,7 +914,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+@@ -602,7 +933,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
  
      final && (final(), final = null)
  
@@ -1008,7 +1028,7 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..ca377594b31e766e39babed8fc568a08
        return errored(Errors.generic('UNSAFE_TRANSACTION', 'Only use sql.begin, sql.reserved or max: 1'))
  
      if (query.options.simple)
-@@ -654,7 +966,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+@@ -654,7 +985,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
        const number = x.readUInt16BE(index + 4)
        const type = x.readUInt32BE(index + 6)
        query.statement.columns[i] = {
@@ -1017,7 +1037,7 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..ca377594b31e766e39babed8fc568a08
            ? transform.column.from(x.toString('utf8', start, index - 1))
            : x.toString('utf8', start, index - 1),
          parser: parsers[type],
-@@ -670,8 +982,9 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+@@ -670,8 +1001,9 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
        return (query.resolve(query.statement), write(Sync))
    }
  
@@ -1029,7 +1049,7 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..ca377594b31e766e39babed8fc568a08
        type === 3 ? AuthenticationCleartextPassword :
        type === 5 ? AuthenticationMD5Password :
        type === 10 ? SASL :
-@@ -679,18 +992,20 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+@@ -679,18 +1011,20 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
        type === 12 ? SASLFinal :
        type !== 0 ? UnknownAuth :
        noop
@@ -1053,7 +1073,7 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..ca377594b31e766e39babed8fc568a08
      const payload = 'md5' + (
        await md5(
          Buffer.concat([
-@@ -699,40 +1014,42 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+@@ -699,40 +1033,42 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
          ])
        )
      )
@@ -1110,7 +1130,7 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..ca377594b31e766e39babed8fc568a08
      write(
        b().p().str(payload).end()
      )
-@@ -742,8 +1059,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+@@ -742,8 +1078,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
      if (x.toString('utf8', 9).split(b.N, 1)[0].slice(2) === serverSignature)
        return
      /* c8 ignore next 5 */
@@ -1120,7 +1140,7 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..ca377594b31e766e39babed8fc568a08
    }
  
    function Pass() {
-@@ -765,48 +1081,47 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+@@ -765,48 +1100,47 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
      backend.secret = x.readUInt32BE(9)
    }
  
@@ -1192,7 +1212,7 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..ca377594b31e766e39babed8fc568a08
    }
  
    function ErrorResponse(x) {
-@@ -814,12 +1129,11 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+@@ -814,12 +1148,11 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
        (query.cursorFn || query.describeFirst) && write(Sync)
        errorResponse = Errors.postgres(parseError(x))
      } else {
@@ -1206,7 +1226,7 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..ca377594b31e766e39babed8fc568a08
      q.retried = error
      execute(q)
    }
-@@ -830,22 +1144,27 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+@@ -830,22 +1163,27 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
  
      let index = 9
      while (x[index++] !== 0);
@@ -1240,7 +1260,7 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..ca377594b31e766e39babed8fc568a08
      }
    }
  
-@@ -862,7 +1181,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+@@ -862,7 +1200,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
        },
        destroy(error, callback) {
          callback(error)
@@ -1249,7 +1269,7 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..ca377594b31e766e39babed8fc568a08
          stream = null
        },
        final(callback) {
-@@ -872,27 +1191,29 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+@@ -872,27 +1210,29 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
        }
      })
      query.resolve(stream)
@@ -1282,7 +1302,7 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..ca377594b31e766e39babed8fc568a08
          stream = null
        },
        final(callback) {
-@@ -901,22 +1222,36 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+@@ -901,22 +1241,36 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
        }
      })
      query.resolve(stream)
@@ -1322,7 +1342,7 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..ca377594b31e766e39babed8fc568a08
    }
  
    /* c8 ignore next 3 */
-@@ -945,20 +1280,21 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+@@ -945,20 +1299,21 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
    }
  
    /* Messages */
@@ -1351,7 +1371,7 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..ca377594b31e766e39babed8fc568a08
  
        prev = b.i
        b.inc(4).str(x).i32(b.i - prev - 4, prev)
-@@ -966,7 +1302,27 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+@@ -966,7 +1321,27 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
  
      b.i16(0)
  
@@ -1380,7 +1400,7 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..ca377594b31e766e39babed8fc568a08
    }
  
    function Parse(str, parameters, types, name = '') {
-@@ -994,7 +1350,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+@@ -994,7 +1369,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
    }
  
    function StartupMessage() {
@@ -1389,7 +1409,7 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..ca377594b31e766e39babed8fc568a08
        Object.entries(Object.assign({
          user,
          database,
-@@ -1019,6 +1375,33 @@ function parseError(x) {
+@@ -1019,6 +1394,33 @@ function parseError(x) {
    return error
  }
  
@@ -1423,7 +1443,7 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..ca377594b31e766e39babed8fc568a08
  function md5(x) {
    return crypto.createHash('md5').update(x).digest('hex')
  }
-@@ -1042,21 +1425,44 @@ function xor(a, b) {
+@@ -1042,21 +1444,44 @@ function xor(a, b) {
  function timer(fn, seconds) {
    seconds = typeof seconds === 'function' ? seconds() : seconds
    if (!seconds)
@@ -1509,7 +1529,7 @@ index 0ff83c428bec774e11417b8e1f033dc3305c18cf..023c3ba1bd113e6f5508ab079efcf220
        code: x,
        errno: x,
 diff --git a/src/index.js b/src/index.js
-index c7fba3dace20173f4cb13f3f138bb6d213b43683..f12e3a1810f7bd9a83123f918df3942f7f51a399 100644
+index c7fba3dace20173f4cb13f3f138bb6d213b43683..a554f987f17b08d975807dbdfcb3f79d14b46f3c 100644
 --- a/src/index.js
 +++ b/src/index.js
 @@ -3,10 +3,12 @@ import fs from 'fs'
@@ -1525,7 +1545,7 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..f12e3a1810f7bd9a83123f918df3942f
    toPascal,
    pascal,
    toCamel,
-@@ -18,12 +20,17 @@ import {
+@@ -18,12 +20,28 @@ import {
    fromKebab
  } from './types.js'
  
@@ -1539,13 +1559,24 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..f12e3a1810f7bd9a83123f918df3942f
 +import { Errors, PostgresError, callback } from './errors.js'
  import Subscribe from './subscribe.js'
  import largeObject from './large.js'
-+import { transactionChannel, watched, traceAsync, transactionContext, transactionCommitted } from './tracing.js'
++import {
++  transactionChannel,
++  poolConnectChannel,
++  watched,
++  traceAsync,
++  transactionContext,
++  transactionSession,
++  transactionCommitted,
++  poolContext,
++  poolAcquired,
++  poolReleased
++} from './tracing.js'
 +
 +const Lease = { Active: 0, Settling: 1, Released: 2, Ended: 3, Closed: 4 }
  
  Object.assign(Postgres, {
    PostgresError,
-@@ -51,6 +58,7 @@ function Postgres(a, b) {
+@@ -51,6 +69,7 @@ function Postgres(a, b) {
        , subscribe = options.no_subscribe || Subscribe(Postgres, { ...options })
  
    let ending = false
@@ -1553,7 +1584,7 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..f12e3a1810f7bd9a83123f918df3942f
  
    const queries = Queue()
        , connecting = Queue()
-@@ -62,7 +70,7 @@ function Postgres(a, b) {
+@@ -62,7 +81,7 @@ function Postgres(a, b) {
        , full = Queue()
        , queues = { connecting, reserved, closed, ended, open, busy, full }
  
@@ -1562,7 +1593,7 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..f12e3a1810f7bd9a83123f918df3942f
  
    const sql = Sql(handler)
  
-@@ -75,16 +83,19 @@ function Postgres(a, b) {
+@@ -75,16 +94,19 @@ function Postgres(a, b) {
      PostgresError,
      options,
      reserve,
@@ -1583,7 +1614,7 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..f12e3a1810f7bd9a83123f918df3942f
  
      Object.entries(options.types).reduce((acc, [name, type]) => {
        acc[name] = (x) => new Parameter(x, type.to)
-@@ -128,7 +139,7 @@ function Postgres(a, b) {
+@@ -128,7 +150,7 @@ function Postgres(a, b) {
  
      function file(path, args = [], options = {}) {
        arguments.length === 2 && !Array.isArray(args) && (options = args, args = [])
@@ -1592,7 +1623,7 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..f12e3a1810f7bd9a83123f918df3942f
          fs.readFile(path, 'utf8', (err, string) => {
            if (err)
              return query.reject(err)
-@@ -136,7 +147,9 @@ function Postgres(a, b) {
+@@ -136,7 +158,9 @@ function Postgres(a, b) {
            query.strings = [string]
            handler(query)
          })
@@ -1603,7 +1634,7 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..f12e3a1810f7bd9a83123f918df3942f
          ...options,
          simple: 'simple' in options ? options.simple : args.length === 0
        })
-@@ -144,6 +157,56 @@ function Postgres(a, b) {
+@@ -144,6 +168,56 @@ function Postgres(a, b) {
      }
    }
  
@@ -1660,7 +1691,7 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..f12e3a1810f7bd9a83123f918df3942f
    async function listen(name, fn, onlisten) {
      const listener = { fn, onlisten }
  
-@@ -153,6 +216,7 @@ function Postgres(a, b) {
+@@ -153,6 +227,7 @@ function Postgres(a, b) {
        idle_timeout: null,
        max_lifetime: null,
        fetch_types: false,
@@ -1668,7 +1699,7 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..f12e3a1810f7bd9a83123f918df3942f
        onclose() {
          Object.entries(listen.channels).forEach(([name, { listeners }]) => {
            delete listen.channels[name]
-@@ -160,7 +224,7 @@ function Postgres(a, b) {
+@@ -160,7 +235,7 @@ function Postgres(a, b) {
          })
        },
        onnotify(c, x) {
@@ -1677,7 +1708,7 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..f12e3a1810f7bd9a83123f918df3942f
        }
      }))
  
-@@ -170,7 +234,7 @@ function Postgres(a, b) {
+@@ -170,7 +245,7 @@ function Postgres(a, b) {
      if (exists) {
        channels[name].listeners.push(listener)
        const result = await channels[name].result
@@ -1686,7 +1717,7 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..f12e3a1810f7bd9a83123f918df3942f
        return { state: result.state, unlisten }
      }
  
-@@ -178,7 +242,7 @@ function Postgres(a, b) {
+@@ -178,7 +253,7 @@ function Postgres(a, b) {
        sql.unsafe('"' + name.replace(/"/g, '""') + '"')
      }`, listeners: [listener] }
      const result = await channels[name].result
@@ -1695,7 +1726,7 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..f12e3a1810f7bd9a83123f918df3942f
      return { state: result.state, unlisten }
  
      async function unlisten() {
-@@ -200,62 +264,155 @@ function Postgres(a, b) {
+@@ -200,62 +275,170 @@ function Postgres(a, b) {
      return await sql`select pg_notify(${ channel }, ${ '' + payload })`
    }
  
@@ -1708,11 +1739,20 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..f12e3a1810f7bd9a83123f918df3942f
 -        queries.push(query)
 -        closed.length && connect(closed.shift(), query)
 -      })
-+  async function lease(auto) {
++  function lease(auto) {
++    if (!watched(poolConnectChannel))
++      return acquire(auto)
++
++    const trace = poolContext(stats())
++    return traceAsync(poolConnectChannel, trace, () => acquire(auto, trace))
++  }
++
++  async function acquire(auto, trace) {
 +    if (ending)
 +      throw Errors.connection('CONNECTION_ENDED', options)
 +
-+    const l = { state: null, connection: null, error: null, onclose: null, queue: Queue() }
++    const l = { state: null, connection: null, error: null, outcome: undefined, onclose: null, queue: Queue() }
++    let reused = true
 +    const idle = takeOpen()
 +    idle
 +      ? own(idle, l)
@@ -1721,11 +1761,12 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..f12e3a1810f7bd9a83123f918df3942f
 +        : await new Promise((resolve, reject) => {
 +          const query = { reserve: c => resolve(own(c, l)), reject }
 +          closed.length
-+            ? connect(closed.shift(), query)
++            ? (reused = false, connect(closed.shift(), query))
 +            : allHeldByCopy()
 +              ? reject(copyInProgress())
 +              : queries.push(query)
 +        })
++    trace && poolAcquired(trace, l.connection.session.processID, reused)
 +    return l
 +  }
 +
@@ -1751,7 +1792,12 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..f12e3a1810f7bd9a83123f918df3942f
 +        : (move(c, full), q.queue = l.queue, l.queue.push(q))
 +      : q.reject(leaseError(l))
 +  }
-+
+ 
+-    move(c, reserved)
+-    c.reserved = () => queue.length
+-      ? c.execute(queue.shift())
+-      : move(c, reserved)
+-    c.reserved.release = true
 +  function leaseError(l) {
 +    return l.state === Lease.Closed
 +      ? Errors.connection('CONNECTION_CLOSED', options)
@@ -1759,20 +1805,17 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..f12e3a1810f7bd9a83123f918df3942f
 +        ? Errors.generic('CONNECTION_RELEASED', 'Reserved connection used after release()')
 +        : Errors.generic('TRANSACTION_ENDED', 'Transaction handle used after its transaction ended')
 +  }
- 
--    move(c, reserved)
--    c.reserved = () => queue.length
--      ? c.execute(queue.shift())
--      : move(c, reserved)
--    c.reserved.release = true
++
 +  function stop(l, state) {
 +    if (l.state === Lease.Released || l.state === Lease.Ended)
 +      return null
- 
++
++    const lost = l.state === Lease.Closed
 +    l.state = state
 +    while (l.queue.length)
 +      l.queue.shift().reject(leaseError(l))
 +
++    poolReleased(l.connection, lost ? l.error : l.outcome)
 +    const c = l.connection
 +    if (c.owner !== l)
 +      return null
@@ -1780,7 +1823,7 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..f12e3a1810f7bd9a83123f918df3942f
 +    c.owner = null
 +    return c
 +  }
-+
+ 
 +  async function reserve() {
 +    const l = await lease(false)
      const sql = Sql(handler)
@@ -1813,12 +1856,13 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..f12e3a1810f7bd9a83123f918df3942f
 +    if (!watched(transactionChannel))
 +      return transact(mode, fn)
 +
-+    const trace = transactionContext(options, mode)
++    const trace = transactionContext(options, undefined, mode)
 +    return traceAsync(transactionChannel, trace, () => transact(mode, fn, trace))
 +  }
 +
 +  async function transact(options, fn, trace) {
 +    const l = await lease(true)
++    trace && transactionSession(trace, l.connection.session)
      let savepoints = 0
 -      , connection
        , prepare = null
@@ -1837,6 +1881,7 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..f12e3a1810f7bd9a83123f918df3942f
 +
 +    async function transaction() {
 +      await Sql(handler).unsafe('begin ' + options.replace(/[^a-z ]/ig, ''), []).execute().catch(e => {
++        l.outcome = e
 +        e instanceof PostgresError && release()
 +        throw e
 +      })
@@ -1849,6 +1894,7 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..f12e3a1810f7bd9a83123f918df3942f
 +      try {
 +        result = await statement(Sql(q => handler(q, Lease.Settling)))
 +      } catch (e) {
++        l.outcome = l.outcome || e
 +        terminate()
 +        throw e
 +      }
@@ -1859,15 +1905,15 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..f12e3a1810f7bd9a83123f918df3942f
 +    function release() {
 +      const c = stop(l, Lease.Ended)
 +      c && c.release()
-+    }
-+
-+    function terminate() {
-+      const c = stop(l, Lease.Ended)
-+      c && c.terminate()
      }
  
 -    async function scope(c, fn, name) {
 -      const sql = Sql(handler)
++    function terminate() {
++      const c = stop(l, Lease.Ended)
++      c && c.terminate()
++    }
++
 +    async function scope(fn, name) {
 +      const sql = Sql(track)
        sql.savepoint = savepoint
@@ -1887,13 +1933,14 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..f12e3a1810f7bd9a83123f918df3942f
        try {
          result = await new Promise((resolve, reject) => {
            const x = fn(sql)
-@@ -265,17 +422,29 @@ function Postgres(a, b) {
+@@ -265,17 +448,30 @@ function Postgres(a, b) {
          if (uncaughtError)
            throw uncaughtError
        } catch (e) {
 -        await (name
 -          ? sql`rollback to ${ sql(name) }`
 -          : sql`rollback`
++        name || (l.outcome = e)
 +        l.state === Lease.Active && await (name
 +          ? sql.unsafe('rollback to ' + escapeIdentifier(name))
 +          : finish(final => final.unsafe('rollback'))
@@ -1923,14 +1970,14 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..f12e3a1810f7bd9a83123f918df3942f
        }
  
        return result
-@@ -285,23 +454,21 @@ function Postgres(a, b) {
+@@ -285,23 +481,21 @@ function Postgres(a, b) {
            return savepoint(sql => sql.apply(sql, arguments))
  
          arguments.length === 1 && (fn = name, name = null)
 -        return scope(c, fn, 's' + savepoints++ + (name ? '_' + name : ''))
 +        const id = 's' + savepoints++ + (name ? '_' + name : '')
 +        return watched(transactionChannel)
-+          ? traceAsync(transactionChannel, transactionContext(options, undefined, id), () => scope(fn, id))
++          ? traceAsync(transactionChannel, transactionContext(options, l.connection.session, undefined, id), () => scope(fn, id))
 +          : scope(fn, id)
        }
  
@@ -1956,7 +2003,7 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..f12e3a1810f7bd9a83123f918df3942f
      }
    }
  
-@@ -310,7 +477,7 @@ function Postgres(a, b) {
+@@ -310,7 +504,7 @@ function Postgres(a, b) {
      queue.push(c)
      c.queue = queue
      queue === open
@@ -1965,7 +2012,7 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..f12e3a1810f7bd9a83123f918df3942f
        : c.idleTimer.cancel()
      return c
    }
-@@ -330,15 +497,51 @@ function Postgres(a, b) {
+@@ -330,15 +524,51 @@ function Postgres(a, b) {
      if (ending)
        return query.reject(Errors.connection('CONNECTION_ENDED', options, options))
  
@@ -2022,7 +2069,7 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..f12e3a1810f7bd9a83123f918df3942f
    }
  
    function go(c, query) {
-@@ -348,17 +551,18 @@ function Postgres(a, b) {
+@@ -348,17 +578,18 @@ function Postgres(a, b) {
    }
  
    function cancel(query) {
@@ -2051,7 +2098,7 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..f12e3a1810f7bd9a83123f918df3942f
      })
    }
  
-@@ -368,13 +572,23 @@ function Postgres(a, b) {
+@@ -368,13 +599,23 @@ function Postgres(a, b) {
  
      await 1
      let timer
@@ -2082,7 +2129,7 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..f12e3a1810f7bd9a83123f918df3942f
    }
  
    async function close() {
-@@ -382,9 +596,9 @@ function Postgres(a, b) {
+@@ -382,9 +623,9 @@ function Postgres(a, b) {
    }
  
    async function destroy(resolve) {
@@ -2093,7 +2140,7 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..f12e3a1810f7bd9a83123f918df3942f
      resolve()
    }
  
-@@ -398,12 +612,18 @@ function Postgres(a, b) {
+@@ -398,12 +639,18 @@ function Postgres(a, b) {
      move(c, ended)
    }
  
@@ -2115,7 +2162,7 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..f12e3a1810f7bd9a83123f918df3942f
  
      while (ready && queries.length && max-- > 0) {
        const query = queries.shift()
-@@ -418,12 +638,60 @@ function Postgres(a, b) {
+@@ -418,12 +665,60 @@ function Postgres(a, b) {
        : move(c, full)
    }
  
@@ -2180,7 +2227,7 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..f12e3a1810f7bd9a83123f918df3942f
    }
  }
  
-@@ -453,16 +721,17 @@ function parseOptions(a, b) {
+@@ -453,16 +748,17 @@ function parseOptions(a, b) {
      connect_timeout : 30,
      max_lifetime    : max_lifetime,
      max_pipeline    : 100,
@@ -2200,7 +2247,7 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..f12e3a1810f7bd9a83123f918df3942f
      host            : Array.isArray(host) ? host : host.split(',').map(x => x.split(':')[0]),
      port            : Array.isArray(port) ? port : host.split(',').map(x => parseInt(x.split(':')[1] || port)),
      path            : o.path || host.indexOf('/') > -1 && host + '/.s.PGSQL.' + port,
-@@ -472,8 +741,8 @@ function parseOptions(a, b) {
+@@ -472,8 +768,8 @@ function parseOptions(a, b) {
      ...Object.entries(defaults).reduce(
        (acc, [k, d]) => {
          const value = k in o ? o[k] : k in query
@@ -2211,7 +2258,7 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..f12e3a1810f7bd9a83123f918df3942f
          acc[k] = typeof value === 'string' && ints.includes(k)
            ? +value
            : value
-@@ -488,16 +757,26 @@ function parseOptions(a, b) {
+@@ -488,16 +784,26 @@ function parseOptions(a, b) {
      },
      types           : o.types || {},
      target_session_attrs: tsa(o, url, env),
@@ -2239,7 +2286,7 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..f12e3a1810f7bd9a83123f918df3942f
  }
  
  function tsa(o, url, env) {
-@@ -508,8 +787,12 @@ function tsa(o, url, env) {
+@@ -508,8 +814,12 @@ function tsa(o, url, env) {
    throw new Error('target_session_attrs ' + x + ' is not supported')
  }
  
@@ -2654,19 +2701,21 @@ index 0000000000000000000000000000000000000000..bcdf4c1894e0f84957d7ff3890bea9d8
 +}
 diff --git a/src/tracing.js b/src/tracing.js
 new file mode 100644
-index 0000000000000000000000000000000000000000..455b379b2f255ae8dbb6ebbc453afcd1fa317d24
+index 0000000000000000000000000000000000000000..3de24120abd1577f11186ce01e93b6325eae5af0
 --- /dev/null
 +++ b/src/tracing.js
-@@ -0,0 +1,110 @@
+@@ -0,0 +1,128 @@
 +import dc from 'diagnostics_channel'
 +
 +const supported = Boolean(dc) && typeof dc.tracingChannel === 'function'
 +
 +export const queryChannel = supported ? dc.tracingChannel('postgres:query') : undefined
-+export const connectionChannel = supported ? dc.tracingChannel('postgres:connection') : undefined
++export const connectChannel = supported ? dc.tracingChannel('postgres:connect') : undefined
 +export const transactionChannel = supported ? dc.tracingChannel('postgres:transaction') : undefined
++export const poolConnectChannel = supported ? dc.tracingChannel('postgres:pool:connect') : undefined
 +export const sendChannel = supported ? dc.channel('postgres:query:send') : undefined
-+export const closeChannel = supported ? dc.channel('postgres:connection:close') : undefined
++export const poolReleaseChannel = supported ? dc.channel('postgres:pool:release') : undefined
++export const poolRemoveChannel = supported ? dc.channel('postgres:pool:remove') : undefined
 +
 +export function watched(channel) {
 +  return channel !== undefined && (channel.hasSubscribers ?? channel.start.hasSubscribers)
@@ -2701,51 +2750,71 @@ index 0000000000000000000000000000000000000000..455b379b2f255ae8dbb6ebbc453afcd1
 +  )
 +}
 +
-+export function serverOf({ host, port, path }) {
++function serverOf({ host, port, path }) {
 +  return path
-+    ? { serverAddress: path, serverPort: undefined }
-+    : host.length === 1
-+      ? { serverAddress: host[0], serverPort: port[0] }
-+      : { serverAddress: undefined, serverPort: undefined }
++    ? { host: path, port: undefined }
++    : host && host.length === 1
++      ? { host: host[0], port: port[0] }
++      : { host: undefined, port: undefined }
 +}
 +
-+export function connectionContext(connectionId, config) {
-+  return { connectionId, database: config.database, user: config.user, ...serverOf(config) }
++function clientOf(config) {
++  return { database: config.database, ...serverOf(config), user: config.user, ssl: Boolean(config.ssl), processID: undefined }
 +}
 +
-+export function connectionAttempt(context, serverAddress, serverPort) {
-+  context.serverAddress = serverAddress
-+  context.serverPort = serverPort
++export function connectContext(config) {
++  const { database, host, port, user, ssl } = clientOf(config)
++  return { connection: { database, host, port, user, ssl } }
 +}
 +
-+export function transactionContext(config, options, savepoint) {
-+  return { database: config.database, user: config.user, options, savepoint, prepared: undefined }
++export function connectAttempt(context, host, port) {
++  context.connection.host = host
++  context.connection.port = port
++}
++
++export function connectSecured(context, ssl) {
++  context.connection.ssl = ssl
++}
++
++export function transactionContext(config, session, options, savepoint) {
++  return { client: { ...clientOf(config), ...session }, options, savepoint, prepared: undefined }
++}
++
++export function transactionSession(context, session) {
++  Object.assign(context.client, session)
 +}
 +
 +export function transactionCommitted(context, committed) {
 +  context.result = { committed }
 +}
 +
++export function poolContext({ totalCount, idleCount, waitingCount, max }) {
++  return { pool: { totalCount, idleCount, waitingCount, maxSize: max } }
++}
++
++export function poolAcquired(context, processID, reused) {
++  context.client = { processID, reused }
++}
++
++export function poolReleased(connection, error) {
++  if (poolReleaseChannel && poolReleaseChannel.hasSubscribers)
++    poolReleaseChannel.publish({ client: { processID: connection.session.processID }, error })
++}
++
++export function poolRemoved(processID, error) {
++  poolRemoveChannel && poolRemoveChannel.hasSubscribers && poolRemoveChannel.publish({ client: { processID }, error })
++}
++
 +export function traceQuery(q, fn) {
-+  const config = q.handler.config
-+  q.trace = {
-+    query: undefined,
-+    values: undefined,
-+    database: config && config.database,
-+    user: config && config.user,
-+    ...config && serverOf(config),
-+    connectionId: undefined
-+  }
++  q.trace = { query: { text: undefined, name: undefined }, client: clientOf(q.handler.config || {}) }
 +  return run(queryChannel, q.trace, fn, q)
 +}
 +
-+export function querySent(q, connectionId, serverAddress, serverPort) {
++export function querySent(q, session) {
 +  const context = q.trace
-+  context.query = q.string
-+  context.values = q.parameters
-+  context.connectionId = connectionId
-+  context.serverAddress = serverAddress
-+  context.serverPort = serverPort
++  context.query.text = q.string
++  context.query.name = q.statement.name || undefined
++  Object.assign(context.client, session)
 +  sendChannel.hasSubscribers && sendChannel.publish(context)
 +}
 +
@@ -2763,10 +2832,6 @@ index 0000000000000000000000000000000000000000..455b379b2f255ae8dbb6ebbc453afcd1
 +  const context = q.trace
 +  q.trace = undefined
 +  rejected(queryChannel, context, error)
-+}
-+
-+export function connectionClosed(connectionId, error) {
-+  closeChannel && closeChannel.hasSubscribers && closeChannel.publish({ connectionId, error })
 +}
 diff --git a/src/transport.js b/src/transport.js
 new file mode 100644
@@ -2998,7 +3063,7 @@ index 0000000000000000000000000000000000000000..e8a4bddf7c0f4b6c55ec7c5f33865888
 +  }
 +}
 diff --git a/types/index.d.ts b/types/index.d.ts
-index 13c3432f761e2c2ee5b7dc1bdafe93e49f993dc7..8476e100a816110774c2607a5a5b0c6ccc69cb4f 100644
+index 13c3432f761e2c2ee5b7dc1bdafe93e49f993dc7..2c07940cd38d4af902b74959d7a28d144744b424 100644
 --- a/types/index.d.ts
 +++ b/types/index.d.ts
 @@ -1,4 +1,4 @@
@@ -3180,42 +3245,62 @@ index 13c3432f761e2c2ee5b7dc1bdafe93e49f993dc7..8476e100a816110774c2607a5a5b0c6c
    }
  
    interface TransactionSql<TTypes extends Record<string, unknown> = {}> extends ISql<TTypes>  {
-@@ -727,8 +798,63 @@ declare namespace postgres {
+@@ -727,8 +798,91 @@ declare namespace postgres {
      prepare<T>(name: string): Promise<UnwrapPromiseArray<T>>;
    }
  
-+  /** Context of the `postgres:query` tracing channel. `query`, `values`, `serverAddress`, `serverPort` and `connectionId` are set when the query is written to a connection, after `start`. */
-+  interface QueryTraceContext {
-+    /** SQL text with `$n` placeholders as sent to the server */
-+    query: string | undefined;
-+    /** Parameters before they are serialized for the wire, raw */
-+    values: unknown[] | undefined;
++  /** The connection a traced call runs on. Host, port and ssl are those of the connection once it is known. */
++  interface TraceClient {
 +    database: string;
++    host: string | undefined;
++    port: number | undefined;
 +    user: string;
-+    serverAddress: string | undefined;
-+    serverPort: number | undefined;
-+    connectionId: number | undefined;
++    ssl: boolean;
++    /** Backend process id; set once the call is written to a connection */
++    processID: number | undefined;
++  }
++
++  /** Context of the `postgres:query` tracing channel. `query` and the connection fields of `client` are set when the query is written to a connection, after `start`. */
++  interface QueryTraceContext {
++    query: {
++      /** SQL text with `$n` placeholders as sent to the server */
++      text: string | undefined;
++      /** Prepared statement name; undefined for an unnamed statement */
++      name: string | undefined;
++    };
++    client: TraceClient;
 +    /** Set before `asyncStart` when the query succeeded */
 +    result?: ResultMeta<number | null> | Statement | Readable | Writable;
 +    /** Set before `error` when the query failed */
 +    error?: Error;
 +  }
 +
-+  /** Context of the `postgres:connection` tracing channel, one span for each connection acquisition. */
-+  interface ConnectionTraceContext {
-+    connectionId: number;
-+    database: string;
-+    user: string;
-+    /** The host of the latest attempt; undefined before the first attempt when several hosts are configured */
-+    serverAddress: string | undefined;
-+    serverPort: number | undefined;
++  /** Context of the `postgres:connect` tracing channel, one span for each connection acquisition. */
++  interface ConnectTraceContext {
++    connection: Omit<TraceClient, 'processID'>;
++    error?: Error;
++  }
++
++  /** Context of the `postgres:pool:connect` tracing channel, for `sql.reserve()` and `sql.begin()`. */
++  interface PoolConnectTraceContext {
++    pool: {
++      totalCount: number;
++      idleCount: number;
++      waitingCount: number;
++      maxSize: number;
++    };
++    /** Set before `asyncStart` on success */
++    client?: {
++      processID: number | undefined;
++      /** False when the acquisition had to open the connection */
++      reused: boolean;
++    };
 +    error?: Error;
 +  }
 +
 +  /** Context of the `postgres:transaction` tracing channel, for `sql.begin()` and `sql.savepoint()`. */
 +  interface TransactionTraceContext {
-+    database: string;
-+    user: string;
++    client: TraceClient;
 +    /** The mode string passed to `sql.begin()`; undefined for a savepoint */
 +    options: string | undefined;
 +    /** The savepoint name as sent to the server; undefined for `sql.begin()` */
@@ -3227,9 +3312,17 @@ index 13c3432f761e2c2ee5b7dc1bdafe93e49f993dc7..8476e100a816110774c2607a5a5b0c6c
 +    error?: Error;
 +  }
 +
-+  /** Payload of the `postgres:connection:close` channel. */
-+  interface ConnectionCloseMessage {
-+    connectionId: number;
++  /** Message of the `postgres:pool:release` channel. */
++  interface PoolReleaseMessage {
++    client: { processID: number | undefined };
++    /** The error the lease ended with */
++    error: Error | undefined;
++  }
++
++  /** Message of the `postgres:pool:remove` channel. */
++  interface PoolRemoveMessage {
++    client: { processID: number | undefined };
++    /** The error that closed the connection; undefined for a normal close */
 +    error: Error | undefined;
 +  }
 +
