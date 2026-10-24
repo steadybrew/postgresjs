@@ -35,8 +35,6 @@ export class Query extends Promise {
     this.executed = false
     this.trace = undefined
     this.poolWait = undefined
-    this.fresh = false
-    this.poolState = 0
     this.signature = ''
 
     this[originError] = this.handler.debug

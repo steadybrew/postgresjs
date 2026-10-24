@@ -288,7 +288,7 @@ function Postgres(a, b) {
     if (ending)
       throw Errors.connection('CONNECTION_ENDED', options)
 
-    const l = { state: null, connection: null, error: null, outcome: undefined, onclose: null, queue: Queue() }
+    const l = { state: null, connection: null, error: null, outcome: undefined, behind: 0, onclose: null, queue: Queue() }
     let reused = true
     const idle = takeOpen()
     idle
@@ -303,12 +303,13 @@ function Postgres(a, b) {
               ? reject(copyInProgress())
               : queries.push(query)
         })
-    trace && poolAcquired(trace, l.connection.session.processID, reused)
+    trace && poolAcquired(trace, l.connection.session.processID, reused, l.behind)
     return l
   }
 
   function own(c, l) {
     l.connection = c
+    l.behind = c.inflight
     l.state = Lease.Active
     c.owner = l
     l.next = () => {
@@ -537,7 +538,7 @@ function Postgres(a, b) {
       return (go(idle, query), null)
 
     if (closed.length)
-      return (query.poolWait && (query.fresh = true), connect(closed.shift(), query), null)
+      return (connect(closed.shift(), query), null)
 
     const c = takeBusy()
     if (c)
@@ -641,6 +642,7 @@ function Postgres(a, b) {
   }
 
   function connect(c, query) {
+    query.poolWait && (query.poolWait.fresh = true)
     move(c, connecting)
     c.connect(query)
     return c

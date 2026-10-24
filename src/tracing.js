@@ -85,49 +85,57 @@ export function poolContext({ totalCount, idleCount, waitingCount, max }) {
   return { pool: { totalCount, idleCount, waitingCount, maxSize: max } }
 }
 
-export function poolAcquired(context, processID, reused) {
+export function poolAcquired(context, processID, reused, queuedBehind) {
   context.handoverTime = performance.timeOrigin + performance.now()
-  context.queuedBehind = 0
+  context.queuedBehind = queuedBehind
   context.client = { processID, reused }
 }
 
 export function poolHandover(q, queuedBehind, session) {
-  const context = q.poolWait
-  context.handoverTime = performance.timeOrigin + performance.now()
-  context.queuedBehind = queuedBehind
-  context.client = { processID: session.processID, reused: !q.fresh }
+  const wait = q.poolWait
+  wait.context.handoverTime = performance.timeOrigin + performance.now()
+  wait.context.queuedBehind = queuedBehind
+  wait.context.client = { processID: session.processID, reused: !wait.fresh }
 }
 
 export function traceRoute(q, context, fn) {
-  q.poolWait = context
-  q.poolState = 1
-  let refusal
+  const wait = q.poolWait = { context, fresh: false, routing: true, activated: false, failure: undefined }
   try {
-    refusal = run(poolConnectChannel, context, fn, q)
+    return run(poolConnectChannel, context, fn, q)
   } finally {
-    const early = q.poolState === 2
-    q.poolState = 0
-    early && poolStarted(q)
+    wait.routing = false
+    settleRouted(q, wait)
   }
+}
 
-  return refusal
+function settleRouted(q, wait) {
+  if (q.poolWait !== wait || !(wait.activated || wait.failure))
+    return
+
+  q.poolWait = undefined
+  if (wait.activated)
+    resolved(poolConnectChannel, wait.context)
+  else
+    rejected(poolConnectChannel, wait.context, wait.failure.error)
+
+  wait.failure && queryFailed(q, wait.failure.error)
 }
 
 export function poolStarted(q) {
-  if (q.poolState === 1) {
-    q.poolState = 2
+  const wait = q.poolWait
+  if (wait.routing) {
+    wait.activated = true
     return
   }
 
-  const context = q.poolWait
   q.poolWait = undefined
-  resolved(poolConnectChannel, context)
+  resolved(poolConnectChannel, wait.context)
 }
 
 function poolFailed(q, error) {
-  const context = q.poolWait
+  const wait = q.poolWait
   q.poolWait = undefined
-  rejected(poolConnectChannel, context, error)
+  rejected(poolConnectChannel, wait.context, error)
 }
 
 export function poolReleased(connection, error) {
@@ -163,7 +171,15 @@ export function querySettled(q, result) {
 }
 
 export function queryFailed(q, error) {
-  q.poolWait && poolFailed(q, error)
+  if (q.poolWait) {
+    if (q.poolWait.routing) {
+      q.poolWait.failure = q.poolWait.failure || { error }
+      return
+    }
+
+    poolFailed(q, error)
+  }
+
   const context = q.trace
   q.trace = undefined
   rejected(queryChannel, context, error)

@@ -260,6 +260,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     get pipelined() { return sent.length },
     get accepting() { return accepting() },
     get session() { return session() },
+    get inflight() { return inflight() },
     get copying() { return stream !== null },
     get copyHeld() { return stream !== null && !stream.writableEnded },
     get acquiring() { return acquisition && !acquisition.owner.cancelled ? 1 : 0 },
@@ -316,6 +317,10 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
 
   function serverAddress() {
     return options.path || host[serverIndex]
+  }
+
+  function inflight() {
+    return (query ? 1 : 0) + sent.length
   }
 
   function session() {
@@ -591,7 +596,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
       return true
 
     q.owner === undefined && (q.owner = connection.owner)
-    q.poolWait && poolHandover(q, (query ? 1 : 0) + sent.length, session())
+    q.poolWait && poolHandover(q, inflight(), session())
 
     try {
       q.state = backend
