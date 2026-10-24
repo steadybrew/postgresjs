@@ -19,6 +19,7 @@ The full API of [@steadybrew/postgresjs](../README.md). Installing, switching fr
 * [Custom Types](#custom-types)
 * [Teardown / Cleanup](#teardown--cleanup)
 * [Reserving connections](#reserving-connections)
+* [Tracing channels](#tracing-channels)
 * [Error handling](#error-handling)
 * [TypeScript support](#typescript-support)
 * [Migration tools](#migration-tools)
@@ -1508,6 +1509,64 @@ await reserved`select * from users`
 ```
 
 After release, queries through that reserved handle reject with [`CONNECTION_RELEASED`](#connection_released). Call `sql.reserve()` again to acquire a new handle. A reserved handle whose connection has closed rejects with `CONNECTION_CLOSED` until it is released, and cannot be reused after reconnect.
+
+## Tracing channels
+
+The driver publishes `diagnostics_channel` events for queries, connections and transactions, so an APM or OpenTelemetry integration can subscribe without patching the driver. Nothing is built or published while no one subscribes: a query costs one `hasSubscribers` check.
+
+| Channel | Type | Covers |
+|---|---|---|
+| `postgres:query` | `TracingChannel` | One span per query, from the call that runs it until the server answers or the query fails. |
+| `postgres:connection` | `TracingChannel` | One span per connection acquisition: socket, TLS, authentication, startup and type fetching, up to the connection serving queries. Retries and other hosts stay inside the same span. |
+| `postgres:transaction` | `TracingChannel` | `sql.begin()` and, nested in it, each `sql.savepoint()`. |
+| `postgres:query:send` | `Channel` | The query's context again, each time it is written to a connection. |
+| `postgres:connection:close` | `Channel` | `{ connectionId, error }` whenever a connection closes, including a failed connection attempt. `error` is undefined for a normal close. |
+
+The `TracingChannel`s publish in the order Node's `tracePromise` does: `start` and `end` in the caller's synchronous code, then for a failure `error`, and for both outcomes `asyncStart` and `asyncEnd`, with `context.result` or `context.error` set first. `start` is published with `runStores`, so a store bound to it, such as an `AsyncLocalStorage` span context, is current in the code that starts the query. Every query publishes `asyncStart` and `asyncEnd` exactly once. That includes cursors read with `for await` or a callback, `forEach`, `COPY` streams (once the copy is over), `describe()`, `simple()`, `unsafe()`, `file()`, pipelined queries, retried queries and queries cancelled before they were sent. The driver's own startup queries (type fetching, `target_session_attrs`) are not published; they belong to the connection span.
+
+The context objects are the `QueryTraceContext`, `ConnectionTraceContext` and `TransactionTraceContext` types.
+
+| Field | Channel | Set |
+|---|---|---|
+| `database`, `user` | all three | at `start` |
+| `serverAddress`, `serverPort` | query, connection | at `start` when one host is configured; otherwise when the query is written, or when each connection attempt opens its socket. A Unix socket path is the address, with no port. |
+| `query` | query | when the query is written: SQL text with `$n` placeholders |
+| `values` | query | when the query is written: the parameters before they are serialized, raw |
+| `connectionId` | query, connection | when the query is written (query); at `start` (connection). It is the `id` that `onclose` and `onidle` report. |
+| `result` | query | before `asyncStart`: the `Result` with `command` and `count`; for `describe()` the statement; for a `COPY` stream the `Result` of the finished copy, not the stream |
+| `result` | transaction | before `asyncStart` for `sql.begin()`: `{ committed }`, false when the transaction was prepared |
+| `error` | all three | before `error` |
+| `options` | transaction | at `start`: the mode string given to `sql.begin()` |
+| `savepoint` | transaction | at `start` for `sql.savepoint()`: the savepoint name as sent, such as `s0_name` |
+| `prepared` | transaction | when `sql.prepare(name)` is called |
+
+The text and parameters are known only after the driver has serialized the query for a connection, so they are not in the context at `start`. Read them at `asyncEnd` or `error`, or rename the span then. A query written again after a retry publishes `postgres:query:send` again, with the same context. The time between `start` and the first `postgres:query:send` is the wait for a connection, and between that and `asyncEnd` the time on the server.
+
+Parameters are included as they are. Decide in your subscriber what to record, since values can hold personal data.
+
+```js
+import dc from 'node:diagnostics_channel'
+
+const channel = dc.tracingChannel('postgres:query')
+
+channel.subscribe({
+  start(context) {
+    context.startedAt = performance.now()
+  },
+  end() {},
+  asyncStart() {},
+  asyncEnd(context) {
+    console.log(context.query, context.result.count, performance.now() - context.startedAt)
+  },
+  error(context) {
+    console.error(context.query, context.error)
+  }
+})
+```
+
+To make a span current for the code that runs the query, bind an `AsyncLocalStorage` to the start channel with `channel.start.bindStore(storage, context => span)`.
+
+On Node.js the channels need Node 22 or newer, as the package does. On a runtime without `diagnostics_channel.tracingChannel` nothing is published. On Cloudflare Workers the module needs the `nodejs_compat` flag, which the driver requires already.
 
 ## Error handling
 
