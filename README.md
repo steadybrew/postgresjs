@@ -116,7 +116,7 @@ With `prepare: false`, parameterized queries can pay for an extra network round 
 ### New features
 
 - **See pool pressure.** [`sql.stats()`](docs/api.md#pool-stats) reports busy and idle connections and waiting queries.
-- **Trace queries natively.** [`postgres:query`, `postgres:connection` and `postgres:transaction`](docs/api.md#tracing-channels) are `diagnostics_channel` tracing channels, published only when something subscribes.
+- **Trace queries natively.** [`postgres:query`, `postgres:connect`, `postgres:pool:connect` and `postgres:transaction`](docs/api.md#tracing-channels) are `diagnostics_channel` tracing channels, published only when something subscribes.
 - **Handle serverless suspension.** Expired idle connections are replaced on resume; the [Vercel Fluid Compute adapter](docs/api.md#vercel-fluid-compute) keeps instances alive until idle connections close.
 - **Automatic cleanup.** [`await using`](docs/api.md#teardown--cleanup) closes a pool and `using` releases a reserved connection when its scope ends. Requires Node.js 24+ or TypeScript 5.2+.
 - **Cloudflare Workers fixes.** On [Workers](docs/api.md#cloudflare-workers-support), `COPY TO` streams and `subscribe()` pause and resume the socket ([#975](https://github.com/porsager/postgres/issues/975)), `ssl: 'prefer'` falls back to plaintext when the server declines TLS, and a certificate from a private CA fails at once with [`TLS_CLOSED`](docs/api.md#tls_closed) instead of a timeout ([#1213](https://github.com/porsager/postgres/issues/1213)).
