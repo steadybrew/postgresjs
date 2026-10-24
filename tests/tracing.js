@@ -236,22 +236,25 @@ t('Tracing a connection that fails to authenticate or to connect publishes the e
 t('Tracing start runs in the AsyncLocalStorage context of the caller', async() => {
   const storage = new AsyncLocalStorage()
   const seen = []
-  let spans = 0
+  const transforms = []
   const sql = postgres({ ...options, debug: () => seen.push(storage.getStore()) })
   const channel = dc.tracingChannel('postgres:query')
   const handlers = { start: () => seen.push('start:' + storage.getStore()) }
-  channel.start.bindStore(storage, () => 'span-' + ++spans)
+  channel.start.bindStore(storage, () => (transforms.push(storage.getStore()), 'span'))
   channel.subscribe(handlers)
   try {
     await sql`select 1`
     seen.length = 0
-    await sql`select 2`
+    transforms.length = 0
+    await storage.run('caller', async() => {
+      await sql`select 2`
+    })
   } finally {
     channel.unsubscribe(handlers)
     channel.start.unbindStore(storage)
     await sql.end()
   }
-  return [JSON.stringify(['start:span-2', 'span-2']), JSON.stringify(seen)]
+  return [JSON.stringify([['caller'], ['start:span', 'span']]), JSON.stringify([transforms, seen])]
 })
 
 t('Tracing a transaction runs its function inside the transaction context', async() => {
@@ -304,4 +307,117 @@ t('Nothing is published when nothing subscribes', async() => {
   }
 
   return [JSON.stringify([]), JSON.stringify(published)]
+})
+
+t('Tracing contexts have no result or error key until one is set', async() => {
+  const events = await traced(['query', 'connection', 'transaction'], sql => sql.begin(async sql => {
+    await sql.savepoint(sql => sql`select 1 as x`)
+  }))
+  const early = events.filter(x => x.stage === 'start' || x.stage === 'end')
+  return [
+    JSON.stringify([['connection', 'query', 'transaction'], 0]),
+    JSON.stringify([[...new Set(early.map(x => x.name))].sort(), early.filter(x => 'result' in x.context || 'error' in x.context).length])
+  ]
+})
+
+const cancelledBeforeAwait = async(extra, warm) => {
+  const sql = postgres({ ...options, ...extra })
+  warm && await sql`select 1`
+  const { events, stop } = collect('query')
+  const query = sql`select 2 as x`
+  query.cancel()
+  const code = await query.catch(e => e.code)
+  await sql`select 3 as x`
+  stop()
+  await sql.end()
+  return JSON.stringify([code, count(events, 'start'), count(events, 'asyncEnd')])
+}
+
+t('Tracing a query cancelled before it is awaited opens no span, with several connections', async() =>
+  [JSON.stringify(['57014', 1, 1]), await cancelledBeforeAwait({ max: 2 }, true)]
+)
+
+t('Tracing a query cancelled before it is awaited opens no span, with one connection', async() =>
+  [JSON.stringify(['57014', 1, 1]), await cancelledBeforeAwait({ max: 1 }, true)]
+)
+
+t('Tracing a query cancelled before it is awaited opens no span, on a pool that has to connect', async() =>
+  [JSON.stringify(['57014', 1, 1]), await cancelledBeforeAwait({ max: 2 }, false)]
+)
+
+t('Tracing a retried query settles once and is sent again', async() => {
+  const sql = postgres(options)
+  const { events, stop } = collect('query', 'postgres:query:send')
+  await sql`drop table if exists tracing_retry`
+  await sql`create table tracing_retry (name text)`
+  await sql`insert into tracing_retry values ('1')`
+  await sql`select name from tracing_retry`
+  await sql`alter table tracing_retry alter column name type int using name::integer`
+  const [row] = await sql`select name from tracing_retry`
+  await sql`drop table tracing_retry`
+  stop()
+  await sql.end()
+  const sends = of(events, 'postgres:query:send').filter(x => x.context.query === 'select name from tracing_retry').length
+  return [JSON.stringify([1, 7, 7, 3]), JSON.stringify([row.name, count(events, 'start'), count(events, 'asyncEnd'), sends])]
+})
+
+t('Tracing a server error in the middle of a cursor settles once with the error', async() => {
+  const events = await traced(['query'], async sql => {
+    await sql`select 1 / (x - 3) from generate_series(1, 5) x`.cursor(2, () => undefined).catch(() => undefined)
+    await sql`select 1`
+  })
+  const [first] = ended(events)
+  return [JSON.stringify([2, 2, '22012']), JSON.stringify([count(events, 'start'), count(events, 'asyncEnd'), first.error && first.error.code])]
+})
+
+t('Tracing a cursor callback that throws settles once with the error', async() => {
+  const events = await traced(['query'], async sql => {
+    await sql`select * from generate_series(1, 5)`.cursor(2, () => {
+      throw new Error('boom')
+    }).catch(() => undefined)
+    await sql`select 1`
+  })
+  const [first] = ended(events)
+  return [JSON.stringify([2, 2, 'boom']), JSON.stringify([count(events, 'start'), count(events, 'asyncEnd'), first.error && first.error.message])]
+})
+
+t('Tracing a query cancelled in the queue of a reserved connection settles once', async() => {
+  const sql = postgres({ ...options, max_pipeline: 1 })
+  const { events, stop } = collect('query')
+  const reserved = await sql.reserve()
+  const first = reserved`select pg_sleep(0.1)`.execute()
+  const second = reserved`select 2 as x`.execute()
+  const third = reserved`select 3 as x`.execute()
+  const code = await third.cancel().then(() => third.catch(e => e.code))
+  await Promise.allSettled([first, second])
+  reserved.release()
+  stop()
+  await sql.end()
+  return [JSON.stringify(['57014', 3, 3]), JSON.stringify([code, count(events, 'start'), count(events, 'asyncEnd')])]
+})
+
+t('Tracing a query cancelled in the queue of a transaction settles once', async() => {
+  const sql = postgres({ ...options, max_pipeline: 1 })
+  const { events, stop } = collect('query')
+  await sql.begin(async sql => {
+    const queries = [sql`select pg_sleep(0.1)`.execute(), sql`select 2 as x`.execute(), sql`select 3 as x`.execute()]
+    await queries[2].cancel()
+    await Promise.allSettled(queries)
+  }).catch(() => undefined)
+  stop()
+  await sql.end()
+  return [
+    JSON.stringify([true, 1]),
+    JSON.stringify([count(events, 'start') === count(events, 'asyncEnd'), ended(events).filter(x => x.error && x.error.code === '57014').length])
+  ]
+})
+
+t('Tracing queries rejected because the pool is ending settle once', async() => {
+  const sql = postgres({ ...options, max: 1 })
+  const { events, stop } = collect('query')
+  const running = sql`select pg_sleep(0.1)`.execute()
+  const queued = sql`select 2 as x`.execute()
+  await Promise.allSettled([running, queued, sql.end()])
+  stop()
+  return [JSON.stringify([2, 2]), settled(events)]
 })
