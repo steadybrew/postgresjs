@@ -838,11 +838,11 @@ declare namespace postgres {
       waitingCount: number;
       maxSize: number;
     };
-    /** Epoch milliseconds at which the connection took the call over; set before `asyncStart` on success. `handoverTime` minus the `start` time is the wait for a connection. */
+    /** Epoch milliseconds at which the connection took the call over; set before `asyncStart` once a connection took the call over. `handoverTime` minus the `start` time is the wait for a connection. */
     handoverTime?: number;
-    /** Queries the connection already had running or waiting when it took this one over; 0 for a lease. The time from `handoverTime` to `asyncStart` is spent behind them. */
+    /** Queries the connection already had running or waiting when it took this one over. The time from `handoverTime` to `asyncStart` is spent behind them. */
     queuedBehind?: number;
-    /** Set before `asyncStart` on success */
+    /** Set with `handoverTime` */
     client?: {
       processID: number | undefined;
       /** False when the acquisition had to open the connection */

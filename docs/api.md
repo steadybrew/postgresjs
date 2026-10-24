@@ -1589,10 +1589,10 @@ The text is known only after the driver has serialized the query for a connectio
 |---|---|
 | `pool.totalCount`, `pool.idleCount`, `pool.waitingCount` | at `start`, as `sql.stats()` reports them |
 | `pool.maxSize` | at `start`: the `max` option |
-| `handoverTime` | before `asyncStart` on success: the epoch milliseconds at which the connection took the call over |
-| `queuedBehind` | before `asyncStart` on success: how many queries the connection already had running or waiting when it took a plain query over; 0 for `sql.reserve()` and `sql.begin()` |
-| `client.processID` | before `asyncStart` on success |
-| `client.reused` | before `asyncStart` on success: false when the acquisition had to open the connection |
+| `handoverTime` | before `asyncStart`, once a connection took the call over: the epoch milliseconds at which it did |
+| `queuedBehind` | with `handoverTime`: how many queries the connection already had running or waiting when it took the call over |
+| `client.processID` | with `handoverTime` |
+| `client.reused` | with `handoverTime`: false when the wait included opening the connection |
 | `error` | before `error`: a connection error, `CONNECTION_ENDED` after `sql.end()`, `COPY_IN_PROGRESS`, or the cancellation or connection error of a plain query that settled before it started |
 
 `handoverTime` minus the time of `start` is the wait for a connection, which is what OpenTelemetry's `db.client.connection.wait_time` measures. When `queuedBehind` is above 0, the time from `handoverTime` to `asyncStart` was spent behind those queries on the same connection. Take the `start` time yourself in the `start` subscriber. On Cloudflare Workers `performance.now()` advances only after I/O, so within a request both times can be equal.
@@ -1610,6 +1610,9 @@ pool.subscribe({
   end() {},
   asyncStart() {},
   asyncEnd(context) {
+    if (context.handoverTime === undefined)
+      return
+
     context.span?.addEvent('connection handed over', { 'postgres.queued_behind': context.queuedBehind }, context.handoverTime)
   },
   error() {}
