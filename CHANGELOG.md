@@ -1,5 +1,18 @@
 # Changelog
 
+## v4.7.0 - 2026-10-24
+
+A transaction no longer commits half its work when one of its statements fails or is cancelled before it reaches the server, and using a released or finished handle now has its own error code. Nothing breaks unless your code checks for `CONNECTION_ENDED` to catch a handle used after `release()` or after its transaction ended.
+
+### Behavior changes
+
+- **A reserved connection used after `release()` rejects with [`CONNECTION_RELEASED`](docs/api.md#connection_released), and a transaction handle used after its transaction ended, or while its `COMMIT` runs, with [`TRANSACTION_ENDED`](docs/api.md#transaction_ended).** 4.0 to 4.6 rejected both with `CONNECTION_ENDED`, the code for `sql.end()`, so code that retries `CONNECTION_ENDED` as a dropped connection retried these bugs, and the message read like a network error. `CONNECTION_ENDED` now means only that `sql.end()` was called. A handle whose connection closed still rejects with `CONNECTION_CLOSED` until it is released or its callback has finished, and with the new codes after that. See [Upgrading to 4.x](docs/upgrading.md#upgrading-to-4x). Closes #138.
+
+### Fixes
+
+- **A transaction no longer commits half its work when a statement in it fails before it is sent, such as one with an `undefined` value.** The statement rejected on its own and the server never saw it, so a transaction run on a reserved connection, or a `sql.begin()` callback that didn't await the statement, committed the other statements without it: the debit without the credit. Now the transaction fails as after a server error: `sql.begin()` rejects with `TRANSACTION_ROLLED_BACK` and a hand-run `COMMIT` rolls back. Outside a transaction only the failing statement rejects, as before. Data written that way before upgrading stays as it is. Closes #70. Fixes porsager/postgres#1236 and porsager/postgres#1238.
+- **A transaction no longer commits half its work when you cancel one of its statements with `query.cancel()` before it is sent.** The cancelled statement was dropped on the client, so the transaction committed the rest. It now fails the transaction in the same way, on a reserved connection, in `sql.begin()`, or on a pool with `max: 1`. The statement still rejects with `57014` at once, and until its place in line comes up it counts in `sql.stats()` `waitingCount`. Closes #180.
+
 ## v4.6.0 - 2026-10-21
 
 Promotes `4.6.0-rc1` unchanged; its entry below lists the changes: cheaper new connections with SCRAM-SHA-256 passwords, and `COPY ... TO STDOUT`, `sql.subscribe()`, `ssl: 'prefer'` and TLS errors fixed on Cloudflare Workers. In production for a day on one Node.js app and four Supabase Edge Functions, rc1 matched or beat 4.5.0 at median, p95 and p99 with no connection errors, and on Cloudflare's network a connection costs less CPU than on 4.5.1 at every percentile. Nothing breaks; on Workers, a server with an untrusted certificate now fails with `TLS_CLOSED` instead of `CONNECTION_CLOSED`.
