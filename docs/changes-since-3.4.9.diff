@@ -1,8 +1,8 @@
 diff --git a/src/connection.js b/src/connection.js
-index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..cdb40559e18d421939e1a863969edcaa7c1bb839 100644
+index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..2bf865a14007c48ae896ea56c650c1768d4c69db 100644
 --- a/src/connection.js
 +++ b/src/connection.js
-@@ -4,24 +4,53 @@ import crypto from 'crypto'
+@@ -4,24 +4,55 @@ import crypto from 'crypto'
  import Stream from 'stream'
  import { performance } from 'perf_hooks'
  
@@ -27,7 +27,9 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..cdb40559e18d421939e1a863969edcaa
 +  connectContext,
 +  connectAttempt,
 +  connectSecured,
-+  querySent,
++  queryBuilt,
++  poolHandover,
++  poolStarted,
 +  poolRemoved
 +} from './tracing.js'
 +
@@ -61,7 +63,7 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..cdb40559e18d421939e1a863969edcaa
  const retryRoutines = new Set([
    'FetchPreparedStatement',
    'RevalidateCachedQuery',
-@@ -49,7 +78,7 @@ const errorFields = {
+@@ -49,7 +80,7 @@ const errorFields = {
    82  : 'routine'            // R
  }
  
@@ -70,7 +72,7 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..cdb40559e18d421939e1a863969edcaa
    const {
      sslnegotiation,
      ssl,
-@@ -72,12 +101,20 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+@@ -72,12 +103,20 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
    const sent = Queue()
        , id = uid++
        , backend = { pid: null, secret: null }
@@ -95,7 +97,7 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..cdb40559e18d421939e1a863969edcaa
      , errorResponse = null
      , result = new Result()
      , incoming = Buffer.alloc(0)
-@@ -86,82 +123,472 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+@@ -86,102 +125,509 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
      , statements = {}
      , statementId = Math.random().toString(36).slice(2)
      , statementCount = 1
@@ -603,19 +605,21 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..cdb40559e18d421939e1a863969edcaa
 +      return true
 +
 +    q.owner === undefined && (q.owner = connection.owner)
++    q.poolWait && poolHandover(q, (query ? 1 : 0) + sent.length, session())
  
      try {
        q.state = backend
-@@ -169,19 +596,35 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+       query
          ? sent.push(q)
-         : (query = q, query.active = true)
- 
+-        : (query = q, query.active = true)
++        : (query = q, query.active = true, q.poolWait && poolStarted(q))
++
 +      if (q.cancelled) {
 +        q.cancelled = null
 +        abort(q, Errors.generic('57014', 'canceling statement due to user request'))
 +        return accepting()
 +      }
-+
+ 
        build(q)
 -      return write(toBuffer(q))
 -        && !q.describeFirst
@@ -650,7 +654,7 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..cdb40559e18d421939e1a863969edcaa
    function toBuffer(q) {
      if (q.parameters.length >= 65534)
        throw Errors.generic('MAX_PARAMETERS_EXCEEDED', 'Max number of parameters (65534) exceeded')
-@@ -206,7 +649,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+@@ -206,7 +652,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
  
    function prepared(q) {
      return Buffer.concat([
@@ -659,7 +663,7 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..cdb40559e18d421939e1a863969edcaa
        q.cursorFn
          ? Execute('', q.cursorRows)
          : ExecuteUnnamed
-@@ -234,13 +677,17 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+@@ -234,13 +680,17 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
      q.signature = q.prepare && types + string
      q.onlyDescribe && (delete statements[q.signature])
      q.parameters = q.parameters || parameters
@@ -675,11 +679,11 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..cdb40559e18d421939e1a863969edcaa
  
 -    typeof options.debug === 'function' && options.debug(id, string, parameters, types)
 +    typeof options.debug === 'function' && callback(options.debug, id, string, parameters, types)
-+    q.trace && querySent(q, session())
++    q.trace && queryBuilt(q, session())
    }
  
    function write(x, fn) {
-@@ -252,52 +699,12 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+@@ -252,52 +702,12 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
    }
  
    function nextWrite(fn) {
@@ -733,7 +737,7 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..cdb40559e18d421939e1a863969edcaa
    function data(x) {
      if (incomings) {
        incomings.push(x)
-@@ -312,6 +719,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+@@ -312,6 +722,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
          ? x
          : Buffer.concat([incoming, x], incoming.length + x.length)
  
@@ -741,7 +745,7 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..cdb40559e18d421939e1a863969edcaa
      while (incoming.length > 4) {
        length = incoming.readUInt32BE(1)
        if (length >= incoming.length) {
-@@ -323,74 +731,34 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+@@ -323,74 +734,34 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
        try {
          handle(incoming.subarray(0, length + 1))
        } catch (e) {
@@ -830,7 +834,7 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..cdb40559e18d421939e1a863969edcaa
    }
  
    function queryError(query, err) {
-@@ -401,7 +769,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+@@ -401,7 +772,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
        err = new Error(err)
  
      'query' in err || 'parameters' in err || Object.defineProperties(err, {
@@ -839,7 +843,7 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..cdb40559e18d421939e1a863969edcaa
        query: { value: query.string, enumerable: options.debug },
        parameters: { value: query.parameters, enumerable: options.debug },
        args: { value: query.args, enumerable: options.debug },
-@@ -410,51 +778,14 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+@@ -410,51 +781,14 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
      query.reject(err)
    }
  
@@ -899,7 +903,7 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..cdb40559e18d421939e1a863969edcaa
    }
  
    /* Handlers */
-@@ -495,6 +826,8 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+@@ -495,6 +829,8 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
      let column
      let value
  
@@ -908,7 +912,7 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..cdb40559e18d421939e1a863969edcaa
      const row = query.isRaw ? new Array(query.statement.columns.length) : {}
      for (let i = 0; i < query.statement.columns.length; i++) {
        column = query.statement.columns[i]
-@@ -514,13 +847,13 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+@@ -514,13 +850,13 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
        query.isRaw
          ? (row[i] = query.isRaw === true
            ? value
@@ -926,7 +930,7 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..cdb40559e18d421939e1a863969edcaa
    }
  
    function ParameterStatus(x) {
-@@ -528,19 +861,25 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+@@ -528,19 +864,25 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
      backendParameters[k] = v
      if (options.parameters[k] !== v) {
        options.parameters[k] = v
@@ -954,7 +958,7 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..cdb40559e18d421939e1a863969edcaa
          query.resolve(results || result)
        }
      } else if (errorResponse) {
-@@ -549,42 +888,34 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+@@ -549,42 +891,35 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
  
      query = results = errorResponse = null
      result = new Result()
@@ -984,6 +988,7 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..cdb40559e18d421939e1a863969edcaa
 +    query = sent.length ? sent.shift() : null
 +    if (query) {
 +      query.active = true
++      query.poolWait && poolStarted(query)
 +      query.cancelled && cancelRequest(options, query.state).then(query.cancelled.resolve, query.cancelled.reject)
      }
  
@@ -1019,7 +1024,7 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..cdb40559e18d421939e1a863969edcaa
    }
  
    function CommandComplete(x) {
-@@ -602,7 +933,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+@@ -602,7 +937,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
  
      final && (final(), final = null)
  
@@ -1028,7 +1033,7 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..cdb40559e18d421939e1a863969edcaa
        return errored(Errors.generic('UNSAFE_TRANSACTION', 'Only use sql.begin, sql.reserved or max: 1'))
  
      if (query.options.simple)
-@@ -654,7 +985,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+@@ -654,7 +989,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
        const number = x.readUInt16BE(index + 4)
        const type = x.readUInt32BE(index + 6)
        query.statement.columns[i] = {
@@ -1037,7 +1042,7 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..cdb40559e18d421939e1a863969edcaa
            ? transform.column.from(x.toString('utf8', start, index - 1))
            : x.toString('utf8', start, index - 1),
          parser: parsers[type],
-@@ -670,8 +1001,9 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+@@ -670,8 +1005,9 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
        return (query.resolve(query.statement), write(Sync))
    }
  
@@ -1049,7 +1054,7 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..cdb40559e18d421939e1a863969edcaa
        type === 3 ? AuthenticationCleartextPassword :
        type === 5 ? AuthenticationMD5Password :
        type === 10 ? SASL :
-@@ -679,18 +1011,20 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+@@ -679,18 +1015,20 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
        type === 12 ? SASLFinal :
        type !== 0 ? UnknownAuth :
        noop
@@ -1073,7 +1078,7 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..cdb40559e18d421939e1a863969edcaa
      const payload = 'md5' + (
        await md5(
          Buffer.concat([
-@@ -699,40 +1033,42 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+@@ -699,40 +1037,42 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
          ])
        )
      )
@@ -1130,7 +1135,7 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..cdb40559e18d421939e1a863969edcaa
      write(
        b().p().str(payload).end()
      )
-@@ -742,8 +1078,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+@@ -742,8 +1082,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
      if (x.toString('utf8', 9).split(b.N, 1)[0].slice(2) === serverSignature)
        return
      /* c8 ignore next 5 */
@@ -1140,7 +1145,7 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..cdb40559e18d421939e1a863969edcaa
    }
  
    function Pass() {
-@@ -765,48 +1100,47 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+@@ -765,48 +1104,47 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
      backend.secret = x.readUInt32BE(9)
    }
  
@@ -1212,7 +1217,7 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..cdb40559e18d421939e1a863969edcaa
    }
  
    function ErrorResponse(x) {
-@@ -814,12 +1148,11 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+@@ -814,12 +1152,11 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
        (query.cursorFn || query.describeFirst) && write(Sync)
        errorResponse = Errors.postgres(parseError(x))
      } else {
@@ -1226,7 +1231,7 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..cdb40559e18d421939e1a863969edcaa
      q.retried = error
      execute(q)
    }
-@@ -830,22 +1163,27 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+@@ -830,22 +1167,27 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
  
      let index = 9
      while (x[index++] !== 0);
@@ -1260,7 +1265,7 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..cdb40559e18d421939e1a863969edcaa
      }
    }
  
-@@ -862,7 +1200,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+@@ -862,7 +1204,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
        },
        destroy(error, callback) {
          callback(error)
@@ -1269,7 +1274,7 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..cdb40559e18d421939e1a863969edcaa
          stream = null
        },
        final(callback) {
-@@ -872,27 +1210,29 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+@@ -872,27 +1214,29 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
        }
      })
      query.resolve(stream)
@@ -1302,7 +1307,7 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..cdb40559e18d421939e1a863969edcaa
          stream = null
        },
        final(callback) {
-@@ -901,22 +1241,36 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+@@ -901,22 +1245,36 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
        }
      })
      query.resolve(stream)
@@ -1342,7 +1347,7 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..cdb40559e18d421939e1a863969edcaa
    }
  
    /* c8 ignore next 3 */
-@@ -945,20 +1299,21 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+@@ -945,20 +1303,21 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
    }
  
    /* Messages */
@@ -1371,7 +1376,7 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..cdb40559e18d421939e1a863969edcaa
  
        prev = b.i
        b.inc(4).str(x).i32(b.i - prev - 4, prev)
-@@ -966,7 +1321,27 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+@@ -966,7 +1325,27 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
  
      b.i16(0)
  
@@ -1400,7 +1405,7 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..cdb40559e18d421939e1a863969edcaa
    }
  
    function Parse(str, parameters, types, name = '') {
-@@ -994,7 +1369,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+@@ -994,7 +1373,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
    }
  
    function StartupMessage() {
@@ -1409,7 +1414,7 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..cdb40559e18d421939e1a863969edcaa
        Object.entries(Object.assign({
          user,
          database,
-@@ -1019,6 +1394,33 @@ function parseError(x) {
+@@ -1019,6 +1398,33 @@ function parseError(x) {
    return error
  }
  
@@ -1443,7 +1448,7 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..cdb40559e18d421939e1a863969edcaa
  function md5(x) {
    return crypto.createHash('md5').update(x).digest('hex')
  }
-@@ -1042,21 +1444,44 @@ function xor(a, b) {
+@@ -1042,21 +1448,44 @@ function xor(a, b) {
  function timer(fn, seconds) {
    seconds = typeof seconds === 'function' ? seconds() : seconds
    if (!seconds)
@@ -1529,7 +1534,7 @@ index 0ff83c428bec774e11417b8e1f033dc3305c18cf..023c3ba1bd113e6f5508ab079efcf220
        code: x,
        errno: x,
 diff --git a/src/index.js b/src/index.js
-index c7fba3dace20173f4cb13f3f138bb6d213b43683..a554f987f17b08d975807dbdfcb3f79d14b46f3c 100644
+index c7fba3dace20173f4cb13f3f138bb6d213b43683..3f1048a4d1832515bd9dbfdc61705daf596fb01c 100644
 --- a/src/index.js
 +++ b/src/index.js
 @@ -3,10 +3,12 @@ import fs from 'fs'
@@ -1545,7 +1550,7 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..a554f987f17b08d975807dbdfcb3f79d
    toPascal,
    pascal,
    toCamel,
-@@ -18,12 +20,28 @@ import {
+@@ -18,12 +20,29 @@ import {
    fromKebab
  } from './types.js'
  
@@ -1563,6 +1568,7 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..a554f987f17b08d975807dbdfcb3f79d
 +  transactionChannel,
 +  poolConnectChannel,
 +  watched,
++  run,
 +  traceAsync,
 +  transactionContext,
 +  transactionSession,
@@ -1576,7 +1582,7 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..a554f987f17b08d975807dbdfcb3f79d
  
  Object.assign(Postgres, {
    PostgresError,
-@@ -51,6 +69,7 @@ function Postgres(a, b) {
+@@ -51,6 +70,7 @@ function Postgres(a, b) {
        , subscribe = options.no_subscribe || Subscribe(Postgres, { ...options })
  
    let ending = false
@@ -1584,7 +1590,7 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..a554f987f17b08d975807dbdfcb3f79d
  
    const queries = Queue()
        , connecting = Queue()
-@@ -62,7 +81,7 @@ function Postgres(a, b) {
+@@ -62,7 +82,7 @@ function Postgres(a, b) {
        , full = Queue()
        , queues = { connecting, reserved, closed, ended, open, busy, full }
  
@@ -1593,7 +1599,7 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..a554f987f17b08d975807dbdfcb3f79d
  
    const sql = Sql(handler)
  
-@@ -75,16 +94,19 @@ function Postgres(a, b) {
+@@ -75,16 +95,19 @@ function Postgres(a, b) {
      PostgresError,
      options,
      reserve,
@@ -1614,7 +1620,7 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..a554f987f17b08d975807dbdfcb3f79d
  
      Object.entries(options.types).reduce((acc, [name, type]) => {
        acc[name] = (x) => new Parameter(x, type.to)
-@@ -128,7 +150,7 @@ function Postgres(a, b) {
+@@ -128,7 +151,7 @@ function Postgres(a, b) {
  
      function file(path, args = [], options = {}) {
        arguments.length === 2 && !Array.isArray(args) && (options = args, args = [])
@@ -1623,7 +1629,7 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..a554f987f17b08d975807dbdfcb3f79d
          fs.readFile(path, 'utf8', (err, string) => {
            if (err)
              return query.reject(err)
-@@ -136,7 +158,9 @@ function Postgres(a, b) {
+@@ -136,7 +159,9 @@ function Postgres(a, b) {
            query.strings = [string]
            handler(query)
          })
@@ -1634,7 +1640,7 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..a554f987f17b08d975807dbdfcb3f79d
          ...options,
          simple: 'simple' in options ? options.simple : args.length === 0
        })
-@@ -144,6 +168,56 @@ function Postgres(a, b) {
+@@ -144,6 +169,56 @@ function Postgres(a, b) {
      }
    }
  
@@ -1691,7 +1697,7 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..a554f987f17b08d975807dbdfcb3f79d
    async function listen(name, fn, onlisten) {
      const listener = { fn, onlisten }
  
-@@ -153,6 +227,7 @@ function Postgres(a, b) {
+@@ -153,6 +228,7 @@ function Postgres(a, b) {
        idle_timeout: null,
        max_lifetime: null,
        fetch_types: false,
@@ -1699,7 +1705,7 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..a554f987f17b08d975807dbdfcb3f79d
        onclose() {
          Object.entries(listen.channels).forEach(([name, { listeners }]) => {
            delete listen.channels[name]
-@@ -160,7 +235,7 @@ function Postgres(a, b) {
+@@ -160,7 +236,7 @@ function Postgres(a, b) {
          })
        },
        onnotify(c, x) {
@@ -1708,7 +1714,7 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..a554f987f17b08d975807dbdfcb3f79d
        }
      }))
  
-@@ -170,7 +245,7 @@ function Postgres(a, b) {
+@@ -170,7 +246,7 @@ function Postgres(a, b) {
      if (exists) {
        channels[name].listeners.push(listener)
        const result = await channels[name].result
@@ -1717,7 +1723,7 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..a554f987f17b08d975807dbdfcb3f79d
        return { state: result.state, unlisten }
      }
  
-@@ -178,7 +253,7 @@ function Postgres(a, b) {
+@@ -178,7 +254,7 @@ function Postgres(a, b) {
        sql.unsafe('"' + name.replace(/"/g, '""') + '"')
      }`, listeners: [listener] }
      const result = await channels[name].result
@@ -1726,7 +1732,7 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..a554f987f17b08d975807dbdfcb3f79d
      return { state: result.state, unlisten }
  
      async function unlisten() {
-@@ -200,62 +275,170 @@ function Postgres(a, b) {
+@@ -200,62 +276,170 @@ function Postgres(a, b) {
      return await sql`select pg_notify(${ channel }, ${ '' + payload })`
    }
  
@@ -1792,12 +1798,7 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..a554f987f17b08d975807dbdfcb3f79d
 +        : (move(c, full), q.queue = l.queue, l.queue.push(q))
 +      : q.reject(leaseError(l))
 +  }
- 
--    move(c, reserved)
--    c.reserved = () => queue.length
--      ? c.execute(queue.shift())
--      : move(c, reserved)
--    c.reserved.release = true
++
 +  function leaseError(l) {
 +    return l.state === Lease.Closed
 +      ? Errors.connection('CONNECTION_CLOSED', options)
@@ -1809,12 +1810,17 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..a554f987f17b08d975807dbdfcb3f79d
 +  function stop(l, state) {
 +    if (l.state === Lease.Released || l.state === Lease.Ended)
 +      return null
-+
+ 
+-    move(c, reserved)
+-    c.reserved = () => queue.length
+-      ? c.execute(queue.shift())
+-      : move(c, reserved)
+-    c.reserved.release = true
 +    const lost = l.state === Lease.Closed
 +    l.state = state
 +    while (l.queue.length)
 +      l.queue.shift().reject(leaseError(l))
-+
+ 
 +    poolReleased(l.connection, lost ? l.error : l.outcome)
 +    const c = l.connection
 +    if (c.owner !== l)
@@ -1823,7 +1829,7 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..a554f987f17b08d975807dbdfcb3f79d
 +    c.owner = null
 +    return c
 +  }
- 
++
 +  async function reserve() {
 +    const l = await lease(false)
      const sql = Sql(handler)
@@ -1900,15 +1906,15 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..a554f987f17b08d975807dbdfcb3f79d
 +      }
 +      release()
 +      return result
-+    }
-+
-+    function release() {
-+      const c = stop(l, Lease.Ended)
-+      c && c.release()
      }
  
 -    async function scope(c, fn, name) {
 -      const sql = Sql(handler)
++    function release() {
++      const c = stop(l, Lease.Ended)
++      c && c.release()
++    }
++
 +    function terminate() {
 +      const c = stop(l, Lease.Ended)
 +      c && c.terminate()
@@ -1933,7 +1939,7 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..a554f987f17b08d975807dbdfcb3f79d
        try {
          result = await new Promise((resolve, reject) => {
            const x = fn(sql)
-@@ -265,17 +448,30 @@ function Postgres(a, b) {
+@@ -265,17 +449,30 @@ function Postgres(a, b) {
          if (uncaughtError)
            throw uncaughtError
        } catch (e) {
@@ -1970,7 +1976,7 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..a554f987f17b08d975807dbdfcb3f79d
        }
  
        return result
-@@ -285,23 +481,21 @@ function Postgres(a, b) {
+@@ -285,23 +482,21 @@ function Postgres(a, b) {
            return savepoint(sql => sql.apply(sql, arguments))
  
          arguments.length === 1 && (fn = name, name = null)
@@ -2003,7 +2009,7 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..a554f987f17b08d975807dbdfcb3f79d
      }
    }
  
-@@ -310,7 +504,7 @@ function Postgres(a, b) {
+@@ -310,7 +505,7 @@ function Postgres(a, b) {
      queue.push(c)
      c.queue = queue
      queue === open
@@ -2012,28 +2018,40 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..a554f987f17b08d975807dbdfcb3f79d
        : c.idleTimer.cancel()
      return c
    }
-@@ -330,15 +524,51 @@ function Postgres(a, b) {
+@@ -327,18 +522,64 @@ function Postgres(a, b) {
+   }
+ 
+   function handler(query) {
++    const refusal = query.trace && watched(poolConnectChannel)
++      ? run(poolConnectChannel, query.poolWait = poolContext(stats()), route, query)
++      : route(query)
++    refusal && query.reject(refusal)
++  }
++
++  function route(query) {
      if (ending)
-       return query.reject(Errors.connection('CONNECTION_ENDED', options, options))
+-      return query.reject(Errors.connection('CONNECTION_ENDED', options, options))
++      return Errors.connection('CONNECTION_ENDED', options, options)
  
 -    if (open.length)
 -      return go(open.shift(), query)
 +    const idle = takeOpen()
 +    if (idle)
-+      return go(idle, query)
++      return (go(idle, query), null)
  
      if (closed.length)
-       return connect(closed.shift(), query)
- 
--    busy.length
--      ? go(busy.shift(), query)
--      : queries.push(query)
+-      return connect(closed.shift(), query)
++      return (query.poolWait && (query.fresh = true), connect(closed.shift(), query), null)
++
 +    const c = takeBusy()
-+    c
-+      ? go(c, query)
-+      : allHeldByCopy()
-+        ? query.reject(copyInProgress())
-+        : queries.push(query)
++    if (c)
++      return (go(c, query), null)
++
++    if (allHeldByCopy())
++      return copyInProgress()
++
++    queries.push(query)
++    return null
 +  }
 +
 +  function allHeldByCopy() {
@@ -2049,7 +2067,10 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..a554f987f17b08d975807dbdfcb3f79d
 +      const c = busy.shift()
 +      if (c.accepting)
 +        return c
-+
+ 
+-    busy.length
+-      ? go(busy.shift(), query)
+-      : queries.push(query)
 +      move(c, full)
 +    }
 +
@@ -2069,7 +2090,7 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..a554f987f17b08d975807dbdfcb3f79d
    }
  
    function go(c, query) {
-@@ -348,17 +578,18 @@ function Postgres(a, b) {
+@@ -348,17 +589,18 @@ function Postgres(a, b) {
    }
  
    function cancel(query) {
@@ -2098,7 +2119,7 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..a554f987f17b08d975807dbdfcb3f79d
      })
    }
  
-@@ -368,13 +599,23 @@ function Postgres(a, b) {
+@@ -368,13 +610,23 @@ function Postgres(a, b) {
  
      await 1
      let timer
@@ -2129,7 +2150,7 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..a554f987f17b08d975807dbdfcb3f79d
    }
  
    async function close() {
-@@ -382,9 +623,9 @@ function Postgres(a, b) {
+@@ -382,9 +634,9 @@ function Postgres(a, b) {
    }
  
    async function destroy(resolve) {
@@ -2140,7 +2161,7 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..a554f987f17b08d975807dbdfcb3f79d
      resolve()
    }
  
-@@ -398,12 +639,18 @@ function Postgres(a, b) {
+@@ -398,12 +650,18 @@ function Postgres(a, b) {
      move(c, ended)
    }
  
@@ -2162,7 +2183,7 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..a554f987f17b08d975807dbdfcb3f79d
  
      while (ready && queries.length && max-- > 0) {
        const query = queries.shift()
-@@ -418,12 +665,60 @@ function Postgres(a, b) {
+@@ -418,12 +676,60 @@ function Postgres(a, b) {
        : move(c, full)
    }
  
@@ -2227,7 +2248,7 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..a554f987f17b08d975807dbdfcb3f79d
    }
  }
  
-@@ -453,16 +748,17 @@ function parseOptions(a, b) {
+@@ -453,16 +759,17 @@ function parseOptions(a, b) {
      connect_timeout : 30,
      max_lifetime    : max_lifetime,
      max_pipeline    : 100,
@@ -2247,7 +2268,7 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..a554f987f17b08d975807dbdfcb3f79d
      host            : Array.isArray(host) ? host : host.split(',').map(x => x.split(':')[0]),
      port            : Array.isArray(port) ? port : host.split(',').map(x => parseInt(x.split(':')[1] || port)),
      path            : o.path || host.indexOf('/') > -1 && host + '/.s.PGSQL.' + port,
-@@ -472,8 +768,8 @@ function parseOptions(a, b) {
+@@ -472,8 +779,8 @@ function parseOptions(a, b) {
      ...Object.entries(defaults).reduce(
        (acc, [k, d]) => {
          const value = k in o ? o[k] : k in query
@@ -2258,7 +2279,7 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..a554f987f17b08d975807dbdfcb3f79d
          acc[k] = typeof value === 'string' && ints.includes(k)
            ? +value
            : value
-@@ -488,16 +784,26 @@ function parseOptions(a, b) {
+@@ -488,16 +795,26 @@ function parseOptions(a, b) {
      },
      types           : o.types || {},
      target_session_attrs: tsa(o, url, env),
@@ -2286,7 +2307,7 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..a554f987f17b08d975807dbdfcb3f79d
  }
  
  function tsa(o, url, env) {
-@@ -508,8 +814,12 @@ function tsa(o, url, env) {
+@@ -508,8 +825,12 @@ function tsa(o, url, env) {
    throw new Error('target_session_attrs ' + x + ' is not supported')
  }
  
@@ -2302,7 +2323,7 @@ index c7fba3dace20173f4cb13f3f138bb6d213b43683..a554f987f17b08d975807dbdfcb3f79d
  
  function max_lifetime() {
 diff --git a/src/query.js b/src/query.js
-index 0d44a15cd9e42beaf11d4be6ccde60223e09508a..4d25903697001cf4c04c4169706cc2c8716c592d 100644
+index 0d44a15cd9e42beaf11d4be6ccde60223e09508a..73f6efd93ecf7bf73c630680f4f40871aff71c10 100644
 --- a/src/query.js
 +++ b/src/query.js
 @@ -1,3 +1,5 @@
@@ -2311,7 +2332,7 @@ index 0d44a15cd9e42beaf11d4be6ccde60223e09508a..4d25903697001cf4c04c4169706cc2c8
  const originCache = new Map()
      , originStackCache = new Map()
      , originError = Symbol('OriginError')
-@@ -23,12 +25,15 @@ export class Query extends Promise {
+@@ -23,12 +25,17 @@ export class Query extends Promise {
      this.state = null
      this.statement = null
  
@@ -2326,10 +2347,12 @@ index 0d44a15cd9e42beaf11d4be6ccde60223e09508a..4d25903697001cf4c04c4169706cc2c8
      this.cancelled = null
      this.executed = false
 +    this.trace = undefined
++    this.poolWait = undefined
++    this.fresh = false
      this.signature = ''
  
      this[originError] = this.handler.debug
-@@ -50,7 +55,14 @@ export class Query extends Promise {
+@@ -50,7 +57,14 @@ export class Query extends Promise {
    }
  
    cancel() {
@@ -2345,7 +2368,7 @@ index 0d44a15cd9e42beaf11d4be6ccde60223e09508a..4d25903697001cf4c04c4169706cc2c8
    }
  
    simple() {
-@@ -96,8 +108,8 @@ export class Query extends Promise {
+@@ -96,8 +110,8 @@ export class Query extends Promise {
                resolve({ value, done: false })
                return new Promise(r => prev = r)
              }
@@ -2356,7 +2379,7 @@ index 0d44a15cd9e42beaf11d4be6ccde60223e09508a..4d25903697001cf4c04c4169706cc2c8
            })
            this.execute()
            return promise
-@@ -137,7 +149,15 @@ export class Query extends Promise {
+@@ -137,7 +151,15 @@ export class Query extends Promise {
    }
  
    async handle() {
@@ -2373,7 +2396,7 @@ index 0d44a15cd9e42beaf11d4be6ccde60223e09508a..4d25903697001cf4c04c4169706cc2c8
    }
  
    execute() {
-@@ -161,6 +181,11 @@ export class Query extends Promise {
+@@ -161,6 +183,11 @@ export class Query extends Promise {
    }
  }
  
@@ -2701,11 +2724,12 @@ index 0000000000000000000000000000000000000000..bcdf4c1894e0f84957d7ff3890bea9d8
 +}
 diff --git a/src/tracing.js b/src/tracing.js
 new file mode 100644
-index 0000000000000000000000000000000000000000..3de24120abd1577f11186ce01e93b6325eae5af0
+index 0000000000000000000000000000000000000000..cc9725578b8d5e8a47022f403eccc19b3bc1cfc1
 --- /dev/null
 +++ b/src/tracing.js
-@@ -0,0 +1,128 @@
+@@ -0,0 +1,150 @@
 +import dc from 'diagnostics_channel'
++import { performance } from 'perf_hooks'
 +
 +const supported = Boolean(dc) && typeof dc.tracingChannel === 'function'
 +
@@ -2713,7 +2737,6 @@ index 0000000000000000000000000000000000000000..3de24120abd1577f11186ce01e93b632
 +export const connectChannel = supported ? dc.tracingChannel('postgres:connect') : undefined
 +export const transactionChannel = supported ? dc.tracingChannel('postgres:transaction') : undefined
 +export const poolConnectChannel = supported ? dc.tracingChannel('postgres:pool:connect') : undefined
-+export const sendChannel = supported ? dc.channel('postgres:query:send') : undefined
 +export const poolReleaseChannel = supported ? dc.channel('postgres:pool:release') : undefined
 +export const poolRemoveChannel = supported ? dc.channel('postgres:pool:remove') : undefined
 +
@@ -2793,7 +2816,28 @@ index 0000000000000000000000000000000000000000..3de24120abd1577f11186ce01e93b632
 +}
 +
 +export function poolAcquired(context, processID, reused) {
++  context.handoverTime = performance.timeOrigin + performance.now()
++  context.queuedBehind = 0
 +  context.client = { processID, reused }
++}
++
++export function poolHandover(q, queuedBehind, session) {
++  const context = q.poolWait
++  context.handoverTime = performance.timeOrigin + performance.now()
++  context.queuedBehind = queuedBehind
++  context.client = { processID: session.processID, reused: !q.fresh }
++}
++
++export function poolStarted(q) {
++  const context = q.poolWait
++  q.poolWait = undefined
++  resolved(poolConnectChannel, context)
++}
++
++function poolFailed(q, error) {
++  const context = q.poolWait
++  q.poolWait = undefined
++  rejected(poolConnectChannel, context, error)
 +}
 +
 +export function poolReleased(connection, error) {
@@ -2810,18 +2854,18 @@ index 0000000000000000000000000000000000000000..3de24120abd1577f11186ce01e93b632
 +  return run(queryChannel, q.trace, fn, q)
 +}
 +
-+export function querySent(q, session) {
++export function queryBuilt(q, session) {
 +  const context = q.trace
 +  context.query.text = q.string
 +  context.query.name = q.statement.name || undefined
 +  Object.assign(context.client, session)
-+  sendChannel.hasSubscribers && sendChannel.publish(context)
 +}
 +
 +export function querySettled(q, result) {
 +  if (q.streaming && result && typeof result.pipe === 'function')
 +    return
 +
++  q.poolWait && poolStarted(q)
 +  const context = q.trace
 +  q.trace = undefined
 +  context.result = result
@@ -2829,6 +2873,7 @@ index 0000000000000000000000000000000000000000..3de24120abd1577f11186ce01e93b632
 +}
 +
 +export function queryFailed(q, error) {
++  q.poolWait && poolFailed(q, error)
 +  const context = q.trace
 +  q.trace = undefined
 +  rejected(queryChannel, context, error)
@@ -3063,7 +3108,7 @@ index 0000000000000000000000000000000000000000..e8a4bddf7c0f4b6c55ec7c5f33865888
 +  }
 +}
 diff --git a/types/index.d.ts b/types/index.d.ts
-index 13c3432f761e2c2ee5b7dc1bdafe93e49f993dc7..2c07940cd38d4af902b74959d7a28d144744b424 100644
+index 13c3432f761e2c2ee5b7dc1bdafe93e49f993dc7..3c4b90225bb42c28f3a00484bb67a8c4f0dd3f68 100644
 --- a/types/index.d.ts
 +++ b/types/index.d.ts
 @@ -1,4 +1,4 @@
@@ -3245,7 +3290,7 @@ index 13c3432f761e2c2ee5b7dc1bdafe93e49f993dc7..2c07940cd38d4af902b74959d7a28d14
    }
  
    interface TransactionSql<TTypes extends Record<string, unknown> = {}> extends ISql<TTypes>  {
-@@ -727,8 +798,91 @@ declare namespace postgres {
+@@ -727,8 +798,95 @@ declare namespace postgres {
      prepare<T>(name: string): Promise<UnwrapPromiseArray<T>>;
    }
  
@@ -3281,7 +3326,7 @@ index 13c3432f761e2c2ee5b7dc1bdafe93e49f993dc7..2c07940cd38d4af902b74959d7a28d14
 +    error?: Error;
 +  }
 +
-+  /** Context of the `postgres:pool:connect` tracing channel, for `sql.reserve()` and `sql.begin()`. */
++  /** Context of the `postgres:pool:connect` tracing channel: every wait for a connection, for `sql.reserve()`, `sql.begin()` and plain pooled queries. */
 +  interface PoolConnectTraceContext {
 +    pool: {
 +      totalCount: number;
@@ -3289,6 +3334,10 @@ index 13c3432f761e2c2ee5b7dc1bdafe93e49f993dc7..2c07940cd38d4af902b74959d7a28d14
 +      waitingCount: number;
 +      maxSize: number;
 +    };
++    /** Epoch milliseconds at which the connection took the call over; set before `asyncStart` on success. `handoverTime` minus the `start` time is the wait for a connection. */
++    handoverTime?: number;
++    /** Queries the connection already had running or waiting when it took this one over; 0 for a lease. The time from `handoverTime` to `asyncStart` is spent behind them. */
++    queuedBehind?: number;
 +    /** Set before `asyncStart` on success */
 +    client?: {
 +      processID: number | undefined;
