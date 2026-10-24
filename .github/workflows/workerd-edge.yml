@@ -2,27 +2,12 @@ name: workerd-edge
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, closed]
     paths-ignore: ['**/*.md', 'codemod/**', '.github/workflows/codemod.yml']
   workflow_dispatch:
     inputs:
       hyperdrive_rounds:
         description: Hyperdrive rounds per build
         default: '1'
-      cpu_rounds:
-        description: Rounds per variant for the CPU measurement instead of the scenarios (0 runs the scenarios)
-        default: '0'
-      ab_rounds:
-        description: Rounds per build for a CPU A/B of this branch against ab_base instead of the scenarios (0 skips it)
-        default: '0'
-      ab_target:
-        description: Database and fetch_types for the A/B
-        type: choice
-        options: [supabase-false, supabase-true, neon-false]
-        default: supabase-false
-      ab_base:
-        description: Ref whose cloudflare:sockets build the A/B compares against
-        default: main
   push:
     branches: [main]
     tags: ['v*']
@@ -33,12 +18,12 @@ permissions:
 
 concurrency:
   group: workerd-edge-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.event.action != 'closed' }}
+  cancel-in-progress: true
 
 jobs:
   edge:
     name: Cloudflare edge Preview (${{ matrix.compat_date }}) on Neon and Supabase
-    if: github.event.action != 'closed' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (github.event_name != 'workflow_dispatch' || (inputs.cpu_rounds == '0' && inputs.ab_rounds == '0'))
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     strategy:
@@ -77,108 +62,3 @@ jobs:
           [ -n "$url" ] || { cat "$RUNNER_TEMP/preview.json"; exit 1; }
           echo "Preview $name: $url"
           node tests-startup/workerd-edge.mjs run "$url"
-
-  cpu:
-    name: Workers CPU per connection on Supabase and Neon
-    if: github.event_name == 'workflow_dispatch' && inputs.cpu_rounds != '0'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 40
-    env:
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
-        with:
-          node-version: '24'
-      - run: npx --yes wrangler@4.151.1 whoami
-      - run: npm run build:cf
-      - run: node tests-startup/workerd-edge.mjs prepare "$RUNNER_TEMP/edge" 2026-10-12 @steadybrew/postgresjs@latest
-      - name: Deploy the Preview and measure
-        env:
-          NEON_DATABASE_URL: ${{ secrets.NEON_DATABASE_URL }}
-          SUPABASE_DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
-          CPU_ROUNDS: ${{ inputs.cpu_rounds }}
-        run: |
-          [ -n "$SUPABASE_DATABASE_URL" ] || { echo "The SUPABASE_DATABASE_URL secret is not set"; exit 1; }
-          name="cpu-$(echo "$GITHUB_REF_NAME" | tr 'A-Z._/' 'a-z---')"
-          echo "PREVIEW_NAME=$name" >> "$GITHUB_ENV"
-          EDGE_TOKEN=$(openssl rand -hex 24)
-          echo "::add-mask::$EDGE_TOKEN"
-          export EDGE_TOKEN
-          node -e 'require("fs").writeFileSync(process.argv[1], JSON.stringify({ DATABASE_URL: process.env.NEON_DATABASE_URL, SUPABASE_URL: process.env.SUPABASE_DATABASE_URL, EDGE_TOKEN: process.env.EDGE_TOKEN }), { mode: 0o600 })' "$RUNNER_TEMP/secrets.json"
-          (cd "$RUNNER_TEMP/edge" && npx --yes wrangler@4.151.1 preview --name "$name" --secrets-file "$RUNNER_TEMP/secrets.json" --json > "$RUNNER_TEMP/preview.json")
-          rm "$RUNNER_TEMP/secrets.json"
-          url=$(node tests-startup/workerd-edge.mjs url "$RUNNER_TEMP/preview.json")
-          [ -n "$url" ] || { cat "$RUNNER_TEMP/preview.json"; exit 1; }
-          echo "Preview $name: $url"
-          node tests-startup/workerd-edge.mjs cpu "$url" "$CPU_ROUNDS"
-      - name: Delete the Preview
-        if: always() && env.PREVIEW_NAME
-        run: npx --yes wrangler@4.151.1 preview delete --worker-name postgresjs-edge --name "$PREVIEW_NAME" --skip-confirmation
-
-  ab:
-    name: Workers CPU A/B against ${{ inputs.ab_base }} on ${{ inputs.ab_target }}
-    if: github.event_name == 'workflow_dispatch' && inputs.ab_rounds != '0'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 25
-    env:
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
-        with:
-          node-version: '24'
-      - run: npx --yes wrangler@4.151.1 whoami
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-        with:
-          ref: ${{ inputs.ab_base }}
-          path: ab-base
-      - run: npm run build:cf
-      - run: npm run build:cf
-        working-directory: ab-base
-      - run: node tests-startup/workerd-edge.mjs prepare "$RUNNER_TEMP/edge" 2026-10-12 "" ab-base
-      - name: Deploy the Preview and measure
-        env:
-          NEON_DATABASE_URL: ${{ secrets.NEON_DATABASE_URL }}
-          SUPABASE_DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
-          AB_ROUNDS: ${{ inputs.ab_rounds }}
-          AB_TARGET: ${{ inputs.ab_target }}
-          AB_BASE: ${{ inputs.ab_base }}
-        run: |
-          [ -n "$SUPABASE_DATABASE_URL" ] || { echo "The SUPABASE_DATABASE_URL secret is not set"; exit 1; }
-          name="ab-$(echo "$GITHUB_REF_NAME" | tr 'A-Z._/' 'a-z---')"
-          echo "PREVIEW_NAME=$name" >> "$GITHUB_ENV"
-          EDGE_TOKEN=$(openssl rand -hex 24)
-          echo "::add-mask::$EDGE_TOKEN"
-          export EDGE_TOKEN
-          node -e 'require("fs").writeFileSync(process.argv[1], JSON.stringify({ DATABASE_URL: process.env.NEON_DATABASE_URL, SUPABASE_URL: process.env.SUPABASE_DATABASE_URL, EDGE_TOKEN: process.env.EDGE_TOKEN }), { mode: 0o600 })' "$RUNNER_TEMP/secrets.json"
-          (cd "$RUNNER_TEMP/edge" && npx --yes wrangler@4.151.1 preview --name "$name" --secrets-file "$RUNNER_TEMP/secrets.json" --json > "$RUNNER_TEMP/preview.json")
-          rm "$RUNNER_TEMP/secrets.json"
-          url=$(node tests-startup/workerd-edge.mjs url "$RUNNER_TEMP/preview.json")
-          [ -n "$url" ] || { cat "$RUNNER_TEMP/preview.json"; exit 1; }
-          echo "Preview $name: $url"
-          node tests-startup/workerd-edge.mjs ab "$url" "$AB_ROUNDS" "$AB_TARGET" "$AB_BASE"
-      - name: Delete the Preview
-        if: always() && env.PREVIEW_NAME
-        run: npx --yes wrangler@4.151.1 preview delete --worker-name postgresjs-edge --name "$PREVIEW_NAME" --skip-confirmation
-
-  cleanup:
-    name: Delete the edge Previews (${{ matrix.compat_date }})
-    if: github.event.action == 'closed' && github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    strategy:
-      fail-fast: false
-      matrix:
-        compat_date: ['2025-01-01', '2026-10-12']
-    env:
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-    steps:
-      - name: Delete the Preview
-        env:
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          COMPAT_DATE: ${{ matrix.compat_date }}
-        run: npx --yes wrangler@4.151.1 preview delete --worker-name postgresjs-edge --name "pr-$PR_NUMBER-${COMPAT_DATE//-/}" --skip-confirmation
