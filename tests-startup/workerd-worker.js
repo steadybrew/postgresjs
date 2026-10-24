@@ -181,6 +181,39 @@ const scenarios = {
     }
     return { tracingChannel: Boolean(tracing), events }
   },
+  async 'tracing-channels'(port) {
+    const dc = await import('node:diagnostics_channel')
+    const { AsyncLocalStorage } = await import('node:async_hooks')
+    const storage = new AsyncLocalStorage()
+    const query = dc.tracingChannel('postgres:query')
+    const connection = dc.tracingChannel('postgres:connection')
+    equal([typeof dc.tracingChannel, typeof query.start.runStores, typeof query.start.bindStore], ['function', 'function', 'function'])
+    const seen = []
+    const handlers = (name) => ({
+      start: () => seen.push(name + ':start:' + storage.getStore()),
+      end: () => seen.push(name + ':end'),
+      asyncStart: () => seen.push(name + ':asyncStart'),
+      asyncEnd: (context) => seen.push(name + ':asyncEnd:' + (context.query || context.serverAddress)),
+      error: (context) => seen.push(name + ':error:' + context.error.message)
+    })
+    const subscribed = [[query, handlers('query')], [connection, handlers('connection')]]
+    query.start.bindStore(storage, () => 'span')
+    subscribed.forEach(([channel, handler]) => channel.subscribe(handler))
+    const sql = client(port, { max: 1 })
+    try {
+      await within(sql`select 1 as x`, 5000, 'traced query')
+    } finally {
+      subscribed.forEach(([channel, handler]) => channel.unsubscribe(handler))
+      query.start.unbindStore(storage)
+      await within(sql.end(), 3000, 'end')
+    }
+    const address = sql.options.host[0]
+    equal(seen, [
+      'query:start:span', 'query:end', 'connection:start:span', 'connection:end', 'connection:asyncStart', 'connection:asyncEnd:' + address,
+      'query:asyncStart', 'query:asyncEnd:select 1 as x'
+    ])
+    return { seen }
+  },
   async 'tls-private-ca'() {
     const results = []
     for (const ssl of ['require', 'prefer']) {
