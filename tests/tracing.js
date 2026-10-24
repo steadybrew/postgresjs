@@ -71,11 +71,11 @@ t('Tracing publishes a query in order with the context filled in as it is built'
   const { host, port } = server(sql.options)
   return [
     JSON.stringify([
-      'start end publish asyncStart asyncEnd', 'select $1::int as x', null, 'SELECT', 1,
+      'start end publish asyncStart asyncEnd', 'select $1::int as x', true, 'SELECT', 1,
       sql.options.database, sql.options.user, host, port, false, true, true, false, true
     ]),
     JSON.stringify([
-      events.filter(x => x.name !== 'postgres:pool:remove').map(x => x.stage).join(' '), done.query.text, done.query.name || null,
+      events.filter(x => x.name !== 'postgres:pool:remove').map(x => x.stage).join(' '), done.query.text, typeof done.query.name === 'string',
       done.result.command, done.result.count, done.client.database, done.client.user, done.client.host, done.client.port, done.client.ssl,
       typeof done.client.processID === 'number', send.context.client === done.client, 'values' in done,
       remove.context.client.processID === done.client.processID
