@@ -1,12 +1,28 @@
 /* eslint no-console: 0 */
 /* global addEventListener */
 import * as drivers from './driver.js'
+import dc from 'node:diagnostics_channel'
+import { AsyncLocalStorage } from 'node:async_hooks'
 let unhandled = []
 addEventListener('unhandledrejection', (event) => {
   const reason = event.reason?.stack || String(event.reason)
   unhandled.push(reason)
   console.error('WORKER_UNHANDLED_REJECTION', reason)
 })
+if (drivers.subscribe) {
+  const noop = () => undefined
+  const storage = new AsyncLocalStorage()
+  const names = drivers.subscribe === 'query' ? ['query'] : ['query', 'connect', 'pool:connect', 'transaction']
+  for (const name of names) {
+    const channel = dc.tracingChannel('postgres:' + name)
+    channel.start.bindStore(storage, () => name)
+    channel.subscribe({ start: noop, end: noop, asyncStart: noop, asyncEnd: noop, error: noop })
+  }
+  if (drivers.subscribe === 'all') {
+    dc.subscribe('postgres:pool:release', noop)
+    dc.subscribe('postgres:pool:remove', noop)
+  }
+}
 const nativeSetTimeout = globalThis.setTimeout
 globalThis.setTimeout = function(callback, delay, ...extra) {
   if (extra.length) throw new TypeError('Failed to execute \'setTimeout\': parameter 3 is not of type \'Array\'.')
