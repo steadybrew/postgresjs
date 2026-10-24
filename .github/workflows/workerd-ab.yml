@@ -29,7 +29,7 @@ concurrency:
 
 jobs:
   ab:
-    name: Workers CPU A/B against ${{ inputs.ab_base }} on ${{ inputs.ab_target }} (subscribers: ${{ inputs.ab_subscribe }})
+    name: Workers CPU A/B against ${{ inputs.ab_base }} on ${{ inputs.ab_target }} with subscribers ${{ inputs.ab_subscribe }}
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     env:
