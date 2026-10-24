@@ -522,31 +522,32 @@ function Postgres(a, b) {
   }
 
   function handler(query) {
-    if (query.trace && watched(poolConnectChannel)) {
-      query.poolWait = poolContext(stats())
-      return run(poolConnectChannel, query.poolWait, route, query)
-    }
-
-    route(query)
+    const refusal = query.trace && watched(poolConnectChannel)
+      ? run(poolConnectChannel, query.poolWait = poolContext(stats()), route, query)
+      : route(query)
+    refusal && query.reject(refusal)
   }
 
   function route(query) {
     if (ending)
-      return query.reject(Errors.connection('CONNECTION_ENDED', options, options))
+      return Errors.connection('CONNECTION_ENDED', options, options)
 
     const idle = takeOpen()
     if (idle)
-      return go(idle, query)
+      return (go(idle, query), null)
 
     if (closed.length)
-      return (query.poolWait && (query.fresh = true), connect(closed.shift(), query))
+      return (query.poolWait && (query.fresh = true), connect(closed.shift(), query), null)
 
     const c = takeBusy()
-    c
-      ? go(c, query)
-      : allHeldByCopy()
-        ? query.reject(copyInProgress())
-        : queries.push(query)
+    if (c)
+      return (go(c, query), null)
+
+    if (allHeldByCopy())
+      return copyInProgress()
+
+    queries.push(query)
+    return null
   }
 
   function allHeldByCopy() {
