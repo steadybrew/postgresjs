@@ -798,38 +798,58 @@ declare namespace postgres {
     prepare<T>(name: string): Promise<UnwrapPromiseArray<T>>;
   }
 
-  /** Context of the `postgres:query` tracing channel. `query`, `values`, `serverAddress`, `serverPort` and `connectionId` are set when the query is written to a connection, after `start`. */
-  interface QueryTraceContext {
-    /** SQL text with `$n` placeholders as sent to the server */
-    query: string | undefined;
-    /** Parameters before they are serialized for the wire, raw */
-    values: unknown[] | undefined;
+  /** The connection a traced call runs on. Host, port and ssl are those of the connection once it is known. */
+  interface TraceClient {
     database: string;
+    host: string | undefined;
+    port: number | undefined;
     user: string;
-    serverAddress: string | undefined;
-    serverPort: number | undefined;
-    connectionId: number | undefined;
+    ssl: boolean;
+    /** Backend process id; set once the call is written to a connection */
+    processID: number | undefined;
+  }
+
+  /** Context of the `postgres:query` tracing channel. `query` and the connection fields of `client` are set when the query is written to a connection, after `start`. */
+  interface QueryTraceContext {
+    query: {
+      /** SQL text with `$n` placeholders as sent to the server */
+      text: string | undefined;
+      /** Prepared statement name; undefined for an unnamed statement */
+      name: string | undefined;
+    };
+    client: TraceClient;
     /** Set before `asyncStart` when the query succeeded */
     result?: ResultMeta<number | null> | Statement | Readable | Writable;
     /** Set before `error` when the query failed */
     error?: Error;
   }
 
-  /** Context of the `postgres:connection` tracing channel, one span for each connection acquisition. */
-  interface ConnectionTraceContext {
-    connectionId: number;
-    database: string;
-    user: string;
-    /** The host of the latest attempt; undefined before the first attempt when several hosts are configured */
-    serverAddress: string | undefined;
-    serverPort: number | undefined;
+  /** Context of the `postgres:connect` tracing channel, one span for each connection acquisition. */
+  interface ConnectTraceContext {
+    connection: Omit<TraceClient, 'processID'>;
+    error?: Error;
+  }
+
+  /** Context of the `postgres:pool:connect` tracing channel, for `sql.reserve()` and `sql.begin()`. */
+  interface PoolConnectTraceContext {
+    pool: {
+      totalCount: number;
+      idleCount: number;
+      waitingCount: number;
+      maxSize: number;
+    };
+    /** Set before `asyncStart` on success */
+    client?: {
+      processID: number | undefined;
+      /** False when the acquisition had to open the connection */
+      reused: boolean;
+    };
     error?: Error;
   }
 
   /** Context of the `postgres:transaction` tracing channel, for `sql.begin()` and `sql.savepoint()`. */
   interface TransactionTraceContext {
-    database: string;
-    user: string;
+    client: TraceClient;
     /** The mode string passed to `sql.begin()`; undefined for a savepoint */
     options: string | undefined;
     /** The savepoint name as sent to the server; undefined for `sql.begin()` */
@@ -841,9 +861,17 @@ declare namespace postgres {
     error?: Error;
   }
 
-  /** Payload of the `postgres:connection:close` channel. */
-  interface ConnectionCloseMessage {
-    connectionId: number;
+  /** Message of the `postgres:pool:release` channel. */
+  interface PoolReleaseMessage {
+    client: { processID: number | undefined };
+    /** The error the lease ended with */
+    error: Error | undefined;
+  }
+
+  /** Message of the `postgres:pool:remove` channel. */
+  interface PoolRemoveMessage {
+    client: { processID: number | undefined };
+    /** The error that closed the connection; undefined for a normal close */
     error: Error | undefined;
   }
 

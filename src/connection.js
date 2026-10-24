@@ -12,7 +12,18 @@ import clampedTimeout from './timeout.js'
 import { SSLRequest, tlsConfig, cancelRequest } from './transport.js'
 import { Query, CLOSE } from './query.js'
 import b from './bytes.js'
-import { connectionChannel, watched, run, resolved, rejected, connectionContext, connectionAttempt, querySent, connectionClosed } from './tracing.js'
+import {
+  connectChannel,
+  watched,
+  run,
+  resolved,
+  rejected,
+  connectContext,
+  connectAttempt,
+  connectSecured,
+  querySent,
+  poolRemoved
+} from './tracing.js'
 
 export { Connection }
 
@@ -115,6 +126,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     , remaining = 0
     , hostIndex = 0
     , serverIndex = 0
+    , secured = false
     , length = 0
     , rows = 0
     , copyPaused = false
@@ -245,6 +257,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     get active() { return query ? 1 : 0 },
     get pipelined() { return sent.length },
     get accepting() { return accepting() },
+    get session() { return session() },
     get copying() { return stream !== null },
     get copyHeld() { return stream !== null && !stream.writableEnded },
     get acquiring() { return acquisition && !acquisition.owner.cancelled ? 1 : 0 },
@@ -303,6 +316,10 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     return options.path || host[serverIndex]
   }
 
+  function session() {
+    return { host: serverAddress(), port: serverPort(), ssl: secured, processID: backend.pid }
+  }
+
   function serverPort() {
     return options.path ? undefined : port[serverIndex]
   }
@@ -313,11 +330,11 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
 
   function acquire(owner) {
     acquisition = { owner, ending: false, pass: 'standby', hostsTried: 0, attempting: null, mismatches: [], lastError: null, trace: undefined }
-    if (!watched(connectionChannel))
+    if (!watched(connectChannel))
       return startAcquisition()
 
-    acquisition.trace = connectionContext(id, options)
-    run(connectionChannel, acquisition.trace, startAcquisition)
+    acquisition.trace = connectContext(options)
+    run(connectChannel, acquisition.trace, startAcquisition)
   }
 
   function startAcquisition() {
@@ -364,7 +381,8 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     listen(created)
     socket = created
     serverIndex = hostIndex
-    acquisition.trace && connectionAttempt(acquisition.trace, serverAddress(), serverPort())
+    secured = false
+    acquisition.trace && connectAttempt(acquisition.trace, serverAddress(), serverPort())
     acquisition.attempting = options.socket ? 'custom socket' : options.path || host[hostIndex] + ':' + port[hostIndex]
 
     if (options.socket)
@@ -397,6 +415,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
       const config = tlsConfig(options, raw)
       raw.removeAllListeners()
       socket = tls.connect(config)
+      secured = true
       socket.on('secureConnect', () => dispatch('secure'))
       listen(socket)
     } catch (err) {
@@ -508,10 +527,10 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     acquisition = null
     endWaiters = []
     transition(Phase.Closed)
-    a && a.trace && rejected(connectionChannel, a.trace, err)
+    a && a.trace && rejected(connectChannel, a.trace, err)
     a && queryError(a.owner, err)
     waiters.forEach(resolve => resolve())
-    connectionClosed(id, reported)
+    poolRemoved(a ? undefined : backend.pid, reported)
     onclose(connection, reported)
   }
 
@@ -542,7 +561,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     transition(Phase.Ready)
     clearAcquisitionTimers()
     acquisition = null
-    trace && resolved(connectionChannel, trace)
+    trace && (connectSecured(trace, secured), resolved(connectChannel, trace))
     options.shared.retries = 0
     lifeTimer.start()
 
@@ -668,7 +687,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
       : { string, types, name: q.prepare ? statementId + statementCount++ : '' }
 
     typeof options.debug === 'function' && callback(options.debug, id, string, parameters, types)
-    q.trace && querySent(q, id, serverAddress(), serverPort())
+    q.trace && querySent(q, session())
   }
 
   function write(x, fn) {

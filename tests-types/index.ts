@@ -28,8 +28,11 @@ new postgres.PostgresError('boom')
 // @ts-expect-error
 new postgres.PostgresError(42)
 
-const queryTrace: postgres.QueryTraceContext = { query: undefined, values: undefined, database: 'a', user: 'b', serverAddress: undefined, serverPort: undefined, connectionId: undefined }
-const connectionTrace: postgres.ConnectionTraceContext = { connectionId: 1, database: 'a', user: 'b', serverAddress: 'localhost', serverPort: 5432 }
-const transactionTrace: postgres.TransactionTraceContext = { database: 'a', user: 'b', options: 'read write', savepoint: undefined, prepared: undefined, result: { committed: true } }
-const closeMessage: postgres.ConnectionCloseMessage = { connectionId: 1, error: undefined }
-void [queryTrace, connectionTrace, transactionTrace, closeMessage]
+const client: postgres.TraceClient = { database: 'a', host: 'localhost', port: 5432, user: 'b', ssl: false, processID: undefined }
+const queryTrace: postgres.QueryTraceContext = { query: { text: undefined, name: undefined }, client }
+const connectTrace: postgres.ConnectTraceContext = { connection: { database: 'a', host: 'localhost', port: 5432, user: 'b', ssl: false } }
+const poolConnectTrace: postgres.PoolConnectTraceContext = { pool: { totalCount: 1, idleCount: 0, waitingCount: 0, maxSize: 10 }, client: { processID: 1, reused: true } }
+const transactionTrace: postgres.TransactionTraceContext = { client, options: 'read write', savepoint: undefined, prepared: undefined, result: { committed: true } }
+const releaseMessage: postgres.PoolReleaseMessage = { client: { processID: 1 }, error: undefined }
+const removeMessage: postgres.PoolRemoveMessage = { client: { processID: 1 }, error: undefined }
+void [queryTrace, connectTrace, poolConnectTrace, transactionTrace, releaseMessage, removeMessage]

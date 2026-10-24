@@ -28,7 +28,18 @@ import Queue from './queue.js'
 import { Errors, PostgresError, callback } from './errors.js'
 import Subscribe from './subscribe.js'
 import largeObject from './large.js'
-import { transactionChannel, watched, traceAsync, transactionContext, transactionCommitted } from './tracing.js'
+import {
+  transactionChannel,
+  poolConnectChannel,
+  watched,
+  traceAsync,
+  transactionContext,
+  transactionSession,
+  transactionCommitted,
+  poolContext,
+  poolAcquired,
+  poolReleased
+} from './tracing.js'
 
 const Lease = { Active: 0, Settling: 1, Released: 2, Ended: 3, Closed: 4 }
 
@@ -264,11 +275,20 @@ function Postgres(a, b) {
     return await sql`select pg_notify(${ channel }, ${ '' + payload })`
   }
 
-  async function lease(auto) {
+  function lease(auto) {
+    if (!watched(poolConnectChannel))
+      return acquire(auto)
+
+    const trace = poolContext(stats())
+    return traceAsync(poolConnectChannel, trace, () => acquire(auto, trace))
+  }
+
+  async function acquire(auto, trace) {
     if (ending)
       throw Errors.connection('CONNECTION_ENDED', options)
 
-    const l = { state: null, connection: null, error: null, onclose: null, queue: Queue() }
+    const l = { state: null, connection: null, error: null, outcome: undefined, onclose: null, queue: Queue() }
+    let reused = true
     const idle = takeOpen()
     idle
       ? own(idle, l)
@@ -277,11 +297,12 @@ function Postgres(a, b) {
         : await new Promise((resolve, reject) => {
           const query = { reserve: c => resolve(own(c, l)), reject }
           closed.length
-            ? connect(closed.shift(), query)
+            ? (reused = false, connect(closed.shift(), query))
             : allHeldByCopy()
               ? reject(copyInProgress())
               : queries.push(query)
         })
+    trace && poolAcquired(trace, l.connection.session.processID, reused)
     return l
   }
 
@@ -320,10 +341,12 @@ function Postgres(a, b) {
     if (l.state === Lease.Released || l.state === Lease.Ended)
       return null
 
+    const lost = l.state === Lease.Closed
     l.state = state
     while (l.queue.length)
       l.queue.shift().reject(leaseError(l))
 
+    poolReleased(l.connection, lost ? l.error : l.outcome)
     const c = l.connection
     if (c.owner !== l)
       return null
@@ -355,12 +378,13 @@ function Postgres(a, b) {
     if (!watched(transactionChannel))
       return transact(mode, fn)
 
-    const trace = transactionContext(options, mode)
+    const trace = transactionContext(options, undefined, mode)
     return traceAsync(transactionChannel, trace, () => transact(mode, fn, trace))
   }
 
   async function transact(options, fn, trace) {
     const l = await lease(true)
+    trace && transactionSession(trace, l.connection.session)
     let savepoints = 0
       , prepare = null
 
@@ -370,6 +394,7 @@ function Postgres(a, b) {
 
     async function transaction() {
       await Sql(handler).unsafe('begin ' + options.replace(/[^a-z ]/ig, ''), []).execute().catch(e => {
+        l.outcome = e
         e instanceof PostgresError && release()
         throw e
       })
@@ -382,6 +407,7 @@ function Postgres(a, b) {
       try {
         result = await statement(Sql(q => handler(q, Lease.Settling)))
       } catch (e) {
+        l.outcome = l.outcome || e
         terminate()
         throw e
       }
@@ -422,6 +448,7 @@ function Postgres(a, b) {
         if (uncaughtError)
           throw uncaughtError
       } catch (e) {
+        name || (l.outcome = e)
         l.state === Lease.Active && await (name
           ? sql.unsafe('rollback to ' + escapeIdentifier(name))
           : finish(final => final.unsafe('rollback'))
@@ -456,7 +483,7 @@ function Postgres(a, b) {
         arguments.length === 1 && (fn = name, name = null)
         const id = 's' + savepoints++ + (name ? '_' + name : '')
         return watched(transactionChannel)
-          ? traceAsync(transactionChannel, transactionContext(options, undefined, id), () => scope(fn, id))
+          ? traceAsync(transactionChannel, transactionContext(options, l.connection.session, undefined, id), () => scope(fn, id))
           : scope(fn, id)
       }
 
