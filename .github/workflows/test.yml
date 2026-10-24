@@ -133,7 +133,7 @@ jobs:
   publish:
     name: Stage on npm
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [node, deno, cloudflare, lint]
+    needs: [node, deno, cloudflare, lint, tracing]
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     environment: npm
