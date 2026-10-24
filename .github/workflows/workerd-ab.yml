@@ -14,6 +14,11 @@ on:
       ab_base:
         description: Ref whose cloudflare:sockets build this branch is compared against
         default: main
+      ab_subscribe:
+        description: Channels the head build subscribes to with no-op handlers; the base build never does
+        type: choice
+        options: [none, query, all]
+        default: none
 
 permissions:
   contents: read
@@ -24,7 +29,7 @@ concurrency:
 
 jobs:
   ab:
-    name: Workers CPU A/B against ${{ inputs.ab_base }} on ${{ inputs.ab_target }}
+    name: Workers CPU A/B against ${{ inputs.ab_base }} on ${{ inputs.ab_target }} (subscribers: ${{ inputs.ab_subscribe }})
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     env:
@@ -44,6 +49,8 @@ jobs:
       - run: npm run build:cf
         working-directory: ab-base
       - run: node tests-startup/workerd-edge.mjs prepare "$RUNNER_TEMP/edge" 2026-10-12 "" ab-base
+        env:
+          AB_SUBSCRIBE: ${{ inputs.ab_subscribe }}
       - name: Deploy the Preview and measure
         env:
           NEON_DATABASE_URL: ${{ secrets.NEON_DATABASE_URL }}
