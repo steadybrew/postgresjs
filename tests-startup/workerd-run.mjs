@@ -86,7 +86,7 @@ async function main() {
       : [
         'cold-reserve-false', 'arrays-false', 'arrays-true', 'catalog-error',
         'timers', 'connect-timeout', 'end-timeout', 'end-plain', 'end-while-connecting',
-        'copy-out', 'ssl-prefer-declined', 'subscribe', 'diagnostics-channel', 'no-end',
+        'copy-out', 'ssl-prefer-declined', 'subscribe', 'diagnostics-channel', 'tracing-channels', 'no-end',
         ...(tlsPort && process.env.WORKERD_TLS_CA ? tlsScenarios : [])
       ]
     for (const name of scenarios) {

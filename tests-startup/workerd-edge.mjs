@@ -6,7 +6,7 @@ import path from 'node:path'
 
 const scenarios = [
   'arrays-false', 'arrays-true', 'timers', 'end-timeout', 'end-plain', 'end-while-connecting', 'end-tls',
-  'copy-out', 'subscribe', 'diagnostics-channel', 'ssl-verify', 'tls-private-ca', 'pooled', 'no-end',
+  'copy-out', 'subscribe', 'diagnostics-channel', 'tracing-channels', 'ssl-verify', 'tls-private-ca', 'pooled', 'no-end',
   'abort-neon', 'abort-neon-pooled', 'abort-supabase-pooler', 'abort-hyperdrive', 'abort-hyperdrive-pooled', 'abort-hyperdrive-supabase'
 ]
 const hyperdrive = [
@@ -24,9 +24,15 @@ const cpuVariants = [
 const gate = { median: 1, p95: 1, exceeded: 0.02, p: 0.01, failures: 0.02 }
 
 async function prepare(out, compatibilityDate, release, base) {
+  const subscribe = ['query', 'all'].includes(process.env.AB_SUBSCRIBE) ? process.env.AB_SUBSCRIBE : ''
   await mkdir(out, { recursive: true })
   await cp(path.join(repo, 'cf'), path.join(out, 'cf'), { recursive: true })
   base && await cp(path.join(base, 'cf'), path.join(out, 'base/cf'), { recursive: true })
+  if (subscribe && base) {
+    const tracing = path.join(out, 'base/cf/src/tracing.js')
+    await writeFile(tracing, (await readFile(tracing, 'utf8')).replaceAll('\'postgres:', '\'postgres-base:'))
+  }
+
   await cp(path.join(repo, 'src'), path.join(out, 'src'), { recursive: true })
   await cp(path.join(repo, 'tests-startup/workerd-worker.js'), path.join(out, 'worker.js'))
   await writeFile(path.join(out, 'driver.js'), [
@@ -35,6 +41,7 @@ async function prepare(out, compatibilityDate, release, base) {
     'export { default as src } from \'./src/index.js\'',
     ...(release ? ['export { default as release } from \'@steadybrew/postgresjs\''] : []),
     ...(base ? ['export { default as base } from \'./base/cf/src/index.js\''] : []),
+    ...(subscribe ? ['export const subscribe = \'' + subscribe + '\''] : []),
     ''
   ].join('\n'))
   release && execFileSync('npm', ['install', '--prefix', out, '--no-save', '--no-audit', '--no-fund', release], { stdio: 'inherit' })

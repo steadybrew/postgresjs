@@ -798,6 +798,87 @@ declare namespace postgres {
     prepare<T>(name: string): Promise<UnwrapPromiseArray<T>>;
   }
 
+  /** The connection a traced call runs on. Host, port and ssl are those of the connection once it is known. */
+  interface TraceClient {
+    database: string;
+    host: string | undefined;
+    port: number | undefined;
+    user: string;
+    ssl: boolean;
+    /** Backend process id; set once the call is written to a connection */
+    processID: number | undefined;
+  }
+
+  /** Context of the `postgres:query` tracing channel. `query` and the connection fields of `client` are set when the query is written to a connection, after `start`. */
+  interface QueryTraceContext {
+    query: {
+      /** SQL text with `$n` placeholders as sent to the server */
+      text: string | undefined;
+      /** Prepared statement name; undefined for an unnamed statement */
+      name: string | undefined;
+    };
+    client: TraceClient;
+    /** Set before `asyncStart` when the query succeeded */
+    result?: ResultMeta<number | null> | Statement | Readable | Writable;
+    /** Set before `error` when the query failed */
+    error?: Error;
+  }
+
+  /** Context of the `postgres:connect` tracing channel, one span for each connection acquisition. */
+  interface ConnectTraceContext {
+    connection: Omit<TraceClient, 'processID'>;
+    error?: Error;
+  }
+
+  /** Context of the `postgres:pool:connect` tracing channel: every wait for a connection, for `sql.reserve()`, `sql.begin()` and plain pooled queries. */
+  interface PoolConnectTraceContext {
+    pool: {
+      totalCount: number;
+      idleCount: number;
+      waitingCount: number;
+      maxSize: number;
+    };
+    /** Epoch milliseconds at which the connection took the call over; set before `asyncStart` once a connection took the call over. `handoverTime` minus the `start` time is the wait for a connection. */
+    handoverTime?: number;
+    /** Queries the connection already had running or waiting when it took this one over. For a plain query, the time from `handoverTime` to `asyncStart` is spent behind them; a lease span ends a microtask after the hand-over, so that time falls inside its first statement. */
+    queuedBehind?: number;
+    /** Set with `handoverTime` */
+    client?: {
+      processID: number | undefined;
+      /** False when the acquisition had to open the connection */
+      reused: boolean;
+    };
+    error?: Error;
+  }
+
+  /** Context of the `postgres:transaction` tracing channel, for `sql.begin()` and `sql.savepoint()`. */
+  interface TransactionTraceContext {
+    client: TraceClient;
+    /** The mode string passed to `sql.begin()`; undefined for a savepoint */
+    options: string | undefined;
+    /** The savepoint name as sent to the server; undefined for `sql.begin()` */
+    savepoint: string | undefined;
+    /** The name given to `sql.prepare()` */
+    prepared: string | undefined;
+    /** Set by `sql.begin()` on success: `committed` is false when the transaction was prepared */
+    result?: { committed: boolean };
+    error?: Error;
+  }
+
+  /** Message of the `postgres:pool:release` channel. */
+  interface PoolReleaseMessage {
+    client: { processID: number | undefined };
+    /** The error the lease ended with */
+    error: Error | undefined;
+  }
+
+  /** Message of the `postgres:pool:remove` channel. */
+  interface PoolRemoveMessage {
+    client: { processID: number | undefined };
+    /** The error that closed the connection; undefined for a normal close */
+    error: Error | undefined;
+  }
+
   interface ReservedSql<TTypes extends Record<string, unknown> = {}> extends Sql<TTypes> {
     release(): void;
 

@@ -28,6 +28,19 @@ import Queue from './queue.js'
 import { Errors, PostgresError, callback } from './errors.js'
 import Subscribe from './subscribe.js'
 import largeObject from './large.js'
+import {
+  transactionChannel,
+  poolConnectChannel,
+  watched,
+  traceRoute,
+  traceAsync,
+  transactionContext,
+  transactionSession,
+  transactionCommitted,
+  poolContext,
+  poolAcquired,
+  poolReleased
+} from './tracing.js'
 
 const Lease = { Active: 0, Settling: 1, Released: 2, Ended: 3, Closed: 4 }
 
@@ -94,6 +107,7 @@ function Postgres(a, b) {
 
   function Sql(handler) {
     handler.debug = options.debug
+    handler.config = options
 
     Object.entries(options.types).reduce((acc, [name, type]) => {
       acc[name] = (x) => new Parameter(x, type.to)
@@ -137,7 +151,7 @@ function Postgres(a, b) {
 
     function file(path, args = [], options = {}) {
       arguments.length === 2 && !Array.isArray(args) && (options = args, args = [])
-      const query = new Query([], args, (query) => {
+      const read = query => {
         fs.readFile(path, 'utf8', (err, string) => {
           if (err)
             return query.reject(err)
@@ -145,7 +159,9 @@ function Postgres(a, b) {
           query.strings = [string]
           handler(query)
         })
-      }, cancel, {
+      }
+      read.config = handler.config
+      const query = new Query([], args, read, cancel, {
         ...options,
         simple: 'simple' in options ? options.simple : args.length === 0
       })
@@ -260,29 +276,40 @@ function Postgres(a, b) {
     return await sql`select pg_notify(${ channel }, ${ '' + payload })`
   }
 
-  async function lease(auto) {
+  function lease(auto) {
+    if (!watched(poolConnectChannel))
+      return acquire(auto)
+
+    const trace = poolContext(stats())
+    return traceAsync(poolConnectChannel, trace, () => acquire(auto, trace))
+  }
+
+  async function acquire(auto, trace) {
     if (ending)
       throw Errors.connection('CONNECTION_ENDED', options)
 
-    const l = { state: null, connection: null, error: null, onclose: null, queue: Queue() }
+    const l = { state: null, connection: null, error: null, outcome: undefined, behind: 0, onclose: null, queue: Queue() }
+    let waiter = null
     const idle = takeOpen()
     idle
       ? own(idle, l)
       : auto && !closed.length && busy.length
         ? own(busy.shift(), l)
         : await new Promise((resolve, reject) => {
-          const query = { reserve: c => resolve(own(c, l)), reject }
+          const query = waiter = { reserve: c => resolve(own(c, l)), reject, fresh: false }
           closed.length
             ? connect(closed.shift(), query)
             : allHeldByCopy()
               ? reject(copyInProgress())
               : queries.push(query)
         })
+    trace && poolAcquired(trace, l.connection.session.processID, !(waiter && waiter.fresh), l.behind)
     return l
   }
 
   function own(c, l) {
     l.connection = c
+    l.behind = c.inflight
     l.state = Lease.Active
     c.owner = l
     l.next = () => {
@@ -316,10 +343,12 @@ function Postgres(a, b) {
     if (l.state === Lease.Released || l.state === Lease.Ended)
       return null
 
+    const lost = l.state === Lease.Closed
     l.state = state
     while (l.queue.length)
       l.queue.shift().reject(leaseError(l))
 
+    poolReleased(l.connection, lost ? l.error : l.outcome)
     const c = l.connection
     if (c.owner !== l)
       return null
@@ -346,9 +375,18 @@ function Postgres(a, b) {
     }
   }
 
-  async function begin(options, fn) {
-    !fn && (fn = options, options = '')
+  function begin(mode, fn) {
+    !fn && (fn = mode, mode = '')
+    if (!watched(transactionChannel))
+      return transact(mode, fn)
+
+    const trace = transactionContext(options, undefined, mode)
+    return traceAsync(transactionChannel, trace, () => transact(mode, fn, trace))
+  }
+
+  async function transact(options, fn, trace) {
     const l = await lease(true)
+    trace && transactionSession(trace, l.connection.session)
     let savepoints = 0
       , prepare = null
 
@@ -358,6 +396,7 @@ function Postgres(a, b) {
 
     async function transaction() {
       await Sql(handler).unsafe('begin ' + options.replace(/[^a-z ]/ig, ''), []).execute().catch(e => {
+        l.outcome = e
         e instanceof PostgresError && release()
         throw e
       })
@@ -370,6 +409,7 @@ function Postgres(a, b) {
       try {
         result = await statement(Sql(q => handler(q, Lease.Settling)))
       } catch (e) {
+        l.outcome = l.outcome || e
         terminate()
         throw e
       }
@@ -395,6 +435,7 @@ function Postgres(a, b) {
           throw Errors.generic('INVALID_TRANSACTION_NAME', 'sql.prepare requires a non-empty string without null bytes')
 
         prepare = 'E\'' + x.replace(/\\/g, '\\\\').replace(/'/g, '\'\'') + '\''
+        trace && (trace.prepared = x)
       }
       let uncaughtError
         , result
@@ -409,6 +450,7 @@ function Postgres(a, b) {
         if (uncaughtError)
           throw uncaughtError
       } catch (e) {
+        name || (l.outcome = e)
         l.state === Lease.Active && await (name
           ? sql.unsafe('rollback to ' + escapeIdentifier(name))
           : finish(final => final.unsafe('rollback'))
@@ -430,6 +472,8 @@ function Postgres(a, b) {
             uncaughtError && { cause: uncaughtError }
           )
         }
+
+        trace && transactionCommitted(trace, prepare === null)
       }
 
       return result
@@ -439,7 +483,10 @@ function Postgres(a, b) {
           return savepoint(sql => sql.apply(sql, arguments))
 
         arguments.length === 1 && (fn = name, name = null)
-        return scope(fn, 's' + savepoints++ + (name ? '_' + name : ''))
+        const id = 's' + savepoints++ + (name ? '_' + name : '')
+        return watched(transactionChannel)
+          ? traceAsync(transactionChannel, transactionContext(options, l.connection.session, undefined, id), () => scope(fn, id))
+          : scope(fn, id)
       }
 
       function track(q) {
@@ -476,22 +523,32 @@ function Postgres(a, b) {
   }
 
   function handler(query) {
+    const refusal = query.trace && watched(poolConnectChannel)
+      ? traceRoute(query, poolContext(stats()), route)
+      : route(query)
+    refusal && query.reject(refusal)
+  }
+
+  function route(query) {
     if (ending)
-      return query.reject(Errors.connection('CONNECTION_ENDED', options, options))
+      return Errors.connection('CONNECTION_ENDED', options, options)
 
     const idle = takeOpen()
     if (idle)
-      return go(idle, query)
+      return (go(idle, query), null)
 
     if (closed.length)
-      return connect(closed.shift(), query)
+      return (connect(closed.shift(), query), null)
 
     const c = takeBusy()
-    c
-      ? go(c, query)
-      : allHeldByCopy()
-        ? query.reject(copyInProgress())
-        : queries.push(query)
+    if (c)
+      return (go(c, query), null)
+
+    if (allHeldByCopy())
+      return copyInProgress()
+
+    queries.push(query)
+    return null
   }
 
   function allHeldByCopy() {
@@ -585,6 +642,7 @@ function Postgres(a, b) {
   }
 
   function connect(c, query) {
+    query.reserve ? query.fresh = true : query.poolWait && (query.poolWait.fresh = true)
     move(c, connecting)
     c.connect(query)
     return c

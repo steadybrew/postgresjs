@@ -12,6 +12,20 @@ import clampedTimeout from './timeout.js'
 import { SSLRequest, tlsConfig, cancelRequest } from './transport.js'
 import { Query, CLOSE } from './query.js'
 import b from './bytes.js'
+import {
+  connectChannel,
+  watched,
+  run,
+  resolved,
+  rejected,
+  connectContext,
+  connectAttempt,
+  connectSecured,
+  queryBuilt,
+  poolHandover,
+  poolStarted,
+  poolRemoved
+} from './tracing.js'
 
 export { Connection }
 
@@ -113,6 +127,8 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     , statementCount = 1
     , remaining = 0
     , hostIndex = 0
+    , serverIndex = 0
+    , secured = false
     , length = 0
     , rows = 0
     , copyPaused = false
@@ -243,6 +259,8 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     get active() { return query ? 1 : 0 },
     get pipelined() { return sent.length },
     get accepting() { return accepting() },
+    get session() { return session() },
+    get inflight() { return inflight() },
     get copying() { return stream !== null },
     get copyHeld() { return stream !== null && !stream.writableEnded },
     get acquiring() { return acquisition && !acquisition.owner.cancelled ? 1 : 0 },
@@ -297,12 +315,36 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     return backoffSeconds(backoff, options.shared.retries) * 1000
   }
 
+  function serverAddress() {
+    return options.path || host[serverIndex]
+  }
+
+  function inflight() {
+    return (query ? 1 : 0) + sent.length
+  }
+
+  function session() {
+    return { host: serverAddress(), port: serverPort(), ssl: secured, processID: backend.pid }
+  }
+
+  function serverPort() {
+    return options.path ? undefined : port[serverIndex]
+  }
+
   function standbyPass() {
     return target_session_attrs === 'prefer-standby' && host.length > 1 && acquisition.pass === 'standby'
   }
 
   function acquire(owner) {
-    acquisition = { owner, ending: false, pass: 'standby', hostsTried: 0, attempting: null, mismatches: [], lastError: null }
+    acquisition = { owner, ending: false, pass: 'standby', hostsTried: 0, attempting: null, mismatches: [], lastError: null, trace: undefined }
+    if (!watched(connectChannel))
+      return startAcquisition()
+
+    acquisition.trace = connectContext(options)
+    run(connectChannel, acquisition.trace, startAcquisition)
+  }
+
+  function startAcquisition() {
     const wait = inheritedBackoff ? inheritedBackoff.at + inheritedBackoff.delay - performance.now() : 0
     inheritedBackoff = null
     wait > 0 ? enterBackoff(wait) : enterConnecting()
@@ -345,6 +387,9 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
   function attach(created) {
     listen(created)
     socket = created
+    serverIndex = hostIndex
+    secured = false
+    acquisition.trace && connectAttempt(acquisition.trace, serverAddress(), serverPort())
     acquisition.attempting = options.socket ? 'custom socket' : options.path || host[hostIndex] + ':' + port[hostIndex]
 
     if (options.socket)
@@ -377,6 +422,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
       const config = tlsConfig(options, raw)
       raw.removeAllListeners()
       socket = tls.connect(config)
+      secured = true
       socket.on('secureConnect', () => dispatch('secure'))
       listen(socket)
     } catch (err) {
@@ -488,8 +534,10 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     acquisition = null
     endWaiters = []
     transition(Phase.Closed)
+    a && a.trace && rejected(connectChannel, a.trace, err)
     a && queryError(a.owner, err)
     waiters.forEach(resolve => resolve())
+    poolRemoved(a ? undefined : backend.pid, reported)
     onclose(connection, reported)
   }
 
@@ -516,10 +564,11 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
   }
 
   function handoff() {
-    const { owner, ending } = acquisition
+    const { owner, ending, trace } = acquisition
     transition(Phase.Ready)
     clearAcquisitionTimers()
     acquisition = null
+    trace && (connectSecured(trace, secured), resolved(connectChannel, trace))
     options.shared.retries = 0
     lifeTimer.start()
 
@@ -547,12 +596,13 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
       return true
 
     q.owner === undefined && (q.owner = connection.owner)
+    q.poolWait && poolHandover(q, inflight(), session())
 
     try {
       q.state = backend
       query
         ? sent.push(q)
-        : (query = q, query.active = true)
+        : (query = q, query.active = true, q.poolWait && poolStarted(q))
 
       if (q.cancelled) {
         q.cancelled = null
@@ -645,6 +695,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
       : { string, types, name: q.prepare ? statementId + statementCount++ : '' }
 
     typeof options.debug === 'function' && callback(options.debug, id, string, parameters, types)
+    q.trace && queryBuilt(q, session())
   }
 
   function write(x, fn) {
@@ -854,6 +905,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     query = sent.length ? sent.shift() : null
     if (query) {
       query.active = true
+      query.poolWait && poolStarted(query)
       query.cancelled && cancelRequest(options, query.state).then(query.cancelled.resolve, query.cancelled.reject)
     }
 
