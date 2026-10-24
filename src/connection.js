@@ -12,7 +12,7 @@ import clampedTimeout from './timeout.js'
 import { SSLRequest, tlsConfig, cancelRequest } from './transport.js'
 import { Query, CLOSE } from './query.js'
 import b from './bytes.js'
-import { connectionChannel, watched, run, resolved, rejected, serverOf, querySent, connectionClosed } from './tracing.js'
+import { connectionChannel, watched, run, resolved, rejected, connectionContext, connectionAttempt, querySent, connectionClosed } from './tracing.js'
 
 export { Connection }
 
@@ -316,7 +316,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     if (!watched(connectionChannel))
       return startAcquisition()
 
-    acquisition.trace = { connectionId: id, database, user, ...serverOf(options) }
+    acquisition.trace = connectionContext(id, options)
     run(connectionChannel, acquisition.trace, startAcquisition)
   }
 
@@ -364,7 +364,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     listen(created)
     socket = created
     serverIndex = hostIndex
-    acquisition.trace && (acquisition.trace.serverAddress = serverAddress(), acquisition.trace.serverPort = serverPort())
+    acquisition.trace && connectionAttempt(acquisition.trace, serverAddress(), serverPort())
     acquisition.attempting = options.socket ? 'custom socket' : options.path || host[hostIndex] + ':' + port[hostIndex]
 
     if (options.socket)

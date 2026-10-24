@@ -153,7 +153,7 @@ export class Query extends Promise {
       return
 
     this.executed = true
-    if (!this.initialization && watched(queryChannel))
+    if (!this.initialization && !this.settled && watched(queryChannel))
       return traceQuery(this, dispatch)
 
     await 1

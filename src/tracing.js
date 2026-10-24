@@ -49,6 +49,23 @@ export function serverOf({ host, port, path }) {
       : { serverAddress: undefined, serverPort: undefined }
 }
 
+export function connectionContext(connectionId, config) {
+  return { connectionId, database: config.database, user: config.user, ...serverOf(config) }
+}
+
+export function connectionAttempt(context, serverAddress, serverPort) {
+  context.serverAddress = serverAddress
+  context.serverPort = serverPort
+}
+
+export function transactionContext(config, options, savepoint) {
+  return { database: config.database, user: config.user, options, savepoint, prepared: undefined }
+}
+
+export function transactionCommitted(context, committed) {
+  context.result = { committed }
+}
+
 export function traceQuery(q, fn) {
   const config = q.handler.config
   q.trace = {

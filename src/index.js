@@ -28,7 +28,7 @@ import Queue from './queue.js'
 import { Errors, PostgresError, callback } from './errors.js'
 import Subscribe from './subscribe.js'
 import largeObject from './large.js'
-import { transactionChannel, watched, traceAsync } from './tracing.js'
+import { transactionChannel, watched, traceAsync, transactionContext, transactionCommitted } from './tracing.js'
 
 const Lease = { Active: 0, Settling: 1, Released: 2, Ended: 3, Closed: 4 }
 
@@ -355,12 +355,8 @@ function Postgres(a, b) {
     if (!watched(transactionChannel))
       return transact(mode, fn)
 
-    const trace = transactionTrace(mode)
+    const trace = transactionContext(options, mode)
     return traceAsync(transactionChannel, trace, () => transact(mode, fn, trace))
-  }
-
-  function transactionTrace(mode, savepoint) {
-    return { database: options.database, user: options.user, options: mode, savepoint, prepared: undefined, result: undefined }
   }
 
   async function transact(options, fn, trace) {
@@ -448,7 +444,7 @@ function Postgres(a, b) {
           )
         }
 
-        trace && (trace.result = { committed: prepare === null })
+        trace && transactionCommitted(trace, prepare === null)
       }
 
       return result
@@ -460,7 +456,7 @@ function Postgres(a, b) {
         arguments.length === 1 && (fn = name, name = null)
         const id = 's' + savepoints++ + (name ? '_' + name : '')
         return watched(transactionChannel)
-          ? traceAsync(transactionChannel, transactionTrace(undefined, id), () => scope(fn, id))
+          ? traceAsync(transactionChannel, transactionContext(options, undefined, id), () => scope(fn, id))
           : scope(fn, id)
       }
 

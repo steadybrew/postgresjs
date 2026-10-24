@@ -837,7 +837,7 @@ declare namespace postgres {
     /** The name given to `sql.prepare()` */
     prepared: string | undefined;
     /** Set by `sql.begin()` on success: `committed` is false when the transaction was prepared */
-    result: { committed: boolean } | undefined;
+    result?: { committed: boolean };
     error?: Error;
   }
 
