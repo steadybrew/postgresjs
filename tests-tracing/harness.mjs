@@ -23,7 +23,26 @@ export const scenarios = {
     await tx`select 1 as x`
     throw new Error('rollback')
   }).catch(() => {}),
-  savepoint: sql => sql.begin(tx => tx.savepoint(sp => sp`select 1 as x`))
+  savepoint: sql => sql.begin(tx => tx.savepoint(sp => sp`select 1 as x`)),
+  copyOut: async sql => {
+    const readable = await sql`copy (select generate_series(1, 3)) to stdout`.readable()
+    await new Promise((resolve, reject) => readable.on('data', () => {}).on('end', resolve).on('error', reject))
+  },
+  copyIn: async sql => {
+    await sql`drop table if exists tracing_copy`
+    await sql`create table tracing_copy (x int)`
+    const writable = await sql`copy tracing_copy from stdin`.writable()
+    writable.write('1\n')
+    writable.end('2\n')
+    await new Promise((resolve, reject) => writable.on('finish', resolve).on('error', reject))
+    await sql`drop table tracing_copy`
+  },
+  cancelBeforeSend: async sql => {
+    const query = sql`select 1 as x`
+    await query.cancel()
+    await query.catch(() => {})
+  },
+  buildFailure: sql => sql`select ${ sql.json(1n) } as x`.catch(() => {})
 }
 
 export async function tracer(mode, events) {
