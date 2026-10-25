@@ -5828,3 +5828,156 @@ for (const [name, thrown] of unextensibleThrows) {
     ]
   })
 }
+
+const pinned = {
+  copyOut: { resolve: 2, reject: 0 },
+  copyIn: { resolve: 2, reject: 0 },
+  unsafeTransaction: { resolve: 1, reject: 1 },
+  cancelledBeforeAwaitedAtMax1: { resolve: 0, reject: 3 },
+  cancelledBeforeAwaitedAtMax2: { resolve: 0, reject: 1 }
+}
+
+function counted(query) {
+  const calls = { resolve: 0, reject: 0 }
+  const { resolve, reject } = query
+  query.resolve = x => (calls.resolve++, resolve(x))
+  query.reject = x => (calls.reject++, reject(x))
+  return calls
+}
+
+t('a copy to stdout resolves its query twice, with the stream and then with the result', { timeout: 10 }, async() => {
+  const sql = postgres({ ...options, max: 1 })
+  const query = sql`copy (select generate_series(1, 10)) to stdout`
+  const calls = counted(query)
+  const readable = await query.readable()
+  let lines = 0
+  for await (const chunk of readable)
+    lines += chunk.toString().split('\n').length - 1
+  await sql`select 1`
+  await sql.end()
+
+  return [
+    JSON.stringify([10, pinned.copyOut]),
+    JSON.stringify([lines, calls])
+  ]
+})
+
+t('a copy from stdin resolves its query twice, with the stream and then with the result', { timeout: 10 }, async() => {
+  const sql = postgres({ ...options, max: 1 })
+  await sql`create table test (x int)`
+  const query = sql`copy test from stdin`
+  const calls = counted(query)
+  const writable = await query.writable()
+  const handedOut = { ...calls }
+  const finished = new Promise(r => writable.on('finish', r))
+  writable.end('1\n2\n')
+  await finished
+  const rows = (await sql`select count(*)::int as n from test`)[0].n
+  await sql`drop table test`
+  await sql.end()
+
+  return [
+    JSON.stringify([{ resolve: 1, reject: 0 }, 2, pinned.copyIn]),
+    JSON.stringify([handedOut, rows, calls])
+  ]
+})
+
+t('a transaction started with sql`begin` on a pool rejects with UNSAFE_TRANSACTION after its command completed', { timeout: 10 }, async() => {
+  const sql = postgres({ ...options, max: 2, fetch_types: false })
+  const query = sql`begin`
+  const calls = counted(query)
+  const error = await query.catch(e => e)
+  await sql.end()
+
+  return [
+    JSON.stringify(['UNSAFE_TRANSACTION', pinned.unsafeTransaction]),
+    JSON.stringify([error.code, calls])
+  ]
+})
+
+t('a query cancelled before it is awaited is never built and the pool keeps working with max: 1', { timeout: 10 }, async() => {
+  const sql = postgres({ ...options, max: 1 })
+  await sql`select 1`
+  const query = sql`select 2 as x`
+  const calls = counted(query)
+  await query.cancel()
+  const error = await query.catch(e => e)
+  const next = (await sql`select 3 as x`)[0].x
+  await sql.end()
+
+  return [
+    JSON.stringify(['57014', undefined, pinned.cancelledBeforeAwaitedAtMax1, 3]),
+    JSON.stringify([error.code, query.string, calls, next])
+  ]
+})
+
+t('a query cancelled before it is awaited is never built and files an idle connection busy with max: 2 warm', { timeout: 10 }, async() => {
+  const sql = postgres({ ...options, max: 2 })
+  await sql`select 1`
+  const query = sql`select 2 as x`
+  const calls = counted(query)
+  await query.cancel()
+  const error = await query.catch(e => e)
+  await new Promise(setImmediate)
+  const stats = sql.stats()
+  const next = (await sql`select 3 as x`)[0].x
+  await sql.end()
+
+  return [
+    JSON.stringify(['57014', undefined, pinned.cancelledBeforeAwaitedAtMax2, { busyCount: 1, idleCount: 0 }, 3]),
+    JSON.stringify([error.code, query.string, calls, { busyCount: stats.busyCount, idleCount: stats.idleCount }, next])
+  ]
+})
+
+t('a query cancelled before it is awaited is never built and opens its connection idle with max: 2 cold', { timeout: 10 }, async() => {
+  const sql = postgres({ ...options, max: 2 })
+  const query = sql`select 2 as x`
+  const calls = counted(query)
+  await query.cancel()
+  const error = await query.catch(e => e)
+  await until(() => sql.stats().connectingCount === 0)
+  const stats = sql.stats()
+  const next = (await sql`select 3 as x`)[0].x
+  await sql.end()
+
+  return [
+    JSON.stringify(['57014', undefined, pinned.cancelledBeforeAwaitedAtMax2, { busyCount: 0, idleCount: 1 }, 3]),
+    JSON.stringify([error.code, query.string, calls, { busyCount: stats.busyCount, idleCount: stats.idleCount }, next])
+  ]
+})
+
+t('a reservation queued behind plain queries on a connection that is opening gets it after them', { timeout: 10 }, async() => {
+  const sql = postgres({ ...options, max: 1 })
+  const order = []
+  const first = sql`select 1 as x`.then(() => order.push('first'))
+  const second = sql`select 2 as x`.then(() => order.push('second'))
+  await 1
+  const reserved = await sql.reserve()
+  const held = sql.stats().reservedCount
+  const third = await reserved`select 3 as x`.then(x => (order.push('reserved'), x[0].x))
+  await Promise.all([first, second])
+  reserved.release()
+  const after = (await sql`select 4 as x`)[0].x
+  await sql.end()
+
+  return [
+    JSON.stringify([['first', 'second', 'reserved'], 1, 3, 4]),
+    JSON.stringify([order, held, third, after])
+  ]
+})
+
+t('a pool closed while its first query is connecting runs that query and reopens for the next one', { timeout: 10 }, async() => {
+  const sql = postgres({ ...options, max: 1 })
+  const first = sql`select 1 as x`.execute()
+  await 1
+  const closing = sql.close()
+  const ran = (await first)[0].x
+  await closing
+  const next = (await sql`select 2 as x`)[0].x
+  await sql.end()
+
+  return [
+    JSON.stringify([1, 2]),
+    JSON.stringify([ran, next])
+  ]
+})
