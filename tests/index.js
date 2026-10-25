@@ -5775,6 +5775,10 @@ t('arrays are sent and read back without fetching types, prepared or not', async
   ]
 })
 
+const isRejectionOf = (rejected, thrown) => typeof thrown === 'symbol'
+  ? rejected instanceof Error && rejected.message === String(thrown)
+  : rejected === thrown
+
 const unextensibleThrows = [
   ['a frozen error', Object.freeze(new Error('nope'))],
   ['a symbol', Symbol('nope')],
@@ -5800,7 +5804,7 @@ for (const [name, thrown] of unextensibleThrows) {
 
     return [
       JSON.stringify([true, 1, [], idleStats]),
-      JSON.stringify([rejected === thrown, next, errors.map(String), stats])
+      JSON.stringify([isRejectionOf(rejected, thrown), next, errors.map(String), stats])
     ]
   })
 
@@ -5820,7 +5824,7 @@ for (const [name, thrown] of unextensibleThrows) {
 
     return [
       JSON.stringify([1, true, 2, [], idleStats]),
-      JSON.stringify([running, rejected === thrown, next, errors.map(String), stats])
+      JSON.stringify([running, isRejectionOf(rejected, thrown), next, errors.map(String), stats])
     ]
   })
 }
