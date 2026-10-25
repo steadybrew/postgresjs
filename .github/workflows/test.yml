@@ -100,6 +100,21 @@ jobs:
           WORKERD_TLS_PORT: 55433
           WORKERD_TLS_CA: ${{ runner.temp }}/server.crt
 
+  tracing:
+    name: Tracing integrations (dd-trace, Sentry)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: ./.github/actions/setup-postgres
+        with:
+          version: '18'
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+      - run: echo /usr/lib/postgresql/18/bin >> "$GITHUB_PATH"
+      - run: npm run test:tracing
+
   lint:
     name: Lint
     runs-on: ubuntu-24.04
@@ -117,7 +132,7 @@ jobs:
   publish:
     name: Stage on npm
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [node, deno, cloudflare, lint]
+    needs: [node, deno, cloudflare, lint, tracing]
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     environment: npm

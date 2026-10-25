@@ -410,7 +410,7 @@ export async function phases(name, postgres, onEvent) {
   const base = { host: '127.0.0.1', user: 'fixture', database: 'fixture', ssl: false, max: 1, fetch_types: true, onnotice: () => { /* Quiet. */ } }
   const hang = ['forced-queued', 'cancel-errors', 'gap-query', 'gap-query-pool', 'stale-ending-lifetime', 'stale-ending-close',
                 'stale-ending-rst', 'fin-inflight', 'rst-inflight', 'begin-socket-cause',
-                'cancel-request-refused', 'cancel-unawaited', 'ending-queued-reconnect', 'ending-queued-down',
+                'cancel-request-refused', 'cancel-unawaited', 'ending-queued-reconnect', 'ending-queued-down', 'ending-queued-down-string',
                 'ending-other-open', 'terminate-ready', 'terminate-draining', 'terminate-pipeline'].includes(name)
   const cause = name.startsWith('cause-') ? name.split('-')[2] : ''
   const holding = ['reserve-end', 'cancel-initial', 'cancel-initial-untyped', 'failover-timeout',
@@ -944,27 +944,36 @@ export async function phases(name, postgres, onEvent) {
       }
       assert.deepStrictEqual(unhandled, [])
       await sql.end({ timeout: 0 })
-    } else if (name === 'ending-queued-reconnect' || name === 'ending-queued-down') {
+    } else if (name === 'ending-queued-reconnect' || name.startsWith('ending-queued-down')) {
       let calls = 0
-      const down = name === 'ending-queued-down'
+      const down = name.startsWith('ending-queued-down')
+      const thrown = name.endsWith('-string') ? 'factory denied' : new Error('factory denied')
       const options = { connect_timeout: 2, max_pipeline: 0 }
       if (down) {
         const factory = tracked(server)
         options.socket = () => {
           if (calls++)
-            throw new Error('factory denied')
+            throw thrown
           return factory.socket()
         }
       }
       const sql = make(options)
       const hung = settle(sql.unsafe('select hang', [], { simple: true }))
       await until(() => server.events.some(x => x.sql === 'select hang'))
-      const queued = [1, 2, 3].map(x => settle(sql.unsafe('select ' + x, [], { simple: true }).execute()))
+      const queries = [1, 2, 3].map(x => sql.unsafe('select ' + x, [], { simple: true }).execute())
+      const queued = queries.map(x => settle(x))
+      const raw = queries.map(x => x.then(() => 'resolved', error => error))
       const ending = settle(sql.end())
       server.reset()
       assert.strictEqual(await hung, 'rejected:ECONNRESET')
-      const expected = down ? 'rejected:factory denied' : 'resolved'
-      assert.deepStrictEqual(await Promise.all(queued), [expected, expected, expected])
+      if (typeof thrown === 'string') {
+        const [opener, ...rest] = await Promise.all(raw)
+        assert(opener instanceof Error && opener.message === thrown)
+        assert.deepStrictEqual(rest, [thrown, thrown])
+      } else {
+        const expected = down ? 'rejected:factory denied' : 'resolved'
+        assert.deepStrictEqual(await Promise.all(queued), [expected, expected, expected])
+      }
       assert.strictEqual(await ending, 'resolved')
       if (down) {
         assert.strictEqual(calls, 2)

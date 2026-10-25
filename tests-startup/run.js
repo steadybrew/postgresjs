@@ -35,7 +35,7 @@ const phaseNames = ['stale-ending-lifetime', 'stale-ending-close', 'stale-ending
                     'cancel-pipelined', 'cancel-pipelined-lost', 'cancel-settled', 'cancel-request-tls-error',
                     'cancel-request-refused', 'cancel-unawaited', 'cancel-query-unawaited',
                     'first-query-pipeline', 'release-inflight', 'draining-release-busy', 'factory-undefined', 'factory-empty',
-                    'ending-queued-reconnect', 'ending-queued-down', 'ending-other-open', 'error-close-reconnect',
+                    'ending-queued-reconnect', 'ending-queued-down', 'ending-queued-down-string', 'ending-other-open', 'error-close-reconnect',
                     'fatal-catalog', 'end-queued-cold',
                     'delay-clamp', 'idle-clamp', 'idle-throw', 'closing-bounded', 'closing-clean', 'closing-no-error',
                     'handout-idle', 'handout-lifetime',
