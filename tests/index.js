@@ -8,6 +8,7 @@ import crypto from 'crypto'
 import postgres from '../src/index.js'
 import { Stage } from '../src/query.js'
 import { vercelPool } from '../src/vercel.js'
+import './tracing.js'
 const delay = ms => new Promise(r => setTimeout(r, ms))
 
 const rel = x => new URL(x, import.meta.url)

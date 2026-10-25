@@ -13,6 +13,7 @@ const tracers = { 'dd-trace': '6.20.1', '@sentry/node': '11.7.0', '@sentry/serve
 const runs = [
   { mode: 'dd', type: 'esm', flags: ['--import', 'dd-trace/initialize.mjs'] },
   { mode: 'dd', type: 'cjs', flags: ['-r', 'dd-trace/init'] },
+  { mode: 'dd-native', type: 'esm', flags: ['--import', 'dd-trace/initialize.mjs'] },
   { mode: 'dd-dbm', type: 'esm', flags: ['--import', 'dd-trace/initialize.mjs'], env: { DD_DBM_PROPAGATION_MODE: 'full' } },
   { mode: 'sentry-auto', type: 'esm', flags: ['--import', '@sentry/node/import'] },
   { mode: 'sentry-auto', type: 'cjs', flags: ['--import', '@sentry/node/import'] },

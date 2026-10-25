@@ -46,6 +46,20 @@ export const scenarios = {
 }
 
 export async function tracer(mode, events) {
+  if (mode === 'dd-native') {
+    const dc = await import('node:diagnostics_channel')
+    const { AsyncLocalStorage } = await import('node:async_hooks')
+    const storage = new AsyncLocalStorage()
+    const noop = () => {}
+    for (const name of ['query', 'connect', 'pool:connect', 'transaction']) {
+      const channel = dc.tracingChannel('postgres:' + name)
+      channel.start.bindStore(storage, () => name)
+      channel.subscribe({ start: noop, end: noop, asyncStart: noop, asyncEnd: noop, error: noop })
+    }
+    for (const name of ['postgres:pool:release', 'postgres:pool:remove'])
+      dc.subscribe(name, noop)
+  }
+
   if (mode.startsWith('dd')) {
     const { default: dd } = await import('dd-trace')
     return {

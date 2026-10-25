@@ -19,6 +19,7 @@ The full API of [@steadybrew/postgresjs](../README.md). Installing, switching fr
 * [Custom Types](#custom-types)
 * [Teardown / Cleanup](#teardown--cleanup)
 * [Reserving connections](#reserving-connections)
+* [Tracing channels](#tracing-channels)
 * [Error handling](#error-handling)
 * [TypeScript support](#typescript-support)
 * [Migration tools](#migration-tools)
@@ -1508,6 +1509,168 @@ await reserved`select * from users`
 ```
 
 After release, queries through that reserved handle reject with [`CONNECTION_RELEASED`](#connection_released). Call `sql.reserve()` again to acquire a new handle. A reserved handle whose connection has closed rejects with `CONNECTION_CLOSED` until it is released, and cannot be reused after reconnect.
+
+## Tracing channels
+
+The driver publishes `diagnostics_channel` events for queries, connections, pool checkouts and transactions, so an APM or OpenTelemetry integration can subscribe without patching the driver. The names and fields follow the tracing channels of node-postgres, so a subscriber written for one driver reads the other with few changes. Nothing is built or published while no one subscribes: a query costs one `hasSubscribers` check.
+
+### TracingChannels
+
+These publish `start`, `end`, `asyncStart`, `asyncEnd` and `error`.
+
+| Channel | Fires for |
+|---|---|
+| `postgres:query` | Each query: from the call that runs it until the server answers or the query fails |
+| `postgres:connect` | Each connection acquisition: socket, TLS, authentication, startup and type fetching, up to the connection serving queries. Retries and other hosts stay inside one span. |
+| `postgres:pool:connect` | Each wait for a connection: `sql.reserve()`, `sql.begin()` and every plain pooled query that has a `postgres:query` subscriber. For a plain query it is a child of the query span and ends when the connection starts running the query. Statements sent on a reserved connection or in a transaction do not publish it. |
+| `postgres:transaction` | `sql.begin()` and, nested in it, each `sql.savepoint()` |
+
+### Plain channels
+
+These publish one message. Subscribe with `dc.channel(name).subscribe(callback)`.
+
+| Channel | Fires for |
+|---|---|
+| `postgres:pool:release` | A reserved connection or a transaction gives its connection back. `error` is set only when the connection is terminated instead of returned healthy, as `release(err)` does in node-postgres: a failed commit or rollback, or a lost connection. A `BEGIN` that fails with something other than a server error terminates the connection afterwards and publishes no error. A callback that threw and rolled back cleanly does not set it |
+| `postgres:pool:remove` | A connection closes, including a failed connection attempt |
+
+### How they fit together
+
+```text
+postgres:pool:connect        sql.reserve() acquires a connection
+ └─ postgres:connect         only if the acquisition had to open the connection
+postgres:pool:release        reserved.release() gives the connection back
+
+postgres:transaction         sql.begin()
+ ├─ postgres:pool:connect    the wait for a connection
+ │   └─ postgres:connect     only if the acquisition had to open the connection
+ ├─ postgres:query           each statement, BEGIN and COMMIT included
+ └─ postgres:transaction     each sql.savepoint(), with its own statements
+postgres:pool:release        the connection goes back to the pool
+
+postgres:query               a plain pooled query
+ └─ postgres:pool:connect    the wait for a connection
+     └─ postgres:connect     only if the query had to open the connection
+
+postgres:pool:remove         whenever a connection closes
+```
+
+A plain query publishes `postgres:query` and, inside it, `postgres:pool:connect`. The pool span ends when the connection makes the query its active query, so a query that waits behind others on a busy connection, or in the pool's queue, is waiting inside it. A wait that never reached a connection fails the pool span, and then the query: the pool is ending, a `COPY` holds every connection, the query is cancelled in the pool's queue, or the connection attempt fails. Once a connection has taken the query over (`handoverTime` is set), the pool span resolves, and whatever happens next, such as a build error, a cancel or a lost connection, fails only the query span.
+
+The `TracingChannel`s publish in the order Node's `tracePromise` does: `start` and `end` in the caller's synchronous code, then for a failure `error`, and for both outcomes `asyncStart` and `asyncEnd`, with `context.result` or `context.error` set first. `start` is published with `runStores`, so a store bound to it, such as an `AsyncLocalStorage` span context, is current in the code that starts the call. Every query publishes `asyncStart` and `asyncEnd` exactly once. That includes cursors read with `for await` or a callback, `forEach`, `COPY` streams (once the copy is over), `describe()`, `simple()`, `unsafe()`, `file()`, pipelined queries, retried queries and queries cancelled before they were sent. The driver's own startup queries (type fetching, `target_session_attrs`) are not published; they belong to the connect span.
+
+On `postgres:query` and `sql.begin()`'s `postgres:transaction`, the `result` and `error` keys do not exist until they are set, so a subscriber can tell a finished call from a started one by `'result' in context || 'error' in context`. The other contexts have no such key on success, so use the channel's `asyncEnd`.
+
+A query that is cancelled before it is awaited publishes nothing, because it never starts.
+
+## Context payloads
+
+The types are `QueryTraceContext`, `ConnectTraceContext`, `PoolConnectTraceContext`, `TransactionTraceContext`, `PoolReleaseMessage` and `PoolRemoveMessage`. No payload contains parameter values.
+
+### postgres:query
+
+| Field | Set |
+|---|---|
+| `query.text` | when the query is written to a connection: SQL with `$n` placeholders |
+| `query.name` | when the query is written: the prepared statement name, undefined for an unnamed statement |
+| `client.database`, `client.user` | at `start` |
+| `client.host`, `client.port` | at `start` when one host is configured, otherwise when the query is written. For a Unix socket the path is the host and there is no port. |
+| `client.ssl` | at `start` from the `ssl` option; when the query is written, whether the connection is encrypted |
+| `client.processID` | when the query is written: the backend process id, which `postgres:pool:connect` and `postgres:pool:remove` also report |
+| `result` | before `asyncStart`: the `Result` with `command` and `count` (an array of them for a multi-statement simple query); for `describe()` the statement; for a `COPY` stream the `Result` of the finished copy, not the stream |
+| `error` | before `error`: the query's own rejection. It carries `query` and `parameters`, which are enumerable only under `debug`, so a subscriber that records the error can leak values; read `error.code` and `error.message` instead |
+
+The text is known only after the driver has serialized the query for a connection, so read it at `asyncEnd` or `error`, or rename the span then. The `postgres:pool:connect` span inside a plain query is the wait for a connection, and the rest of the query span is the time on the server.
+
+### postgres:connect
+
+| Field | Set |
+|---|---|
+| `connection.database`, `connection.user` | at `start` |
+| `connection.host`, `connection.port` | at `start` when one host is configured; updated as each attempt opens its socket |
+| `connection.ssl` | at `start` from the `ssl` option; before `asyncStart`, whether the connection is encrypted |
+| `error` | before `error`: the failure that ends the acquisition |
+
+### postgres:pool:connect
+
+| Field | Set |
+|---|---|
+| `pool.totalCount`, `pool.idleCount`, `pool.waitingCount` | at `start`, as `sql.stats()` reports them |
+| `pool.maxSize` | at `start`: the `max` option |
+| `handoverTime` | before `asyncStart`, once a connection took the call over: the epoch milliseconds at which it did |
+| `queuedBehind` | with `handoverTime`: how many queries the connection already had running or waiting when it took the call over |
+| `client.processID` | with `handoverTime` |
+| `client.reused` | with `handoverTime`: false when this call had to open the connection; a call that waited while another call opened it reports true |
+| `error` | before `error`: a connection error, `CONNECTION_ENDED` after `sql.end()`, `COPY_IN_PROGRESS`, or the cancellation or connection error of a plain query that settled before a connection took it over |
+
+`handoverTime` minus the time of `start` is the wait for a connection, which is what OpenTelemetry's `db.client.connection.wait_time` measures. For a plain query with `queuedBehind` above 0, the time from `handoverTime` to `asyncStart` was spent behind those queries on the same connection. A lease span ends at the hand-over, so the time behind those queries falls inside the lease's first statement. Take the `start` time yourself in the `start` subscriber. On Cloudflare Workers `performance.now()` advances only after I/O, so within a request both times can be equal.
+
+```js
+import dc from 'node:diagnostics_channel'
+import { trace } from '@opentelemetry/api'
+
+const pool = dc.tracingChannel('postgres:pool:connect')
+
+pool.subscribe({
+  start(context) {
+    context.span = trace.getActiveSpan()
+  },
+  end() {},
+  asyncStart() {},
+  asyncEnd(context) {
+    if (context.handoverTime === undefined)
+      return
+
+    context.span?.addEvent('connection handed over', { 'postgres.queued_behind': context.queuedBehind }, context.handoverTime)
+  },
+  error() {}
+})
+```
+
+### postgres:transaction
+
+| Field | Set |
+|---|---|
+| `client` | as in `postgres:query`; the connection fields are filled in once the transaction has its connection |
+| `options` | at `start`: the mode string given to `sql.begin()`; undefined for a savepoint |
+| `savepoint` | at `start` for `sql.savepoint()`: the savepoint name as sent, such as `s0_name` |
+| `prepared` | when `sql.prepare(name)` is called |
+| `result` | before `asyncStart` for `sql.begin()`: `{ committed }`, false when the transaction was prepared |
+| `error` | before `error` |
+
+### postgres:pool:release
+
+`{ client: { processID }, error }`. `error` is set only when the connection is terminated instead of going back to the pool healthy, as `release(err)` does in node-postgres: a commit or rollback that failed, or a connection that was lost, though a `BEGIN` that fails with something other than a server error terminates the connection afterwards and publishes no error. It is undefined after a normal release, including after a callback that threw and rolled back cleanly, and when the server answered a commit with a rollback. `processID` is that of the connection the lease took, even if the connection was lost and reconnected since.
+
+### postgres:pool:remove
+
+`{ client: { processID }, error }`. `error` is undefined for a normal close and is not part of the node-postgres message.
+
+## Example
+
+```js
+import dc from 'node:diagnostics_channel'
+
+const channel = dc.tracingChannel('postgres:query')
+
+channel.subscribe({
+  start(context) {
+    context.startedAt = performance.now()
+  },
+  end() {},
+  asyncStart() {},
+  asyncEnd(context) {
+    console.log(context.query.text, context.result?.count, performance.now() - context.startedAt)
+  },
+  error(context) {
+    console.error(context.query.text, context.error)
+  }
+})
+```
+
+To make a span current for the code that runs the query, bind an `AsyncLocalStorage` to the start channel with `channel.start.bindStore(storage, context => span)`.
+
+On Node.js the channels need Node 22 or newer, as the package does. On a runtime without `diagnostics_channel.tracingChannel` nothing is published. On Cloudflare Workers the module needs the `nodejs_compat` flag, which the driver requires already.
 
 ## Error handling
 

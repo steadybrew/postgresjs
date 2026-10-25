@@ -11,6 +11,7 @@
 - **Correctness fixes.** Queries get the right results, transactions stay isolated, and rollbacks are reported as failures.
 - **Fewer hangs and crashes.** Fixes for stuck queries, shutdown hangs and crashes after disconnects.
 - **Pool monitoring.** See busy connections, idle connections and waiting queries with `sql.stats()`.
+- **Tracing without patches.** Queries, connections and transactions publish [`diagnostics_channel` events](docs/api.md#tracing-channels) for APM and OpenTelemetry subscribers, and nothing is built while no one subscribes.
 - **Faster queries behind poolers.** Removes an extra network round trip for supported values (opt-in).
 - **Vercel Fluid Compute support.** Reuse connections between requests and close idle ones before suspension to avoid connection leaks.
 - **Cloudflare Workers on the cheapest path.** Connects through Cloudflare's own `cloudflare:sockets` API, which costs less CPU per connection than workerd's `node:net`, tested locally and on Cloudflare's network with Neon, Supabase and Hyperdrive.
@@ -115,6 +116,7 @@ With `prepare: false`, parameterized queries can pay for an extra network round 
 ### New features
 
 - **See pool pressure.** [`sql.stats()`](docs/api.md#pool-stats) reports busy and idle connections and waiting queries.
+- **Trace queries natively.** [`postgres:query`, `postgres:connect`, `postgres:pool:connect` and `postgres:transaction`](docs/api.md#tracing-channels) are `diagnostics_channel` tracing channels, published only when something subscribes.
 - **Handle serverless suspension.** Expired idle connections are replaced on resume; the [Vercel Fluid Compute adapter](docs/api.md#vercel-fluid-compute) keeps instances alive until idle connections close.
 - **Automatic cleanup.** [`await using`](docs/api.md#teardown--cleanup) closes a pool and `using` releases a reserved connection when its scope ends. Requires Node.js 24+ or TypeScript 5.2+.
 - **Cloudflare Workers fixes.** On [Workers](docs/api.md#cloudflare-workers-support), `COPY TO` streams and `subscribe()` pause and resume the socket ([#975](https://github.com/porsager/postgres/issues/975)), `ssl: 'prefer'` falls back to plaintext when the server declines TLS, and a certificate from a private CA fails at once with [`TLS_CLOSED`](docs/api.md#tls_closed) instead of a timeout ([#1213](https://github.com/porsager/postgres/issues/1213)).

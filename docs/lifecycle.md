@@ -260,6 +260,21 @@ The connection drives its own queue through four callbacks:
 
 `Query.cancel()` returns a promise that settles when the CancelRequest finishes. A CancelRequest opens its own socket and is not a connection; it does not go through any phase or pool queue.
 
+## Tracing
+
+`src/tracing.js` owns the `diagnostics_channel` channels; the channels and payloads are described in `docs/api.md`. Every hook sits on one transition above, and a request carries tracing state only while a subscriber watched its channel when it started: `trace` (a query's `postgres:query` context, or `true` on a lease) and `pool` (the `postgres:pool:connect` context, held until the query is Active or the lease is handed over, or the request fails first).
+
+| Channel | Opens | Gets its fields | Settles |
+|---|---|---|---|
+| `postgres:query` | `Query.handle()`, when the query is New | `build()` (text, name, session) | `succeed` / `fail` |
+| `postgres:pool:connect` | `handler()` for a traced query, `lease()` for a lease, around `route()` | `assign()` (`handoverTime`, `queuedBehind`, `client`) | `activate()` for a query; `succeed` for a lease; `fail`: rejected when the request never reached a connection, resolved when it was already handed over |
+| `postgres:connect` | `acquire()` | `attach()`, `upgrade()` | `handoff()` or `enterClosed()` |
+| `postgres:transaction` | `begin()` and `savepoint()` | when the lease is taken | when the function settles |
+| `postgres:pool:release` | `stop()` | | |
+| `postgres:pool:remove` | `enterClosed()` | | |
+
+Because `route` never settles or activates a request, a pool span's `end` is always published before anything can settle it, and a failing request settles its pool span before its query span (resolving it when the hand-over happened). The COPY hand-out is not a settlement, so a COPY query's span ends at its second resolve. Untraced, a query costs one `hasSubscribers` check in `handle()` and a field read in each of `handler()` (`trace`), `build()` (`trace`), `succeed` and `fail` (`trace`), `assign()` (`pool`) and `activate()` (`pool`), and allocates nothing. A lease adds one check in `lease()` and one read of the connection's process id in `own()`; a connection adds one check per acquisition, and one per release and per close.
+
 ## Test hook
 
 `globalThis[Symbol.for('postgres.js:check')]` is read once when a connection is created. When it is unset, each reporting site costs one falsy check. When it is set, the connection calls `check(kind, connection, a, b)`:

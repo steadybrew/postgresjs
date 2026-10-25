@@ -4,7 +4,7 @@ import { appendFile, cp, mkdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 
 const scenarios = [
-  'diagnostics-channel', 'ssl-verify', 'tls-private-ca', 'pooled', 'no-end',
+  'diagnostics-channel', 'tracing-channels', 'ssl-verify', 'tls-private-ca', 'pooled', 'no-end',
   'abort-neon', 'abort-neon-pooled', 'abort-supabase-pooler', 'abort-hyperdrive', 'abort-hyperdrive-pooled', 'abort-hyperdrive-supabase',
   'hyperdrive', 'hyperdrive-pooled', 'hyperdrive-supabase'
 ]

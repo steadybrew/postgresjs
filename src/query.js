@@ -1,3 +1,5 @@
+import { queryChannel, watched, traceQuery, traceSucceeded, traceFailed } from './tracing.js'
+
 const originCache = new Map()
     , originStackCache = new Map()
     , originError = Symbol('OriginError')
@@ -23,6 +25,7 @@ export function succeed(r, value) {
 
   check && check('requestSettled', r, stageNames[r.stage])
   r.stage = Stage.Settled
+  r.trace && traceSucceeded(r, value)
   r.resolve(value)
 }
 
@@ -32,6 +35,7 @@ export function fail(r, error) {
 
   check && check('requestSettled', r, stageNames[r.stage])
   r.stage = Stage.Settled
+  r.trace && traceFailed(r, error)
   r.reject(error)
 }
 
@@ -64,15 +68,17 @@ export class Query extends Promise {
     this.settled = false
     this.cancelled = null
     this.executed = false
+    this.trace = undefined
+    this.pool = undefined
     this.signature = ''
 
-    this[originError] = this.handler.debug
+    this[originError] = this.handler.options.debug
       ? new Error()
       : this.tagged && cachedError(this.strings)
   }
 
   get origin() {
-    return (this.handler.debug
+    return (this.handler.options.debug
       ? this[originError].stack
       : this.tagged && originStackCache.has(this.strings)
         ? originStackCache.get(this.strings)
@@ -178,8 +184,14 @@ export class Query extends Promise {
     return this
   }
 
-  async handle() {
-    !this.executed && (this.executed = true) && await 1 && (check && check('routed', this), this.handler(this))
+  handle() {
+    if (this.executed)
+      return
+
+    this.executed = true
+    return watched(queryChannel) && this.stage === Stage.New && !this.initialization
+      ? traceQuery(this, dispatch)
+      : dispatch(this)
   }
 
   execute() {
@@ -201,6 +213,12 @@ export class Query extends Promise {
     this.handle()
     return super.finally.apply(this, arguments)
   }
+}
+
+async function dispatch(q) {
+  await 1
+  check && check('routed', q)
+  q.handler(q)
 }
 
 function cachedError(xs) {

@@ -28,6 +28,20 @@ import Queue from './queue.js'
 import { Errors, PostgresError, callback } from './errors.js'
 import Subscribe from './subscribe.js'
 import largeObject from './large.js'
+import {
+  transactionChannel,
+  poolConnectChannel,
+  watched,
+  run,
+  traceAsync,
+  transactionContext,
+  transactionSession,
+  transactionCommitted,
+  poolContext,
+  poolSpan,
+  poolHandover,
+  poolReleased
+} from './tracing.js'
 
 const check = globalThis[Symbol.for('postgres.js:check')]
 const Lease = { Active: 0, Settling: 1, Released: 2, Ended: 3, Closed: 4 }
@@ -95,7 +109,7 @@ function Postgres(a, b) {
   return sql
 
   function Sql(handler) {
-    handler.debug = options.debug
+    handler.options = options
 
     Object.entries(options.types).reduce((acc, [name, type]) => {
       acc[name] = (x) => new Parameter(x, type.to)
@@ -139,7 +153,7 @@ function Postgres(a, b) {
 
     function file(path, args = [], options = {}) {
       arguments.length === 2 && !Array.isArray(args) && (options = args, args = [])
-      const query = new Query([], args, (query) => {
+      const read = query => {
         fs.readFile(path, 'utf8', (err, string) => {
           if (err)
             return fail(query, err)
@@ -147,7 +161,9 @@ function Postgres(a, b) {
           query.strings = [string]
           handler(query)
         })
-      }, cancel, {
+      }
+      read.options = handler.options
+      const query = new Query([], args, read, cancel, {
         ...options,
         simple: 'simple' in options ? options.simple : args.length === 0
       })
@@ -265,7 +281,7 @@ function Postgres(a, b) {
   async function lease(auto) {
     const l = newLease(auto)
     check && check('routed', l)
-    const c = route(l)
+    const c = watched(poolConnectChannel) ? routeTraced(l) : route(l)
     if (c && !(c instanceof Error))
       return (assign(c, l, false), l)
 
@@ -286,6 +302,9 @@ function Postgres(a, b) {
       state: null,
       connection: null,
       error: null,
+      processID: undefined,
+      trace: undefined,
+      pool: undefined,
       onclose: null,
       queue: Queue(),
       auto,
@@ -298,6 +317,7 @@ function Postgres(a, b) {
 
   function own(c, l) {
     l.connection = c
+    l.processID = c.processID
     l.state = Lease.Active
     c.owner = l
     l.next = () => {
@@ -327,14 +347,16 @@ function Postgres(a, b) {
         : Errors.generic('TRANSACTION_ENDED', 'Transaction handle used after its transaction ended')
   }
 
-  function stop(l, state) {
+  function stop(l, state, error) {
     if (l.state === Lease.Released || l.state === Lease.Ended)
       return null
 
+    const lost = l.state === Lease.Closed
     l.state = state
     while (l.queue.length)
       fail(l.queue.shift(), leaseError(l))
 
+    poolReleased(l.processID, lost ? l.error : error)
     const c = l.connection
     if (c.owner !== l)
       return null
@@ -361,9 +383,18 @@ function Postgres(a, b) {
     }
   }
 
-  async function begin(options, fn) {
-    !fn && (fn = options, options = '')
+  function begin(mode, fn) {
+    !fn && (fn = mode, mode = '')
+    if (!watched(transactionChannel))
+      return transact(mode, fn)
+
+    const trace = transactionContext(options, { mode })
+    return traceAsync(transactionChannel, trace, () => transact(mode, fn, trace))
+  }
+
+  async function transact(mode, fn, trace) {
     const l = await lease(true)
+    trace && transactionSession(trace, l.connection.session)
     let savepoints = 0
       , prepare = null
 
@@ -372,7 +403,7 @@ function Postgres(a, b) {
     return await Promise.race([work, closing])
 
     async function transaction() {
-      await Sql(handler).unsafe('begin ' + options.replace(/[^a-z ]/ig, ''), []).execute().catch(e => {
+      await Sql(handler).unsafe('begin ' + mode.replace(/[^a-z ]/ig, ''), []).execute().catch(e => {
         e instanceof PostgresError && release()
         throw e
       })
@@ -385,7 +416,7 @@ function Postgres(a, b) {
       try {
         result = await statement(Sql(q => handler(q, Lease.Settling)))
       } catch (e) {
-        terminate()
+        terminate(e)
         throw e
       }
       release()
@@ -397,8 +428,8 @@ function Postgres(a, b) {
       c && c.release()
     }
 
-    function terminate() {
-      const c = stop(l, Lease.Ended)
+    function terminate(error) {
+      const c = stop(l, Lease.Ended, error)
       c && c.terminate()
     }
 
@@ -410,6 +441,7 @@ function Postgres(a, b) {
           throw Errors.generic('INVALID_TRANSACTION_NAME', 'sql.prepare requires a non-empty string without null bytes')
 
         prepare = 'E\'' + x.replace(/\\/g, '\\\\').replace(/'/g, '\'\'') + '\''
+        trace && (trace.prepared = x)
       }
       let uncaughtError
         , result
@@ -445,6 +477,8 @@ function Postgres(a, b) {
             uncaughtError && { cause: uncaughtError }
           )
         }
+
+        trace && transactionCommitted(trace, prepare === null)
       }
 
       return result
@@ -454,7 +488,10 @@ function Postgres(a, b) {
           return savepoint(sql => sql.apply(sql, arguments))
 
         arguments.length === 1 && (fn = name, name = null)
-        return scope(fn, 's' + savepoints++ + (name ? '_' + name : ''))
+        const id = 's' + savepoints++ + (name ? '_' + name : '')
+        return watched(transactionChannel)
+          ? traceAsync(transactionChannel, transactionContext(options, { savepoint: id, session: l.connection.session }), () => scope(fn, id))
+          : scope(fn, id)
       }
 
       function track(q) {
@@ -491,13 +528,21 @@ function Postgres(a, b) {
   }
 
   function handler(query) {
-    const c = route(query)
+    const c = query.trace && watched(poolConnectChannel)
+      ? routeTraced(query)
+      : route(query)
     if (c === null)
       return
 
     c instanceof Error
       ? fail(query, c)
       : go(c, query)
+  }
+
+  function routeTraced(r) {
+    const context = poolContext(stats())
+    poolSpan(r, context)
+    return run(poolConnectChannel, context, route, r)
   }
 
   function route(r) {
@@ -528,6 +573,7 @@ function Postgres(a, b) {
 
   function assign(c, r, fresh) {
     check && check('handover', r, fresh, c.active + c.pipelined)
+    r.pool && poolHandover(r, c, fresh)
     if (!r.reserve)
       return c.execute(r)
 
