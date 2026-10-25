@@ -138,6 +138,49 @@ An asynchronous result can arrive after the phase or attempt that started it is 
 - **Socket identity.** The message loop in `data()` stops if handling a message replaced the socket. A suspended cursor's continuation checks that both the query and the socket are still current.
 - **The idle timer** belongs to the pool, which starts it when it files a connection in `open` and cancels it on any other move.
 
+## Requests
+
+A request is what the pool routes: a `Query`, or a lease waiting for a connection. A `Query` is also the unit a connection runs. There is no wrapper object, because the tracers read the query itself, so both kinds carry the same fields:
+
+| Field | Query | Lease |
+|---|---|---|
+| `stage` | set in the constructor | set when the lease is created |
+| `resolve`, `reject` | the arrows set in the constructor | from the promise it waits on; no-ops when a connection is handed over at once |
+| `reserve` | absent | `true`, the marker that tells a lease from a query |
+| `queue` | the lease queue it waits in, if any | its own statement queue |
+
+`Stage`, `step`, `succeed` and `fail` are exported from `src/query.js`. `step` writes the stage unless the request is Settled. `succeed` and `fail` settle a request once: they do nothing for a request that is already Settled, and they look `resolve` and `reject` up when called.
+
+| Stage | A query is | A lease is |
+|---|---|---|
+| New | built, not routed | created |
+| Queued | in the pool queue, or in a lease's queue | in the pool queue |
+| Opening | the opener of a connection | the same |
+| Sent | admitted by a connection and waiting for its turn | not used |
+| Active | the connection's current query | not used |
+| Settled | resolved or rejected | handed a connection, or refused |
+
+| From | To | Caused by |
+|---|---|---|
+| New | Queued | `route()` finds no free connection; a lease statement queues behind a full or non-accepting connection |
+| New, Queued | Opening | `connect()` starts an acquisition for it |
+| New, Queued, Opening | Sent or Active | the connection admits it (`submit`): Active when nothing is current, Sent otherwise |
+| Sent | Active | its turn (`pipelined` calls `activate`) |
+| Active | Sent | a stale-plan retry sends it again at the back |
+| any but Settled | Settled | `succeed` or `fail` |
+
+`route(r)` decides where a request goes and does not settle it. It takes a connection (an idle one, or for a plain query a closed slot first and then a busy one; for a lease that may use a busy connection, only when no slot is closed), starts an acquisition, or queues the request, and writes the Queued or Opening stage when it does. It returns the connection to use, `null` when the request now waits, or the refusal error (`CONNECTION_ENDED` while the pool is ending, `COPY_IN_PROGRESS` when every connection holds a COPY). `handler()` and `lease()` commit after it returns: they hand the connection over with `assign`, or settle the request with the refusal. That is the contract: **`route` never settles a request**, and nothing in it can execute or activate one, so everything that can settle or activate synchronously runs after it. Anything that withdraws a waiting request, such as an abort or a pool-wait timeout, belongs next to that commit step or in `cancel()`, not in `route`.
+
+`assign(c, r, fresh)` is the one place a pool request gets a connection. `fresh` is true only for the opener of `c` (`onopen`'s `initial`), and the number of requests already on the connection is read before the request is executed. A lease takes its connection and settles through the same call. Lease statements are not pool requests: `send` and the lease's `next` stay its own dispatcher.
+
+**Early settle while holding the slot.** `describe()`, closing a cursor, a protocol error, `UNSAFE_TRANSACTION` and a build failure settle the request before ReadyForQuery. The connection keeps the query as current until ReadyForQuery, which calls `succeed` or `fail` again and does nothing. The abort statement, `retried` and the barrier are untouched.
+
+**COPY.** `deliver(q, stream)` hands out the stream with a direct `q.resolve(stream)`, then calls `owner.next()`. The request stays Active and is settled at its ReadyForQuery or by `endSession`, so `resolve` runs twice for COPY. dd-trace ends a COPY span on the second call, so folding the hand-out into `succeed` would leave every COPY span open.
+
+**Settled requests are still routed.** A query cancelled before it is awaited, or while `file()` reads its file, is routed when it is awaited: `step` leaves the stage Settled, and the connection skips it (`submit` returns early for a cancelled query without an owner and not at `max: 1`) or, at `max: 1` and on leases, writes the refused statement in its place.
+
+**Errors.** `queryError` decorates an error with the query's details and fails the request. It wraps a thrown non-object in an `Error`, which covers a query that fails while being built or sent. Pool-side failures, a cursor callback that throws and the queries rejected after a failed reconnect while ending are raw, and `fail` wraps nothing.
+
 ## Leases
 
 `reserve()` and `begin()` take a connection out of the pool through a lease. The lease's state says what the handle is doing now.
@@ -182,15 +225,15 @@ Each connection sits in exactly one pool queue, and the queue it is in must be o
 | Owned, statement in flight | `full`; `reserved` while a COPY is running, once the server has opened its stream |
 | Draining or Closing, unowned | `ended` |
 
-**Admission.** Replies are matched to queries by position, so nothing may be written while the server is partway through an exchange. The connection records the one query nothing may be written behind, its barrier: a statement that asks for its parameter types first (one with a value whose type is not known; with `parameter_types: 'client'`, one with an untyped array), a named statement's first run on a connection when it has values (so identical queries pipelined behind it reuse the statement instead of each preparing their own; a first run without values holds nothing, as in Postgres.js, because a round trip on every first run costs more than the duplicate statements a burst of identical queries leaves open until the connection closes; a prepared re-run that hits a stale-plan error is retried only when nothing is held behind it, so with `prepare: true` a re-run with an unrelated first run pipelined behind it rejects instead of retrying, once per statement per connection), a cursor, or a simple query whose text contains the word `copy`, set when it is written and cleared at its ReadyForQuery (and in `endSession`). `connection.accepting` is true when the connection is idle, or has no barrier and room under `max_pipeline`, and `execute()` returns false when the connection stops accepting or the socket needs draining (and true after the COPY guard rejects a statement). The pool reads it: `handler()` takes a `busy` connection only if it accepts and files the others in `full`, and a lease sends only to a connection that accepts, otherwise queues the statement and files the connection in `full`. A barrier is always the last query in the line, so it lifts when the connection goes idle, and the existing `onopen` and `owner.next()` calls are the signal that it accepts again. A retry after a plan-invalidation error is made only when no barrier is queued behind the failing statement; otherwise the statement rejects with its plan error.
+**Admission.** Replies are matched to queries by position, so nothing may be written while the server is partway through an exchange. The connection records the one query nothing may be written behind, its barrier: a statement that asks for its parameter types first (one with a value whose type is not known; with `parameter_types: 'client'`, one with an untyped array), a named statement's first run on a connection when it has values (so identical queries pipelined behind it reuse the statement instead of each preparing their own; a first run without values holds nothing, as in Postgres.js, because a round trip on every first run costs more than the duplicate statements a burst of identical queries leaves open until the connection closes; a prepared re-run that hits a stale-plan error is retried only when nothing is held behind it, so with `prepare: true` a re-run with an unrelated first run pipelined behind it rejects instead of retrying, once per statement per connection), a cursor, or a simple query whose text contains the word `copy`, set when it is written and cleared at its ReadyForQuery (and in `endSession`). `connection.accepting` is true when the connection is idle, or has no barrier and room under `max_pipeline`, and `execute()` returns false when the connection stops accepting or the socket needs draining (and true after the COPY guard rejects a statement). The pool reads it: `route()` takes a `busy` connection only if it accepts and files the others in `full`, and a lease sends only to a connection that accepts, otherwise queues the statement and files the connection in `full`. A barrier is always the last query in the line, so it lifts when the connection goes idle, and the existing `onopen` and `owner.next()` calls are the signal that it accepts again. A retry after a plan-invalidation error is made only when no barrier is queued behind the failing statement; otherwise the statement rejects with its plan error.
 
-COPY is recognised from the text because the client cannot know a simple query is a COPY until the server answers. A false positive only stops pipelining behind that query. When the server opens a COPY stream the connection calls `owner.next()`, so statements a lease queued before that are rejected with `COPY_IN_PROGRESS`, as are statements sent while the stream is open. Queries sent through the pool never go to a connection with a COPY in flight. When every connection has an open COPY stream whose writable has not been ended (`connection.copyHeld`), `handler()` and `lease()` reject with `COPY_IN_PROGRESS` instead of queueing, since only that COPY finishing could free a connection; work already queued keeps waiting. `release()` of a handle whose connection is partway through an exchange files it in `full` instead of handing it pool queries; the next ReadyForQuery picks it up.
+COPY is recognised from the text because the client cannot know a simple query is a COPY until the server answers. A false positive only stops pipelining behind that query. When the server opens a COPY stream the connection calls `owner.next()`, so statements a lease queued before that are rejected with `COPY_IN_PROGRESS`, as are statements sent while the stream is open. Queries sent through the pool never go to a connection with a COPY in flight. When every connection has an open COPY stream whose writable has not been ended (`connection.copyHeld`), `route()` refuses with `COPY_IN_PROGRESS` instead of queueing, since only that COPY finishing could free a connection; work already queued keeps waiting. `release()` of a handle whose connection is partway through an exchange files it in `full` instead of handing it pool queries; the next ReadyForQuery picks it up.
 
 The connection drives its own queue through four callbacks:
 
 | Callback | When | The pool |
 |---|---|---|
-| `onopen(c, request)` | hand-off; a ReadyForQuery with nothing pipelined and no owner; a released lease; socket `drain` | hands `c` to a waiting reservation, files it in `open`, or runs the request and up to its share of queued queries and files it `busy` or `full` |
+| `onopen(c, request, draining)` | hand-off; a ReadyForQuery with nothing pipelined and no owner; a released lease; socket `drain` | hands `c` to a waiting reservation, files it in `open`, or runs the request and up to its share of queued queries and files it `busy` or `full`. With `draining` set, the request is the opener of a connection that was told to end while opening: it is handed over fresh and nothing else happens, so the connection is not moved and takes no queued queries |
 | `onend(c)` | the connection starts ending | files it in `ended` |
 | `ondrain(c)` | a Draining connection has gone idle | if the pool is ending, runs queued plain queries on it (rejecting queued reservations with `CONNECTION_ENDED`) and keeps it Draining; otherwise lets it close |
 | `onclose(c, err)` | `enterClosed` | files it in `closed`, marks its lease Closed, and either starts the next queued request on it or, while ending, handles the queue as described below |
@@ -210,6 +253,7 @@ The connection drives its own queue through four callbacks:
 
 **Cancel.**
 
+- **Stages:** a cancel before the query is sent settles it (`fail`, stage Settled) whatever its stage was; a Sent query is only marked and keeps its stage until its own response; the current query is Active until its response.
 - **A query not yet written:** rejected with 57014 at once. If it belongs to a lease, or the pool has `max: 1`, it stays in its queue, and when it reaches the connection the connection writes the refused statement from a failed build in its place, so an open transaction fails. Otherwise it is removed from the pool queue, or skipped if it reaches a connection.
 - **A query pipelined behind another:** marked, and its CancelRequest is sent once it becomes the current query. It is settled by its own response.
 - **The current query:** the CancelRequest is sent at once.
@@ -226,6 +270,17 @@ The connection drives its own queue through four callbacks:
 | `edge` | every transition | the edge is in `edges` |
 | `unhandled` | `dispatch` found no entry | always a violation |
 | `settled` | after each outermost `dispatch` | the connection's queue is one its phase and owner allow |
+
+`src/query.js` and `src/index.js` read the hook once when they load and report requests with the request as the second argument:
+
+| Kind | Reported | Checked by `tests-startup/invariants.js` |
+|---|---|---|
+| `routed` | a query starts being handled, or a lease is created | records an unsettled request for a final check; a scenario fails if one never settles |
+| `step` | a request changes stage | the edge is one of the request edges above |
+| `requestSettled` | `succeed` or `fail` settles a request | the stage it settles from allows Settled |
+| `handover` | `assign` gives a request a connection, with whether it was fresh and how many requests were already on the connection | a request is handed over once, and fresh exactly when it was Opening |
+
+The checker keeps the hand-overs in `handovers` for scenarios that assert them.
 
 With the hook set, `connection[Symbol.for('postgres.js:phase')]` returns the phase name. Every scenario in `tests-startup` installs the hook and fails if any violation was recorded.
 
@@ -245,3 +300,7 @@ To check a test against upstream, copy the tree, replace `src/` with `git show 4
 1. `cancelRequest` always dials the first host and port, which is wrong after a multi-host failover has moved the session to another host.
 2. `onopen` takes a share of queued queries as `ceil(queries / (connecting + 1))` while the handed-off connection is still counted in `connecting`, so it counts itself twice. The formula comes from upstream.
 3. A function-valued `idle_timeout` or `max_lifetime` is evaluated once per connection, not once per session.
+4. A query cancelled before it is awaited is still routed when it is awaited. With several connections it can open a closed slot for nothing or be skipped by `submit`, and at `max: 1` it writes the refused statement.
+5. `go()` files an idle connection `busy` after `submit` skipped a cancelled query, so a connection with nothing on it counts as busy until the next query.
+6. `cancel()` on a `for await` cursor after the loop ended returns a promise that never settles, because the cursor arrows never set `settled` and the query is no longer in any line.
+7. `sql.end({ timeout: 0 })` can resolve before the listen pool's own destroy timer has fired, so the listen pool's re-listen query settles after `end()` returned.
