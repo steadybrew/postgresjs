@@ -48,7 +48,7 @@ async function test(o, name, options, fn) {
       }
 
       tests[id].succeeded = true
-      process.stdout.write('✅')
+      console.log('PASSED', name)
     })
     .catch(err => {
       tests[id].failed = failed = true
@@ -72,6 +72,7 @@ function exit() {
         ? 'failed'
         : 'never finished', x.error ? '\n' + util.inspect(x.error) : ''
       )
+    return true
   })
 
   only
