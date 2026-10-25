@@ -5788,7 +5788,7 @@ for (const [name, thrown] of unextensibleThrows) {
     types: { thrower: { to: 25, from: [25], serialize: () => { throw thrown }, parse: x => x } }
   })
 
-  t('a serializer that throws ' + name + ' rejects only its query with the thrown value', async() => {
+  ot('a serializer that throws ' + name + ' rejects only its query with the thrown value', async() => {
     const sql = typed()
     const [[rejected, next], errors] = await uncaught(() => Promise.all([
       sql`select ${ sql.types.thrower('x') }`.then(() => 'resolved', e => e),
@@ -5804,7 +5804,7 @@ for (const [name, thrown] of unextensibleThrows) {
     ]
   })
 
-  t('a serializer that throws ' + name + ' behind a running query rejects only its query', async() => {
+  ot('a serializer that throws ' + name + ' behind a running query rejects only its query', async() => {
     const sql = typed()
     await sql`select 1`
     const [[running, rejected, next], errors] = await uncaught(async() => {

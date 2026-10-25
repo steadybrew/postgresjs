@@ -31,9 +31,7 @@ async function test(o, name, options, fn) {
     new Promise((resolve, reject) =>
       fn.timer = setTimeout(() => reject('Timed out'), (options.timeout || t.timeout) * 1000)
     ),
-    failed
-      ? (ignored++, ignore)
-      : fn()
+    fn()
   ]))
     .then(async x => {
       clearTimeout(fn.timer)
