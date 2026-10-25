@@ -5834,7 +5834,9 @@ const pinned = {
   copyIn: { resolve: 2, reject: 0 },
   unsafeTransaction: { resolve: 1, reject: 1 },
   cancelledBeforeAwaitedAtMax1: { resolve: 0, reject: 3 },
-  cancelledBeforeAwaitedAtMax2: { resolve: 0, reject: 1 }
+  cancelledBeforeAwaitedAtMax2: { resolve: 0, reject: 1 },
+  cancelledInReservedQueue: { resolve: 0, reject: 3 },
+  cancelledInTransactionQueue: { resolve: 0, reject: 3 }
 }
 
 function counted(query) {
@@ -5980,4 +5982,54 @@ t('a pool closed while its first query is connecting runs that query and reopens
     JSON.stringify([1, 2]),
     JSON.stringify([ran, next])
   ]
+})
+
+t('a query cancelled in the queue of a reserved connection settles once', { timeout: 10 }, async() => {
+  const sql = postgres({ ...options, max: 1, max_pipeline: 0 })
+  const reserved = await sql.reserve()
+  const running = reserved`select pg_sleep(0.1)`.execute()
+  const doomed = reserved`select 2 as x`
+  const calls = counted(doomed)
+  doomed.execute()
+  await new Promise(setImmediate)
+  await doomed.cancel()
+  const code = await doomed.then(() => 'resolved', e => e.code)
+  await running
+  const next = (await reserved`select 3 as x`)[0].x
+  reserved.release()
+  await sql.end()
+
+  return [
+    JSON.stringify([pinned.cancelledInReservedQueue, '57014', 3]),
+    JSON.stringify([calls, code, next])
+  ]
+})
+
+t('a query cancelled in the queue of a transaction settles once', { timeout: 10 }, async() => {
+  const sql = postgres({ ...options, max: 1, max_pipeline: 0 })
+  let calls
+  const code = await sql.begin(async tx => {
+    const running = tx`select pg_sleep(0.1)`.execute()
+    const doomed = tx`select 2 as x`
+    calls = counted(doomed)
+    doomed.execute()
+    await new Promise(setImmediate)
+    await doomed.cancel()
+    await running
+  }).then(() => 'resolved', e => e.code)
+  await sql.end()
+
+  return [
+    JSON.stringify([pinned.cancelledInTransactionQueue, '57014']),
+    JSON.stringify([calls, code])
+  ]
+})
+
+t('a cursor whose callback throws a string rejects with that string', async() => {
+  const sql = postgres({ ...options, max: 1 })
+  const thrown = 'boom'
+  const rejected = await sql`select generate_series(1, 3) as x`.cursor(1, () => { throw thrown }).then(() => 'resolved', e => e)
+  await sql.end()
+
+  return [thrown, rejected]
 })
