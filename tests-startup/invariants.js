@@ -20,7 +20,25 @@ const edges = {
   Closing: ['Closed']
 }
 
+const requestEdges = {
+  New: ['Queued', 'Opening', 'Sent', 'Active', 'Settled'],
+  Queued: ['Opening', 'Sent', 'Active', 'Settled'],
+  Opening: ['Sent', 'Active', 'Settled'],
+  Sent: ['Active', 'Settled'],
+  Active: ['Sent', 'Settled']
+}
+
 export const violations = []
+
+const routed = new Set()
+const handed = new Set()
+
+export const handovers = []
+export const seen = []
+export const history = new WeakMap()
+
+const visit = (request, stage) => (history.get(request) || history.set(request, ['New']).get(request)).push(stage)
+const stages = ['New', 'Queued', 'Opening', 'Sent', 'Active', 'Settled']
 
 const connections = []
 const phase = c => c[Symbol.for('postgres.js:phase')]
@@ -38,6 +56,25 @@ export function install() {
     if (kind === 'created')
       return a.closed && connections.push([c, a])
 
+    if (kind === 'routed')
+      return seen.push(c), stages[c.stage] === 'Settled' || routed.add(c)
+
+    if (kind === 'requestSettled') {
+      routed.delete(c)
+      visit(c, 'Settled')
+      return requestEdges[a].includes('Settled') || violations.push('illegal request edge ' + a + ' -> Settled at ' + where())
+    }
+
+    if (kind === 'handover') {
+      handed.has(c) && violations.push('request handed over twice at ' + where())
+      handed.add(c)
+      handovers.push({ request: c, fresh: a, behind: b })
+      return (stages[c.stage] === 'Opening') === a || violations.push('hand-over fresh=' + a + ' for stage ' + c.stage + ' at ' + where())
+    }
+
+    if (kind === 'step')
+      return visit(c, b), requestEdges[a].includes(b) || violations.push('illegal request edge ' + a + ' -> ' + b + ' at ' + where())
+
     if (kind === 'unhandled')
       return violations.push('unhandled ' + b + ' in ' + a + ' at ' + where())
 
@@ -48,8 +85,11 @@ export function install() {
   }
 }
 
+const describe = q => [(q.strings || []).join('?'), q.executed, !!q.state, !!q.queue, q.cancelled].join(' ')
+
 export function verify() {
   connections.forEach(([c, queues]) => inspect(c, queues))
+  routed.size && violations.push(routed.size + ' routed request(s) never settled: ' + [...routed].map(describe).join('; '))
   if (violations.length)
     throw new Error('Invariant violated: ' + violations.join('; '))
 }

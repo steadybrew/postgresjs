@@ -10,7 +10,7 @@ import Result from './result.js'
 import Queue from './queue.js'
 import clampedTimeout from './timeout.js'
 import { SSLRequest, tlsConfig, cancelRequest } from './transport.js'
-import { Query, CLOSE } from './query.js'
+import { Query, CLOSE, Stage, step, succeed, fail } from './query.js'
 import b from './bytes.js'
 
 export { Connection }
@@ -245,7 +245,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     get accepting() { return accepting() },
     get copying() { return stream !== null },
     get copyHeld() { return stream !== null && !stream.writableEnded },
-    get acquiring() { return acquisition && !acquisition.owner.cancelled ? 1 : 0 },
+    get acquiring() { return acquisition && acquisition.owner.stage !== Stage.Settled ? 1 : 0 },
     count: 0,
     id
   }
@@ -524,13 +524,13 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     lifeTimer.start()
 
     if (ending) {
-      if (owner.cancelled)
+      if (owner.stage === Stage.Settled)
         return closing()
       transition(Phase.Draining)
-      return execute(owner)
+      return onopen(connection, owner, true)
     }
 
-    onopen(connection, owner.cancelled ? undefined : owner)
+    onopen(connection, owner.stage === Stage.Settled ? undefined : owner)
   }
 
   function execute(q) {
@@ -551,8 +551,8 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     try {
       q.state = backend
       query
-        ? sent.push(q)
-        : (query = q, query.active = true)
+        ? (step(q, Stage.Sent), sent.push(q))
+        : activate(q)
 
       if (q.cancelled) {
         q.cancelled = null
@@ -720,7 +720,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
 
   function queryError(query, err) {
     if (query.reserve)
-      return query.reject(err)
+      return fail(query, err)
 
     if (!err || typeof err !== 'object')
       err = new Error(typeof err === 'symbol' ? String(err) : err)
@@ -732,7 +732,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
       args: { value: query.args, enumerable: options.debug },
       types: { value: query.statement && query.statement.types, enumerable: options.debug }
     }).forEach(([key, descriptor]) => Reflect.defineProperty(err, key, descriptor))
-    query.reject(err)
+    fail(query, err)
   }
 
   function endAcquisition(err) {
@@ -837,7 +837,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
             : errored(errorResponse)
       } else {
         query.initialization && query.initialization(results || result)
-        query.resolve(results || result)
+        succeed(query, results || result)
       }
     } else if (errorResponse) {
       errored(errorResponse)
@@ -851,13 +851,16 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
   }
 
   function pipelined() {
-    query = sent.length ? sent.shift() : null
-    if (query) {
-      query.active = true
-      query.cancelled && cancelRequest(options, query.state).then(query.cancelled.resolve, query.cancelled.reject)
-    }
+    query = null
+    return sent.length ? activate(sent.shift()) : null
+  }
 
-    return query
+  function activate(q) {
+    query = q
+    step(q, Stage.Active)
+    q.active = true
+    q.cancelled && q.cancelled.resolve && cancelRequest(options, q.state).then(q.cancelled.resolve, q.cancelled.reject)
+    return q
   }
 
   function initialized() {
@@ -907,6 +910,9 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
   }
 
   function BindComplete() {
+    if (!query.statement)
+      return
+
     !result.statement && (result.statement = query.statement)
     result.columns = query.statement.columns
   }
@@ -955,7 +961,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
 
     result.statement = query.statement
     if (query.onlyDescribe)
-      return (query.resolve(query.statement), write(Sync))
+      return (succeed(query, query.statement), write(Sync))
   }
 
   function Authentication(x, type = x.readUInt32BE(5)) {
@@ -1049,7 +1055,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     result.statement = query.statement
     result.statement.columns = []
     if (query.onlyDescribe)
-      return (query.resolve(query.statement), write(Sync))
+      return (succeed(query, query.statement), write(Sync))
   }
 
   function BackendKeyData(x) {
@@ -1140,13 +1146,13 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
         : (result = new Result(), write(Execute('', current.cursorRows)))
     } catch (err) {
       query === current && socket === source && write(Sync)
-      current.reject(err)
+      fail(current, err)
     }
   }
 
   function CloseComplete() {
     result.count && query.cursorFn(result)
-    query.resolve(result)
+    succeed(query, result)
   }
 
   function CopyInResponse() {
@@ -1166,16 +1172,14 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
         stream = null
       }
     })
-    query.resolve(stream)
-    connection.owner && connection.owner.next()
+    deliver(query, stream)
   }
 
   function CopyOutResponse() {
     stream = new Stream.Readable({
       read() { copyPaused = false; socket.resume() }
     })
-    query.resolve(stream)
-    connection.owner && connection.owner.next()
+    deliver(query, stream)
   }
 
   /* c8 ignore next 3 */
@@ -1197,7 +1201,11 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
         final = callback
       }
     })
-    query.resolve(stream)
+    deliver(query, stream)
+  }
+
+  function deliver(q, value) {
+    q.resolve(value)
     connection.owner && connection.owner.next()
   }
 

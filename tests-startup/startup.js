@@ -523,6 +523,7 @@ export async function phases(name, postgres, onEvent) {
       await sleep(500)
       assert(calls - before < 20, 'Factory called ' + (calls - before) + ' times in 500 ms')
       await sql.end({ timeout: 0 })
+      await until(() => sql.stats().listenCount === 0)
     } else if (name === 'fin-inflight' || name === 'rst-inflight') {
       const sql = make({ connect_timeout: 2 })
       await marker(sql)

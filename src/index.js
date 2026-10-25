@@ -23,13 +23,15 @@ import {
 import { Connection, defaultBackoff } from './connection.js'
 import { cancelRequest } from './transport.js'
 import clampedTimeout from './timeout.js'
-import { Query, CLOSE } from './query.js'
+import { Query, CLOSE, Stage, step, succeed, fail } from './query.js'
 import Queue from './queue.js'
 import { Errors, PostgresError, callback } from './errors.js'
 import Subscribe from './subscribe.js'
 import largeObject from './large.js'
 
+const check = globalThis[Symbol.for('postgres.js:check')]
 const Lease = { Active: 0, Settling: 1, Released: 2, Ended: 3, Closed: 4 }
+const noop = () => { /* noop */ }
 
 Object.assign(Postgres, {
   PostgresError,
@@ -140,7 +142,7 @@ function Postgres(a, b) {
       const query = new Query([], args, (query) => {
         fs.readFile(path, 'utf8', (err, string) => {
           if (err)
-            return query.reject(err)
+            return fail(query, err)
 
           query.strings = [string]
           handler(query)
@@ -261,23 +263,36 @@ function Postgres(a, b) {
   }
 
   async function lease(auto) {
-    if (ending)
-      throw Errors.connection('CONNECTION_ENDED', options)
+    const l = newLease(auto)
+    check && check('routed', l)
+    const c = route(l)
+    if (c && !(c instanceof Error))
+      return (assign(c, l, false), l)
 
-    const l = { state: null, connection: null, error: null, onclose: null, queue: Queue() }
-    const idle = takeOpen()
-    idle
-      ? own(idle, l)
-      : auto && !closed.length && busy.length
-        ? own(busy.shift(), l)
-        : await new Promise((resolve, reject) => {
-          const query = { reserve: c => resolve(own(c, l)), reject }
-          closed.length
-            ? connect(closed.shift(), query)
-            : allHeldByCopy()
-              ? reject(copyInProgress())
-              : queries.push(query)
-        })
+    if (ending)
+      throw (fail(l, c), c)
+
+    await new Promise((resolve, reject) => {
+      l.resolve = resolve
+      l.reject = reject
+      c && fail(l, c)
+    })
+    return l
+  }
+
+  function newLease(auto) {
+    const l = {
+      stage: Stage.New,
+      state: null,
+      connection: null,
+      error: null,
+      onclose: null,
+      queue: Queue(),
+      auto,
+      resolve: noop,
+      reject: noop,
+      reserve: true
+    }
     return l
   }
 
@@ -300,8 +315,8 @@ function Postgres(a, b) {
     l.state === expected
       ? c.copying || (c.queue !== full && c.accepting)
         ? c.execute(q) || move(c, full)
-        : (move(c, full), q.queue = l.queue, l.queue.push(q))
-      : q.reject(leaseError(l))
+        : (move(c, full), step(q, Stage.Queued), q.queue = l.queue, l.queue.push(q))
+      : fail(q, leaseError(l))
   }
 
   function leaseError(l) {
@@ -318,7 +333,7 @@ function Postgres(a, b) {
 
     l.state = state
     while (l.queue.length)
-      l.queue.shift().reject(leaseError(l))
+      fail(l.queue.shift(), leaseError(l))
 
     const c = l.connection
     if (c.owner !== l)
@@ -476,22 +491,48 @@ function Postgres(a, b) {
   }
 
   function handler(query) {
+    const c = route(query)
+    if (c === null)
+      return
+
+    c instanceof Error
+      ? fail(query, c)
+      : go(c, query)
+  }
+
+  function route(r) {
     if (ending)
-      return query.reject(Errors.connection('CONNECTION_ENDED', options, options))
+      return Errors.connection('CONNECTION_ENDED', options, options)
 
     const idle = takeOpen()
     if (idle)
-      return go(idle, query)
+      return idle
+
+    if (r.reserve && r.auto && !closed.length && busy.length)
+      return busy.shift()
 
     if (closed.length)
-      return connect(closed.shift(), query)
+      return (connect(closed.shift(), r), null)
 
-    const c = takeBusy()
-    c
-      ? go(c, query)
-      : allHeldByCopy()
-        ? query.reject(copyInProgress())
-        : queries.push(query)
+    const c = r.reserve ? null : takeBusy()
+    if (c)
+      return c
+
+    if (allHeldByCopy())
+      return copyInProgress()
+
+    step(r, Stage.Queued)
+    queries.push(r)
+    return null
+  }
+
+  function assign(c, r, fresh) {
+    check && check('handover', r, fresh, c.active + c.pipelined)
+    if (!r.reserve)
+      return c.execute(r)
+
+    own(c, r)
+    succeed(r, r)
   }
 
   function allHeldByCopy() {
@@ -527,7 +568,7 @@ function Postgres(a, b) {
   }
 
   function go(c, query) {
-    return c.execute(query)
+    return assign(c, query, false)
       ? move(c, busy)
       : move(c, full)
   }
@@ -542,7 +583,7 @@ function Postgres(a, b) {
       } else {
         query.queue || options.max === 1 || queries.remove(query)
         query.cancelled = true
-        query.reject(Errors.generic('57014', 'canceling statement due to user request'))
+        fail(query, Errors.generic('57014', 'canceling statement due to user request'))
         resolve()
       }
     })
@@ -560,7 +601,7 @@ function Postgres(a, b) {
     ])).then(() => {
       clearTimeout(timer)
       while (queries.length)
-        queries.shift().reject(Errors.connection('CONNECTION_CLOSED', options))
+        fail(queries.shift(), Errors.connection('CONNECTION_CLOSED', options))
     })
   }
 
@@ -579,14 +620,15 @@ function Postgres(a, b) {
 
   async function destroy(resolve) {
     while (queries.length)
-      queries.shift().reject(Errors.connection('CONNECTION_DESTROYED', options))
+      fail(queries.shift(), Errors.connection('CONNECTION_DESTROYED', options))
     await Promise.all(connections.map(c => c.terminate()))
     resolve()
   }
 
-  function connect(c, query) {
+  function connect(c, r) {
+    step(r, Stage.Opening)
     move(c, connecting)
-    c.connect(query)
+    c.connect(r)
     return c
   }
 
@@ -594,9 +636,9 @@ function Postgres(a, b) {
     move(c, ended)
   }
 
-  function onopen(c, initial) {
-    if (initial && initial.reserve)
-      return initial.reserve(c)
+  function onopen(c, initial, draining) {
+    if (draining || initial && initial.reserve)
+      return assign(c, initial, true)
 
     if (!initial && !c.accepting)
       return move(c, full)
@@ -605,14 +647,14 @@ function Postgres(a, b) {
       return move(c, open)
 
     let max = Math.ceil(queries.length / (connecting.length + 1))
-      , ready = !initial || c.execute(initial)
+      , ready = !initial || assign(c, initial, true)
 
     while (ready && queries.length && max-- > 0) {
       const query = queries.shift()
       if (query.reserve)
-        return query.reserve(c)
+        return assign(c, query, false)
 
-      ready = c.execute(query)
+      ready = assign(c, query, false)
     }
 
     ready
@@ -629,8 +671,8 @@ function Postgres(a, b) {
     while (ready && queries.length) {
       const query = queries.shift()
       query.reserve
-        ? query.reject(Errors.connection('CONNECTION_ENDED', options))
-        : (drained = true, ready = c.execute(query))
+        ? fail(query, Errors.connection('CONNECTION_ENDED', options))
+        : (drained = true, ready = assign(c, query, false))
     }
     drained && move(c, ended)
     return drained
@@ -644,7 +686,7 @@ function Postgres(a, b) {
       l.error = e || Errors.connection('CONNECTION_CLOSED', options)
       c.owner = null
       while (l.queue.length)
-        l.queue.shift().reject(Errors.connection('CONNECTION_CLOSED', options))
+        fail(l.queue.shift(), Errors.connection('CONNECTION_CLOSED', options))
 
       l.onclose && l.onclose(l.error)
     }
@@ -664,9 +706,9 @@ function Postgres(a, b) {
     while (queries.length) {
       const query = queries.shift()
       if (query.reserve) {
-        query.reject(Errors.connection('CONNECTION_ENDED', options))
+        fail(query, Errors.connection('CONNECTION_ENDED', options))
       } else if (reconnectFailed) {
-        query.reject(e === undefined ? Errors.connection('CONNECTION_CLOSED', options) : e)
+        fail(query, e === undefined ? Errors.connection('CONNECTION_CLOSED', options) : e)
       } else {
         reconnecting = c
         connect(c, query)

@@ -3,6 +3,38 @@ const originCache = new Map()
     , originError = Symbol('OriginError')
 
 export const CLOSE = {}
+export const Stage = { New: 0, Queued: 1, Opening: 2, Sent: 3, Active: 4, Settled: 5 }
+
+const check = globalThis[Symbol.for('postgres.js:check')]
+const stageNames = Object.keys(Stage)
+
+export function step(r, next) {
+  const from = r.stage
+  if (from === Stage.Settled)
+    return
+
+  check && check('step', r, stageNames[from], stageNames[next])
+  r.stage = next
+}
+
+export function succeed(r, value) {
+  if (r.stage === Stage.Settled)
+    return
+
+  check && check('requestSettled', r, stageNames[r.stage])
+  r.stage = Stage.Settled
+  r.resolve(value)
+}
+
+export function fail(r, error) {
+  if (r.stage === Stage.Settled)
+    return
+
+  check && check('requestSettled', r, stageNames[r.stage])
+  r.stage = Stage.Settled
+  r.reject(error)
+}
+
 export class Query extends Promise {
   constructor(strings, args, handler, canceller, options = {}) {
     let resolve
@@ -22,6 +54,7 @@ export class Query extends Promise {
 
     this.state = null
     this.statement = null
+    this.stage = Stage.New
 
     // dd-trace's load-time rewrite only accepts single-expression arrows here
     this.resolve = x => (this.active = false, this.settled = true, resolve(x))
@@ -146,7 +179,7 @@ export class Query extends Promise {
   }
 
   async handle() {
-    !this.executed && (this.executed = true) && await 1 && this.handler(this)
+    !this.executed && (this.executed = true) && await 1 && (check && check('routed', this), this.handler(this))
   }
 
   execute() {

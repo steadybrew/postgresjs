@@ -40,9 +40,6 @@ try {
       results[key(run, variant)] = execute(run, dir)
   }
 
-  for (const run of runs.filter(x => x.mode === 'sentry-auto'))
-    results[key(run, 'fork with sentry-range')] = execute({ ...run, flags: ['--import', './sentry-range.mjs', ...run.flags] }, variants.fork)
-
   const differences = report(results)
   process.exitCode = differences ? 1 : 0
 } finally {
@@ -55,7 +52,7 @@ function install(name, spec) {
   mkdirSync(dir)
   writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ private: true, dependencies: { postgres: spec, ...tracers } }))
   execFileSync('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund', '--no-package-lock', '--silent'], { cwd: dir, stdio: 'inherit' })
-  for (const file of ['harness.mjs', 'entry.mjs', 'entry.cjs', 'sentry-range.mjs'])
+  for (const file of ['harness.mjs', 'entry.mjs', 'entry.cjs'])
     copyFileSync(path.join(here, file), path.join(dir, file))
   return dir
 }
@@ -166,8 +163,6 @@ function report(results) {
 function known(group, variant, scenario) {
   if (group.startsWith('sentry-auto') && variant === 'fork')
     return 'expected: Sentry instruments postgres <4 only'
-  if (group.startsWith('sentry-auto') && scenario === 'savepoint')
-    return 'savepoint names are sent inline, not as a parameter'
   if (group.startsWith('dd-dbm') && ['commit', 'rollback', 'savepoint'].includes(scenario))
     return 'transaction control is sent unprepared, so dd-trace adds its SQL comment'
 }

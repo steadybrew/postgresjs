@@ -6,6 +6,7 @@ import fs from 'fs'
 import crypto from 'crypto'
 
 import postgres from '../src/index.js'
+import { Stage } from '../src/query.js'
 import { vercelPool } from '../src/vercel.js'
 const delay = ms => new Promise(r => setTimeout(r, ms))
 
@@ -5832,11 +5833,26 @@ for (const [name, thrown] of unextensibleThrows) {
 const pinned = {
   copyOut: { resolve: 2, reject: 0 },
   copyIn: { resolve: 2, reject: 0 },
-  unsafeTransaction: { resolve: 1, reject: 1 },
-  cancelledBeforeAwaitedAtMax1: { resolve: 0, reject: 3 },
+  unsafeTransaction: { resolve: 0, reject: 1 },
+  cancelledBeforeAwaitedAtMax1: { resolve: 0, reject: 1 },
   cancelledBeforeAwaitedAtMax2: { resolve: 0, reject: 1 },
-  cancelledInReservedQueue: { resolve: 0, reject: 3 },
-  cancelledInTransactionQueue: { resolve: 0, reject: 3 }
+  describe: { resolve: 1, reject: 0 },
+  cursorCallback: { resolve: 1, reject: 0 },
+  cursorClosed: { resolve: 1, reject: 0 },
+  cursorCallbackThrows: { resolve: 0, reject: 1 },
+  cursorServerError: { resolve: 0, reject: 1 },
+  forEach: { resolve: 1, reject: 0 },
+  simple: { resolve: 1, reject: 0 },
+  unsafe: { resolve: 1, reject: 0 },
+  file: { resolve: 1, reject: 0 },
+  pipelined: { resolve: 1, reject: 0 },
+  reserved: { resolve: 1, reject: 0 },
+  retried: { resolve: 1, reject: 0 },
+  buildFailureIdle: { resolve: 0, reject: 1 },
+  buildFailureBehind: { resolve: 0, reject: 1 },
+  cancelledInReservedQueue: { resolve: 0, reject: 1 },
+  cancelledInTransactionQueue: { resolve: 0, reject: 1 },
+  poolEnding: { resolve: 0, reject: 1 }
 }
 
 function counted(query) {
@@ -5984,6 +6000,133 @@ t('a pool closed while its first query is connecting runs that query and reopens
   ]
 })
 
+const settledOnce = async(name, make, run = q => q) => {
+  const sql = postgres({ ...options, max: 1 })
+  const query = make(sql)
+  const calls = counted(query)
+  await run(query).then(() => 'resolved', e => e.code || e.message)
+  await sql`select 1`
+  await sql.end()
+  return [JSON.stringify(pinned[name]), JSON.stringify(calls)]
+}
+
+t('a described query settles once', async() =>
+  settledOnce('describe', sql => sql`select ${ 1 }::int as x`.describe())
+)
+
+t('a cursor with a callback settles once', async() =>
+  settledOnce('cursorCallback', sql => sql`select generate_series(1, 3) as x`, q => q.cursor(2, noop))
+)
+
+t('a cursor with a callback that closes it settles once', async() =>
+  settledOnce('cursorClosed', sql => sql`select generate_series(1, 3) as x`, q => q.cursor(1, () => sql.CLOSE))
+)
+
+t('a cursor whose callback throws settles once', async() =>
+  settledOnce('cursorCallbackThrows', sql => sql`select generate_series(1, 3) as x`, q => q.cursor(1, () => { throw new Error('boom') }))
+)
+
+t('a cursor whose callback throws a string rejects with that string', async() => {
+  const sql = postgres({ ...options, max: 1 })
+  const thrown = 'boom'
+  const rejected = await sql`select generate_series(1, 3) as x`.cursor(1, () => { throw thrown }).then(() => 'resolved', e => e)
+  await sql.end()
+
+  return [thrown, rejected]
+})
+
+t('a cursor that meets a server error settles once', async() =>
+  settledOnce('cursorServerError', sql => sql`select 1 / (x - 2) as y from generate_series(1, 3) x`, q => q.cursor(1, noop))
+)
+
+t('forEach settles once', async() =>
+  settledOnce('forEach', sql => sql`select generate_series(1, 3) as x`, q => q.forEach(noop))
+)
+
+t('a simple query settles once', async() =>
+  settledOnce('simple', sql => sql`select 1 as x`.simple())
+)
+
+t('an unsafe query settles once', async() =>
+  settledOnce('unsafe', sql => sql.unsafe('select $1::int as x', [1]))
+)
+
+t('a query from a file settles once', async() =>
+  settledOnce('file', sql => sql.file(rel('select.sql')))
+)
+
+t('pipelined queries each settle once', { timeout: 10 }, async() => {
+  const sql = postgres({ ...options, max: 1 })
+  const queries = [1, 2, 3].map(x => sql`select ${ x }::int as x`)
+  const calls = queries.map(counted)
+  await Promise.all(queries)
+  await sql.end()
+
+  return [
+    JSON.stringify(Array(3).fill(pinned.pipelined)),
+    JSON.stringify(calls)
+  ]
+})
+
+t('a query on a reserved connection settles once', async() => {
+  const sql = postgres({ ...options, max: 1 })
+  const reserved = await sql.reserve()
+  const query = reserved`select 1 as x`
+  const calls = counted(query)
+  await query
+  reserved.release()
+  await sql.end()
+
+  return [JSON.stringify(pinned.reserved), JSON.stringify(calls)]
+})
+
+t('a retried query settles once', { timeout: 10 }, async() => {
+  const sql = postgres({ ...options, max: 1 })
+  const run = () => sql`select ${ 1 }::int as x`
+  await run()
+  await sql`deallocate all`
+  const query = run()
+  const calls = counted(query)
+  const rows = await query
+  await sql.end()
+
+  return [
+    JSON.stringify([pinned.retried, 1]),
+    JSON.stringify([calls, rows[0].x])
+  ]
+})
+
+t('a query that fails to build on an idle connection settles once', { timeout: 10 }, async() => {
+  const sql = postgres({ ...options, max: 1 })
+  await sql`select 1`
+  const query = sql.unsafe('select 1', Array(70000).fill(1))
+  const calls = counted(query)
+  const code = await query.then(() => 'resolved', e => e.code)
+  const next = (await sql`select 2 as x`)[0].x
+  await sql.end()
+
+  return [
+    JSON.stringify([pinned.buildFailureIdle, 'MAX_PARAMETERS_EXCEEDED', 2]),
+    JSON.stringify([calls, code, next])
+  ]
+})
+
+t('a query that fails to build behind a running query settles once', { timeout: 10 }, async() => {
+  const sql = postgres({ ...options, max: 1 })
+  await sql`select 1`
+  const running = sql`select 1 as x`.execute()
+  const query = sql.unsafe('select 1', Array(70000).fill(1))
+  const calls = counted(query)
+  const code = await query.then(() => 'resolved', e => e.code)
+  const ran = (await running)[0].x
+  await sql.end()
+
+  return [
+    JSON.stringify([pinned.buildFailureBehind, 'MAX_PARAMETERS_EXCEEDED', 1]),
+    JSON.stringify([calls, code, ran])
+  ]
+})
+
 t('a query cancelled in the queue of a reserved connection settles once', { timeout: 10 }, async() => {
   const sql = postgres({ ...options, max: 1, max_pipeline: 0 })
   const reserved = await sql.reserve()
@@ -6025,11 +6168,43 @@ t('a query cancelled in the queue of a transaction settles once', { timeout: 10 
   ]
 })
 
-t('a cursor whose callback throws a string rejects with that string', async() => {
+t('queries still waiting when the pool is destroyed settle once', { timeout: 10 }, async() => {
+  const sql = postgres({ ...options, max: 1, max_pipeline: 0 })
+  const running = sql`select pg_sleep(0.1)`
+  const waiting = sql`select 2 as x`
+  const calls = [counted(running), counted(waiting)]
+  const outcomes = Promise.all([running, waiting].map(q => q.then(() => 'resolved', e => e.code)))
+  await new Promise(setImmediate)
+  await sql.end({ timeout: 0 })
+
+  return [
+    JSON.stringify([[pinned.poolEnding, pinned.poolEnding], ['CONNECTION_DESTROYED', 'CONNECTION_DESTROYED']]),
+    JSON.stringify([calls, await outcomes])
+  ]
+})
+
+t('a for await cursor is settled once its loop has ended', async() => {
   const sql = postgres({ ...options, max: 1 })
-  const thrown = 'boom'
-  const rejected = await sql`select generate_series(1, 3) as x`.cursor(1, () => { throw thrown }).then(() => 'resolved', e => e)
+  const query = sql`select generate_series(1, 3) as x`
+  let batches = 0
+  for await (const rows of query.cursor(2))
+    batches += rows.length
+  const stage = query.stage
   await sql.end()
 
-  return [thrown, rejected]
+  return [JSON.stringify([Stage.Settled, 3]), JSON.stringify([stage, batches])]
+})
+
+t('a for await cursor is settled once its loop was left', async() => {
+  const sql = postgres({ ...options, max: 1 })
+  const query = sql`select generate_series(1, 3) as x`
+  for await (const rows of query.cursor(1)) {
+    if (rows.length)
+      break
+  }
+  await sql`select 1`
+  const stage = query.stage
+  await sql.end()
+
+  return [Stage.Settled, stage]
 })

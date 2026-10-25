@@ -9,13 +9,18 @@ import { parameters } from './parameters.js'
 import { compat } from './compat.js'
 import { cf } from './cf.js'
 import { copy } from './copy.js'
+import { requests } from './requests.js'
 import { install, verify, violations } from './invariants.js'
 import { bounded, quiet } from './bounded.js'
 
 install()
 
 const name = process.argv[2]
-const finish = () => (verify(), process.send({ completed: name }))
+const finish = async() => {
+  await new Promise(setImmediate)
+  verify()
+  process.send({ completed: name })
+}
 
 async function main() {
   const { default: postgres } = await import(process.argv[3] === 'cjs' ? '../cjs/src/index.js' : '../src/index.js')
@@ -42,7 +47,7 @@ async function main() {
     frames(type => combined.push(type))(input)
     assert.deepStrictEqual(combined, ['Q', 'Z'])
     assert.throws(() => frames(() => { /* Invalid lengths must fail before callback. */ })(Buffer.from([81, 0, 0, 0, 3])), /Invalid protocol/)
-    finish()
+    await finish()
     return
   }
   if (name.startsWith('startup:')) {
@@ -52,52 +57,57 @@ async function main() {
           || scenario.startsWith('backoff-')
         ? lifecycle : startup
     await run(scenario, postgres, event => process.send({ event }))
-    finish()
+    await finish()
     return
   }
   if (name.startsWith('phase:')) {
     await phases(name.slice(6), postgres, event => process.send({ event }))
-    finish()
+    await finish()
     return
   }
   if (name === 'integration') {
     await integration(postgres)
-    finish()
+    await finish()
     return
   }
   if (name.startsWith('compat:')) {
     await compat(name.slice(7), postgres)
-    finish()
+    await finish()
     return
   }
   if (name.startsWith('copy:')) {
     await copy(name.slice(5), postgres)
-    finish()
+    await finish()
     return
   }
   if (name.startsWith('cf:')) {
     await cf(name.slice(3))
-    finish()
+    await finish()
     return
   }
   if (name.startsWith('lease:')) {
     await leases(name.slice(6), postgres, event => process.send({ event }))
-    finish()
+    await finish()
+    return
+  }
+  if (name.startsWith('requests:')) {
+    await requests(name.slice(9), postgres, event => process.send({ event }))
+    await finish()
     return
   }
   if (name.startsWith('report:')) {
     await reports(name.slice(7), postgres)
-    finish()
+    await finish()
     return
   }
   if (name.startsWith('parameters:')) {
     await parameters(name.slice(11), postgres, event => process.send({ event }))
-    finish()
+    await finish()
     return
   }
   if (name.startsWith('ownership:')) {
     await ownership(name.slice(10), postgres, event => process.send({ event }))
-    finish()
+    await finish()
     return
   }
   const server = await peer({ catalogError: name === 'catalog-error', onEvent: event => process.send({ event }) })
@@ -125,7 +135,7 @@ async function main() {
     await quiet(server.close(), failed)
     process.send({ events: server.events })
   }
-  finish()
+  await finish()
 }
 
 main().catch(error => {

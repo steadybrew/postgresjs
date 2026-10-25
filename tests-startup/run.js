@@ -3,6 +3,7 @@ import assert from 'assert'
 import { fork } from 'child_process'
 import { fileURLToPath } from 'url'
 import { leaseNames } from './lease.js'
+import { requestNames } from './requests.js'
 import { reportNames } from './reports.js'
 import { parameterNames } from './parameters.js'
 import { compatNames } from './compat.js'
@@ -135,7 +136,7 @@ async function main() {
   }
   if (process.argv.includes('--regressions')) {
     for (const name of [...startupNames.map(x => 'startup:' + x), ...phaseNames.map(x => 'phase:' + x), ...leaseNames.map(x => 'lease:' + x),
-                        ...parameterNames.map(x => 'parameters:' + x),
+                        ...requestNames.map(x => 'requests:' + x), ...parameterNames.map(x => 'parameters:' + x),
                         ...compatNames.map(x => 'compat:' + x), ...cfNames.map(x => 'cf:' + x), ...copyNames.map(x => 'copy:' + x)]) {
       const result = await run(name)
       console.log(JSON.stringify(result))
@@ -145,7 +146,7 @@ async function main() {
   }
   for (const name of ['frames', 'cold-query', 'cold-query-no-fetch', 'cold-reserve', 'cold-reserve-no-fetch',
                       ...ownershipNames.map(x => 'ownership:' + x), ...startupNames.map(x => 'startup:' + x),
-                      ...phaseNames.map(x => 'phase:' + x), ...leaseNames.map(x => 'lease:' + x),
+                      ...phaseNames.map(x => 'phase:' + x), ...leaseNames.map(x => 'lease:' + x), ...requestNames.map(x => 'requests:' + x),
                       ...parameterNames.map(x => 'parameters:' + x),
                       ...compatNames.map(x => 'compat:' + x), ...cfNames.map(x => 'cf:' + x), ...copyNames.map(x => 'copy:' + x)]) {
     const result = await run(name)
