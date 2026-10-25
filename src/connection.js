@@ -723,15 +723,15 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
       return query.reject(err)
 
     if (!err || typeof err !== 'object')
-      err = new Error(err)
+      err = new Error(typeof err === 'symbol' ? String(err) : err)
 
-    'query' in err || 'parameters' in err || Object.defineProperties(err, {
+    'query' in err || 'parameters' in err || Object.entries({
       stack: { value: err.stack + query.origin.replace(/.*\n/, '\n'), enumerable: options.debug, writable: true, configurable: true },
       query: { value: query.string, enumerable: options.debug },
       parameters: { value: query.parameters, enumerable: options.debug },
       args: { value: query.args, enumerable: options.debug },
       types: { value: query.statement && query.statement.types, enumerable: options.debug }
-    })
+    }).forEach(([key, descriptor]) => Reflect.defineProperty(err, key, descriptor))
     query.reject(err)
   }
 

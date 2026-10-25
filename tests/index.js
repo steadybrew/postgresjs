@@ -5774,3 +5774,57 @@ t('arrays are sent and read back without fetching types, prepared or not', async
     JSON.stringify(seen)
   ]
 })
+
+const isRejectionOf = (rejected, thrown) => typeof thrown === 'symbol'
+  ? rejected instanceof Error && rejected.message === String(thrown)
+  : rejected === thrown
+
+const unextensibleThrows = [
+  ['a frozen error', Object.freeze(new Error('nope'))],
+  ['a symbol', Symbol('nope')],
+  ['a frozen plain object', Object.freeze({ reason: 'nope' })]
+]
+
+for (const [name, thrown] of unextensibleThrows) {
+  const typed = () => postgres({
+    ...options,
+    max: 1,
+    types: { thrower: { to: 25, from: [25], serialize: () => { throw thrown }, parse: x => x } }
+  })
+
+  t('a serializer that throws ' + name + ' rejects only its query with the thrown value', async() => {
+    const sql = typed()
+    const [[rejected, next], errors] = await uncaught(() => Promise.all([
+      sql`select ${ sql.types.thrower('x') }`.then(() => 'resolved', e => e),
+      delay(20).then(() => sql`select 1 as x`.then(x => x[0].x, e => e))
+    ]))
+    await delay(50)
+    const stats = pick(sql.stats())
+    await sql.end()
+
+    return [
+      JSON.stringify([true, 1, [], idleStats]),
+      JSON.stringify([isRejectionOf(rejected, thrown), next, errors.map(String), stats])
+    ]
+  })
+
+  t('a serializer that throws ' + name + ' behind a running query rejects only its query', async() => {
+    const sql = typed()
+    await sql`select 1`
+    const [[running, rejected, next], errors] = await uncaught(async() => {
+      const running = sql`select pg_sleep(0.2), 1 as x`.then(x => x[0].x, e => e)
+      await delay(50)
+      const failing = sql`select ${ sql.types.thrower('x') }`.then(() => 'resolved', e => e)
+      const following = sql`select 2 as x`.then(x => x[0].x, e => e)
+      return Promise.all([running, failing, following])
+    })
+    await delay(50)
+    const stats = pick(sql.stats())
+    await sql.end()
+
+    return [
+      JSON.stringify([1, true, 2, [], idleStats]),
+      JSON.stringify([running, isRejectionOf(rejected, thrown), next, errors.map(String), stats])
+    ]
+  })
+}
