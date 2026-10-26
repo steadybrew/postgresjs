@@ -9,7 +9,7 @@ on:
       ab_target:
         description: Database and fetch_types
         type: choice
-        options: [supabase-false, supabase-true, neon-false]
+        options: [supabase-false, supabase-true, neon-false, hyperdrive-true]
         default: supabase-false
       ab_base:
         description: Ref whose cloudflare:sockets build this branch is compared against

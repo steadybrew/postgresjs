@@ -8,8 +8,9 @@ addEventListener('unhandledrejection', (event) => {
   console.error('WORKER_UNHANDLED_REJECTION', reason)
 })
 const nativeSetTimeout = globalThis.setTimeout
+let strictTimers = true
 globalThis.setTimeout = function(callback, delay, ...extra) {
-  if (extra.length) throw new TypeError('Failed to execute \'setTimeout\': parameter 3 is not of type \'Array\'.')
+  if (strictTimers && extra.length) throw new TypeError('Failed to execute \'setTimeout\': parameter 3 is not of type \'Array\'.')
   return nativeSetTimeout(callback, delay)
 }
 function equal(a, b) {
@@ -214,13 +215,29 @@ const scenarios = {
   },
   async cpu() {
     const q = target.search
-    const sql = target.postgres(q.get('target') === 'neon' ? target.url : target.supabaseUrl, {
-      max: 2,
-      prepare: false,
-      fetch_types: q.get('fetch_types') === 'true',
-      connect_timeout: 10
-    })
+    const hyperdriven = q.get('target') === 'hyperdrive'
+    const sql = hyperdriven
+      ? target.postgres(target.hyperdriveSupabase, {
+        max: 5,
+        prepare: true,
+        fetch_types: q.get('fetch_types') === 'true',
+        idle_timeout: 20,
+        connect_timeout: 10,
+        types: { bigint: { to: 20, from: [20], parse: Number, serialize: String } },
+        connection: { search_path: 'public' }
+      })
+      : target.postgres(q.get('target') === 'neon' ? target.url : target.supabaseUrl, {
+        max: 2,
+        prepare: false,
+        fetch_types: q.get('fetch_types') === 'true',
+        connect_timeout: 10
+      })
     const [{ x }] = await sql`select 1 as x`
+    hyperdriven && await Promise.all([
+      sql`select ${ 1 }::int as a, ${ 'b' }::text as b, now() as c`,
+      sql`select ${ 2 }::bigint as n, ${ [1, 2] }::int[] as xs`,
+      sql`select generate_series(1, ${ 20 }) as i`
+    ])
     await sql.end({ timeout: 5 })
     const build = q.get('build')
     servedByBuild[build] = (servedByBuild[build] || 0) + 1
@@ -333,6 +350,7 @@ export default {
     }
     const name = url.searchParams.get('case')
         , port = Number(url.searchParams.get('port'))
+    strictTimers = name !== 'cpu'
     name === 'cpu' || name === 'no-end' || context.waitUntil(new Promise((resolve) => setTimeout(resolve, 20000)))
     if (scenarios[name]) {
       let error
