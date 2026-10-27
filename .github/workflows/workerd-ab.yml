@@ -7,9 +7,9 @@ on:
         description: Rounds per build
         default: '150'
       ab_target:
-        description: Database and fetch_types
+        description: Database and fetch_types; all runs the four targets the release gate uses
         type: choice
-        options: [supabase-false, supabase-true, neon-false, hyperdrive-true]
+        options: [supabase-false, supabase-true, neon-false, hyperdrive-true, all]
         default: supabase-false
       ab_base:
         description: Ref whose cloudflare:sockets build this branch is compared against
@@ -17,6 +17,10 @@ on:
       ab_copies:
         description: Separate copies of each build bundled into the Worker; each round runs on an unused copy, so it measures the driver's first use
         default: '0'
+      ab_gate:
+        description: Fail when this branch costs at least 1 ms more at the median or p95 with rank test p < 0.01, or hits exceededCpu in 2 points more requests
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -27,9 +31,9 @@ concurrency:
 
 jobs:
   ab:
-    name: Workers CPU A/B against ${{ inputs.ab_base }} on ${{ inputs.ab_target }}
+    name: Workers CPU A/B against ${{ inputs.ab_base }} on ${{ inputs.ab_target }}${{ inputs.ab_gate && ', gated' || '' }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 40
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -46,7 +50,7 @@ jobs:
       - run: npm run build:cf
       - run: npm run build:cf
         working-directory: ab-base
-      - run: node tests-startup/workerd-edge.mjs prepare "$RUNNER_TEMP/edge" 2026-10-12 "" ab-base
+      - run: node tests-startup/workerd-edge.mjs prepare "$RUNNER_TEMP/edge" 2026-10-12 ab-base
         env:
           AB_COPIES: ${{ inputs.ab_copies }}
       - name: Deploy the Preview and measure
@@ -57,6 +61,7 @@ jobs:
           AB_TARGET: ${{ inputs.ab_target }}
           AB_BASE: ${{ inputs.ab_base }}
           AB_COPIES: ${{ inputs.ab_copies }}
+          AB_GATE: ${{ inputs.ab_gate }}
         run: |
           [ -n "$SUPABASE_DATABASE_URL" ] || { echo "The SUPABASE_DATABASE_URL secret is not set"; exit 1; }
           name="ab-$(echo "$GITHUB_REF_NAME" | tr 'A-Z._/' 'a-z---')"
@@ -70,7 +75,7 @@ jobs:
           url=$(node tests-startup/workerd-edge.mjs url "$RUNNER_TEMP/preview.json")
           [ -n "$url" ] || { cat "$RUNNER_TEMP/preview.json"; exit 1; }
           echo "Preview $name: $url"
-          node tests-startup/workerd-edge.mjs ab "$url" "$AB_ROUNDS" "$AB_TARGET" "$AB_BASE"
+          node tests-startup/workerd-edge.mjs ab "$url" "$AB_ROUNDS" "$AB_TARGET" "$AB_BASE" "$AB_GATE"
       - name: Delete the Preview
         if: always() && env.PREVIEW_NAME
         run: npx --yes wrangler@4.151.1 preview delete --worker-name postgresjs-edge --name "$PREVIEW_NAME" --skip-confirmation
