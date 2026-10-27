@@ -14,6 +14,9 @@ on:
       ab_base:
         description: Ref whose cloudflare:sockets build this branch is compared against
         default: main
+      ab_copies:
+        description: Separate copies of each build bundled into the Worker; each round runs on an unused copy, so it measures the driver's first use
+        default: '0'
 
 permissions:
   contents: read
@@ -44,6 +47,8 @@ jobs:
       - run: npm run build:cf
         working-directory: ab-base
       - run: node tests-startup/workerd-edge.mjs prepare "$RUNNER_TEMP/edge" 2026-10-12 "" ab-base
+        env:
+          AB_COPIES: ${{ inputs.ab_copies }}
       - name: Deploy the Preview and measure
         env:
           NEON_DATABASE_URL: ${{ secrets.NEON_DATABASE_URL }}
@@ -51,6 +56,7 @@ jobs:
           AB_ROUNDS: ${{ inputs.ab_rounds }}
           AB_TARGET: ${{ inputs.ab_target }}
           AB_BASE: ${{ inputs.ab_base }}
+          AB_COPIES: ${{ inputs.ab_copies }}
         run: |
           [ -n "$SUPABASE_DATABASE_URL" ] || { echo "The SUPABASE_DATABASE_URL secret is not set"; exit 1; }
           name="ab-$(echo "$GITHUB_REF_NAME" | tr 'A-Z._/' 'a-z---')"

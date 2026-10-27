@@ -29,12 +29,20 @@ async function prepare(out, compatibilityDate, release, base) {
   base && await cp(path.join(base, 'cf'), path.join(out, 'base/cf'), { recursive: true })
   await cp(path.join(repo, 'src'), path.join(out, 'src'), { recursive: true })
   await cp(path.join(repo, 'tests-startup/workerd-worker.js'), path.join(out, 'worker.js'))
+  const copies = Array.from({ length: Number(process.env.AB_COPIES) || 0 }, (_, i) => i)
+  for (const i of copies) {
+    await cp(path.join(repo, 'cf'), path.join(out, 'copies/cf-' + i + '/cf'), { recursive: true })
+    base && await cp(path.join(base, 'cf'), path.join(out, 'copies/base-' + i + '/cf'), { recursive: true })
+  }
   await writeFile(path.join(out, 'driver.js'), [
     'export { default } from \'./cf/src/index.js\'',
     'export { default as cf } from \'./cf/src/index.js\'',
     'export { default as src } from \'./src/index.js\'',
     ...(release ? ['export { default as release } from \'@steadybrew/postgresjs\''] : []),
     ...(base ? ['export { default as base } from \'./base/cf/src/index.js\''] : []),
+    ...copies.flatMap((i) => (base ? ['cf', 'base'] : ['cf']).map((b) =>
+      'export { default as ' + b + '_' + i + ' } from \'./copies/' + b + '-' + i + '/cf/src/index.js\''
+    )),
     ''
   ].join('\n'))
   release && execFileSync('npm', ['install', '--prefix', out, '--no-save', '--no-audit', '--no-fund', release], { stdio: 'inherit' })
@@ -282,9 +290,11 @@ async function ab(base, roundsArg, targetArg, baseRef) {
   const from = Date.now() - 60000
   const failures = []
   const served = variants.map(() => new Map())
+  const copies = Number(process.env.AB_COPIES) || 0
   for (let n = -2; n < rounds; n++) {
     for (const [v, x] of shuffled([...variants.entries()])) {
-      const query = new URLSearchParams({ case: 'cpu', build: x.build, target: x.target, fetch_types: x.types, run, v, n })
+      const build = copies && n >= 0 ? x.build + '_' + (n % copies) : x.build
+      const query = new URLSearchParams({ case: 'cpu', build, target: x.target, fetch_types: x.types, run, v, n })
       try {
         const { res } = await fetchWorker(new URL('/?' + query, base), headers)
         const body = await res.json().catch(() => null)
@@ -311,6 +321,7 @@ async function ab(base, roundsArg, targetArg, baseRef) {
   const [a, b] = requests.map((xs) => xs.map((x) => x.cpu))
   const lines = [
     `cloudflare:sockets builds of ${ baseRef } and this branch, ${ target }, fetch_types ${ types }, ${ rounds } rounds each`
+      + (copies ? `, each measured round on one of ${ copies } separate copies of its build, so it is that copy's first use` : '')
       + ' in shuffled order. CPU is Workers Logs cpuTimeMs in whole ms. A build\'s first request in an isolate pays any per-isolate'
       + ' work for that build (SCRAM keys, its module\'s first use); the isolate\'s first request also pays loading the Worker.',
     '',
