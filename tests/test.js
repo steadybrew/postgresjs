@@ -26,6 +26,12 @@ async function test(o, name, options, fn) {
   if (only && !o)
     return
 
+  if (process.env.LIST_TESTS)
+    return console.log('TEST\t' + JSON.stringify(name + ' @' + line))
+
+  if (process.env.ONLY_TEST && process.env.ONLY_TEST !== name + ' @' + line)
+    return
+
   const id = ++registered
   tests[id] = { fn, line, name }
   promise = promise.then(() => Promise.race([

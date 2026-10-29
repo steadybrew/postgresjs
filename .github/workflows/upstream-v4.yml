@@ -43,10 +43,21 @@ jobs:
           echo 'export const Stage = {}' >> src/query.js
           echo "export function vercelPool() { throw new Error('vercelPool is not in upstream v4') }" > src/vercel.js
           ls src
-      - name: tests/index.js
+      - name: tests/index.js, one test per process
         run: |
           mkdir "$RUNNER_TEMP/results"
-          RESULTS_FILE="$RUNNER_TEMP/results/index.jsonl" timeout 2400 node --unhandled-rejections=warn tests/index.js || echo "tests/index.js exited $?"
+          out="$RUNNER_TEMP/results/index.jsonl"
+          touch "$out"
+          LIST_TESTS=1 timeout 120 node tests/index.js | grep -a '^TEST' | cut -f2- > "$RUNNER_TEMP/tests.txt" || true
+          wc -l "$RUNNER_TEMP/tests.txt"
+          while IFS= read -r key; do
+            name=$(node -p 'JSON.parse(process.argv[1])' "$key")
+            before=$(wc -l < "$out")
+            ONLY_TEST="$name" RESULTS_FILE="$out" timeout 60 node --unhandled-rejections=warn tests/index.js > "$RUNNER_TEMP/last.log" 2>&1 && code=0 || code=$?
+            if [ "$(wc -l < "$out")" = "$before" ]; then
+              node -e 'console.log(JSON.stringify({ name: JSON.parse(process.argv[1]), passed: false, error: "no result, exit " + process.argv[2] + ": " + require("fs").readFileSync(process.argv[3], "utf8").slice(-300) }))' "$key" "$code" "$RUNNER_TEMP/last.log" >> "$out"
+            fi
+          done < "$RUNNER_TEMP/tests.txt"
       - name: Scenario suites
         run: |
           if timeout 300 node tests-startup/run.js --integration; then passed=true; else passed=false; fi
