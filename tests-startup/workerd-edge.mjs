@@ -76,16 +76,31 @@ async function ready(base) {
 async function fetchWorker(url, headers) {
   let res
     , platformErrors = 0
+    , networkErrors = 0
     , waitedMs = 0
   for (;;) {
-    res = await fetch(url, { headers, signal: AbortSignal.timeout(30000) })
-    const fromWorker = res.ok || (res.headers.get('content-type') || '').includes('json')
-    const wait = retryAfter(res.headers.get('retry-after')) ?? Math.min(2000 * 2 ** platformErrors, 30000)
+    let error
+    try {
+      res = await fetch(url, { headers, signal: AbortSignal.timeout(30000) })
+    } catch (e) {
+      if (e.name !== 'TypeError')
+        throw e
+      error = e
+    }
+    const fromWorker = !error && (res.ok || (res.headers.get('content-type') || '').includes('json'))
+    const wait = (error ? undefined : retryAfter(res.headers.get('retry-after')))
+      ?? Math.min(2000 * 2 ** (platformErrors + networkErrors), 30000)
+    if (error && waitedMs + wait > 180000)
+      throw new Error(error.message + (error.cause ? ': ' + (error.cause.code || error.cause.message) : ''), { cause: error })
     if (fromWorker || waitedMs + wait > 180000)
-      return { res, platformErrors, waitedMs }
-    platformErrors++
+      return { res, platformErrors, networkErrors, waitedMs }
+    if (error) {
+      networkErrors++
+    } else {
+      platformErrors++
+      await res.body?.cancel()
+    }
     waitedMs += wait
-    await res.body?.cancel()
     await new Promise((resolve) => setTimeout(resolve, wait))
   }
 }
@@ -96,7 +111,7 @@ async function run(base) {
   const rounds = Number(process.env.EDGE_HYPERDRIVE_ROUNDS) || 1
   const round = ['hyperdrive', 'hyperdrive-pooled', 'hyperdrive-supabase']
   const build = 'cf'
-  for (const name of [...scenarios, ...Array(rounds).fill(round).flat()]) {
+  for (const name of ['wake', ...scenarios, ...Array(rounds).fill(round).flat()]) {
     let body
       , failure
       , fetched
@@ -123,7 +138,9 @@ async function run(base) {
       ...(expected ? { knownFailure: true } : {}),
       result: body?.result,
       closeRejections: (body?.unhandled || []).filter((x) => closing.test(x)).length,
-      ...(fetched?.platformErrors ? { platformErrors: fetched.platformErrors, waitedMs: fetched.waitedMs } : {}),
+      ...(fetched?.platformErrors || fetched?.networkErrors
+        ? { platformErrors: fetched.platformErrors, networkErrors: fetched.networkErrors, waitedMs: fetched.waitedMs }
+        : {}),
       error: failure?.message
     }))
   }

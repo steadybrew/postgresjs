@@ -206,6 +206,14 @@ const scenarios = {
     if (!error) throw new Error('The server accepted a connection without TLS')
     return { x, plaintext: error.code || error.message }
   },
+  async wake(port) {
+    const sql = client(port, { max: 1, connect_timeout: 20 })
+    const started = Date.now()
+    await within(sql`select 1`, 25000, 'first query')
+    const ms = Date.now() - started
+    await within(sql.end(), 3000, 'end')
+    return { ms }
+  },
   async pooled() {
     const sql = target.postgres(target.pooledUrl, { max: 2, prepare: false, fetch_types: false })
     const rows = await within(Promise.all(Array.from({ length: 20 }, (_, i) => sql`select ${ i }::int as i`)), 10000, 'pooled queries')
