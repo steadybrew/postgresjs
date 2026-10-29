@@ -1,6 +1,7 @@
 /* eslint no-console: 0 */
 
 import util from 'util'
+import fs from 'fs'
 
 let done = 0
 let registered = 0
@@ -31,7 +32,7 @@ async function test(o, name, options, fn) {
     new Promise((resolve, reject) =>
       fn.timer = setTimeout(() => reject('Timed out'), (options.timeout || t.timeout) * 1000)
     ),
-    failed
+    failed && !process.env.KEEP_GOING
       ? (ignored++, ignore)
       : fn()
   ]))
@@ -57,6 +58,12 @@ async function test(o, name, options, fn) {
       tests[id].error = err instanceof Error ? err : new Error(util.inspect(err))
     })
     .then(() => {
+      process.env.RESULTS_FILE && fs.appendFileSync(process.env.RESULTS_FILE, JSON.stringify({
+        name,
+        line,
+        passed: Boolean(tests[id].succeeded),
+        error: tests[id].error && tests[id].error.message.slice(0, 400)
+      }) + '\n')
       ++done === Object.keys(tests).length && exit()
     })
 }
