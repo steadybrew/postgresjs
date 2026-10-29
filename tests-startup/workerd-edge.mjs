@@ -4,9 +4,9 @@ import { appendFile, cp, mkdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 
 const scenarios = [
-  'arrays-false', 'arrays-true', 'timers', 'end-timeout', 'end-plain', 'end-while-connecting', 'end-tls',
-  'copy-out', 'subscribe', 'diagnostics-channel', 'ssl-verify', 'tls-private-ca', 'pooled', 'no-end',
-  'abort-neon', 'abort-neon-pooled', 'abort-supabase-pooler', 'abort-hyperdrive', 'abort-hyperdrive-pooled', 'abort-hyperdrive-supabase'
+  'diagnostics-channel', 'ssl-verify', 'tls-private-ca', 'pooled', 'no-end',
+  'abort-neon', 'abort-neon-pooled', 'abort-supabase-pooler', 'abort-hyperdrive', 'abort-hyperdrive-pooled', 'abort-hyperdrive-supabase',
+  'hyperdrive', 'hyperdrive-pooled', 'hyperdrive-supabase'
 ]
 const hyperdrive = [
   { binding: 'HYPERDRIVE', id: '6cac003bd1af42849ca7e83e125d5a3d' },
@@ -76,42 +76,24 @@ async function ready(base) {
 async function fetchWorker(url, headers) {
   let res
     , platformErrors = 0
-    , networkErrors = 0
     , waitedMs = 0
   for (;;) {
-    let error
-    try {
-      res = await fetch(url, { headers, signal: AbortSignal.timeout(30000) })
-    } catch (e) {
-      if (e.name !== 'TypeError')
-        throw e
-      error = e
-    }
-    const fromWorker = !error && (res.ok || (res.headers.get('content-type') || '').includes('json'))
-    const wait = (error ? undefined : retryAfter(res.headers.get('retry-after')))
-      ?? Math.min(2000 * 2 ** (platformErrors + networkErrors), 30000)
-    if (error && waitedMs + wait > 180000)
-      throw new Error(error.message + (error.cause ? ': ' + (error.cause.code || error.cause.message) : ''), { cause: error })
+    res = await fetch(url, { headers, signal: AbortSignal.timeout(30000) })
+    const fromWorker = res.ok || (res.headers.get('content-type') || '').includes('json')
+    const wait = retryAfter(res.headers.get('retry-after')) ?? Math.min(2000 * 2 ** platformErrors, 30000)
     if (fromWorker || waitedMs + wait > 180000)
-      return { res, platformErrors, networkErrors, waitedMs }
-    if (error) {
-      networkErrors++
-    } else {
-      platformErrors++
-      await res.body?.cancel()
-    }
+      return { res, platformErrors, waitedMs }
+    platformErrors++
     waitedMs += wait
+    await res.body?.cancel()
     await new Promise((resolve) => setTimeout(resolve, wait))
   }
 }
 
 async function run(base) {
   const headers = await ready(base)
-  const known = (process.env.EDGE_KNOWN_FAILURES || '').split(',').filter(Boolean)
-  const rounds = Number(process.env.EDGE_HYPERDRIVE_ROUNDS) || 1
-  const round = ['hyperdrive', 'hyperdrive-pooled', 'hyperdrive-supabase']
   const build = 'cf'
-  for (const name of ['wake', ...scenarios, ...Array(rounds).fill(round).flat()]) {
+  for (const name of scenarios) {
     let body
       , failure
       , fetched
@@ -129,18 +111,14 @@ async function run(base) {
     } catch (error) {
       failure = error
     }
-    const expected = known.includes(name)
-    if (Boolean(failure) !== expected) process.exitCode = 1
+    if (failure) process.exitCode = 1
     console.log(JSON.stringify({
       build,
       name,
       passed: !failure,
-      ...(expected ? { knownFailure: true } : {}),
       result: body?.result,
       closeRejections: (body?.unhandled || []).filter((x) => closing.test(x)).length,
-      ...(fetched?.platformErrors || fetched?.networkErrors
-        ? { platformErrors: fetched.platformErrors, networkErrors: fetched.networkErrors, waitedMs: fetched.waitedMs }
-        : {}),
+      ...(fetched?.platformErrors ? { platformErrors: fetched.platformErrors, waitedMs: fetched.waitedMs } : {}),
       error: failure?.message
     }))
   }

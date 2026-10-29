@@ -90,12 +90,8 @@ const scenarios = {
     const times = []
     for (let i = 0; i < 3; i++) {
       const sql = client(port, { max: 1, ssl: 'require' })
-      if (target.url) {
-        await sql`select 1`
-      } else {
-        const [{ ssl }] = await sql`select ssl from pg_stat_ssl where pid = pg_backend_pid()`
-        if (ssl !== true) throw new Error('Connection was not encrypted')
-      }
+      const [{ ssl }] = await sql`select ssl from pg_stat_ssl where pid = pg_backend_pid()`
+      if (ssl !== true) throw new Error('Connection was not encrypted')
       const started = Date.now()
       await within(sql.end(), 3000, 'tls sql.end() #' + i)
       times.push(Date.now() - started)
@@ -205,14 +201,6 @@ const scenarios = {
     await within(plain.end({ timeout: 0 }), 3000, 'end')
     if (!error) throw new Error('The server accepted a connection without TLS')
     return { x, plaintext: error.code || error.message }
-  },
-  async wake(port) {
-    const sql = client(port, { max: 1, connect_timeout: 20 })
-    const started = Date.now()
-    await within(sql`select 1`, 25000, 'first query')
-    const ms = Date.now() - started
-    await within(sql.end(), 3000, 'end')
-    return { ms }
   },
   async pooled() {
     const sql = target.postgres(target.pooledUrl, { max: 2, prepare: false, fetch_types: false })

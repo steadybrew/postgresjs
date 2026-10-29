@@ -96,7 +96,6 @@ jobs:
         env:
           WORKERD_COMPAT_DATE: ${{ matrix.compat_date }}
           WORKERD_COMPAT_FLAGS: ${{ matrix.flags }}
-          WORKERD_KNOWN_FAILURES: ${{ matrix.known_failures }}
           WORKERD_CLOSE_REJECTIONS: ${{ matrix.close_rejections }}
           WORKERD_TLS_PORT: 55433
           WORKERD_TLS_CA: ${{ runner.temp }}/server.crt

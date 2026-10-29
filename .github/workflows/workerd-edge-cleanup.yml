@@ -14,14 +14,10 @@ concurrency:
 
 jobs:
   cleanup:
-    name: Delete the edge Previews (${{ matrix.compat_date }})
+    name: Delete the edge Preview
     if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-24.04
     timeout-minutes: 5
-    strategy:
-      fail-fast: false
-      matrix:
-        compat_date: ['2025-01-01', '2026-10-12']
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -29,5 +25,4 @@ jobs:
       - name: Delete the Preview
         env:
           PR_NUMBER: ${{ github.event.pull_request.number }}
-          COMPAT_DATE: ${{ matrix.compat_date }}
-        run: npx --yes wrangler@4.151.1 preview delete --worker-name postgresjs-edge --name "pr-$PR_NUMBER-${COMPAT_DATE//-/}" --skip-confirmation
+        run: npx --yes wrangler@4.151.1 preview delete --worker-name postgresjs-edge --name "pr-$PR_NUMBER" --skip-confirmation

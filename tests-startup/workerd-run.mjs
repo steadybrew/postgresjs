@@ -43,7 +43,6 @@ async function main() {
   const tlsPort = Number(process.env.WORKERD_TLS_PORT) || 0
   const tlsScenarios = ['end-tls', 'tls-untrusted-ca']
   const peerScenarios = ['cold-reserve-false', 'catalog-error']
-  const knownFailures = (process.env.WORKERD_KNOWN_FAILURES || '').split(',').filter(Boolean)
   const closeRejectionsLogged = process.env.WORKERD_CLOSE_REJECTIONS === 'logged'
   const servers = new Map()
 
@@ -92,15 +91,13 @@ async function main() {
     for (const name of scenarios) {
       if (tlsScenarios.includes(name)) assert(tlsPort > 0 && process.env.WORKERD_TLS_CA, name + ' requires WORKERD_TLS_PORT and WORKERD_TLS_CA')
       const { failure, detail, output, unhandled } = await run(name)
-      const expected = knownFailures.includes(name)
-      if (Boolean(failure) !== expected) process.exitCode = 1
+      if (failure) process.exitCode = 1
       const closeRejections = unhandled.filter((x) => /Stream was cancelled|This socket has been closed|Network connection lost/.test(x)).length
       if (closeRejections && !closeRejectionsLogged) process.exitCode = 1
       await writeFile(path.join(work, name + '.log'), output)
       console.log(JSON.stringify({
         name,
         passed: !failure,
-        ...(expected ? { knownFailure: true } : {}),
         result: detail,
         closeRejections,
         error: failure?.message,
