@@ -1,0 +1,59 @@
+name: upstream-v4
+
+on:
+  push:
+    branches: [test/upstream-v4-fixed-issues]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PGUSER: postgres
+  PGSOCKET: /var/run/postgresql
+  KEEP_GOING: '1'
+
+jobs:
+  run:
+    name: Fork tests on ${{ matrix.target }}
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [fork, upstream-v4.0.0]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: ./.github/actions/setup-postgres
+        with:
+          version: '18'
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+      - name: Build the fork's Workers bundle
+        if: matrix.target == 'fork'
+        run: npm run build:cf
+      - name: Swap in upstream v4.0.0 src
+        if: matrix.target != 'fork'
+        run: |
+          git fetch --no-tags --depth=1 https://github.com/porsager/postgres.git refs/tags/v4.0.0
+          git rev-parse FETCH_HEAD
+          git rm -rq src
+          git checkout FETCH_HEAD -- src
+          echo 'export const Stage = {}' >> src/query.js
+          echo "export function vercelPool() { throw new Error('vercelPool is not in upstream v4') }" > src/vercel.js
+          ls src
+      - name: tests/index.js
+        run: |
+          mkdir "$RUNNER_TEMP/results"
+          RESULTS_FILE="$RUNNER_TEMP/results/index.jsonl" timeout 2400 node --unhandled-rejections=warn tests/index.js || echo "tests/index.js exited $?"
+      - name: Scenario suites
+        run: |
+          if timeout 300 node tests-startup/run.js --integration; then passed=true; else passed=false; fi
+          echo "{\"name\":\"integration\",\"passed\":$passed}" > "$RUNNER_TEMP/results/integration.log"
+          for mode in reports ownership regressions; do
+            timeout 2400 node tests-startup/run.js --$mode > "$RUNNER_TEMP/results/$mode.log" 2>&1 || echo "--$mode exited $?"
+          done
+      - name: Summary
+        if: always()
+        run: node tests-startup/compare-summary.mjs "$RUNNER_TEMP/results" ${{ matrix.target }}
