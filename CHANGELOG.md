@@ -1,5 +1,17 @@
 # Changelog
 
+## v4.8.0-rc1 - 2026-10-30
+
+APM and OpenTelemetry tools can now trace queries, connections, pool waits and transactions through `diagnostics_channel`, without patching the driver. Nothing breaks, and nothing is published while no one subscribes.
+
+### Features
+
+- **Trace queries, connections, pool waits and transactions with `diagnostics_channel`.** [`postgres:query`, `postgres:connect`, `postgres:pool:connect` and `postgres:transaction`](docs/api.md#tracing-channels) are tracing channels, and `postgres:pool:release` and `postgres:pool:remove` are plain channels. Names and payloads follow node-postgres's tracing channels, so one subscriber can serve both drivers, and no payload carries parameter values. A pool-wait span covers every wait for a connection, including a query queued behind another one on a busy connection. On Cloudflare Workers, tracing costs no measurable CPU while nothing subscribes, and under 1 ms per request with every channel subscribed. Closes #73. Addresses porsager/postgres#1171, porsager/postgres#461 and porsager/postgres#739.
+
+### Fixes
+
+- **A custom serializer that throws a frozen error, a Symbol or a frozen object fails only its query instead of stalling the connection.** Adding the query details to the error threw a second time, so the query never settled and the connection stopped taking queries; an unhandled rejection could exit the process. The query now rejects with what the serializer threw, with the query details when the object accepts them. Closes #193.
+
 ## v4.7.0 - 2026-10-24
 
 A transaction no longer commits half its work when one of its statements fails or is cancelled before it reaches the server, and using a released or finished handle now has its own error code. Nothing breaks unless your code checks for `CONNECTION_ENDED` to catch a handle used after `release()` or after its transaction ended.
