@@ -7,9 +7,7 @@ on:
         description: Rounds per build
         default: '150'
       ab_target:
-        description: Database and fetch_types; all runs the four targets the release gate uses
-        type: choice
-        options: [supabase-false, supabase-true, neon-false, hyperdrive-true, all]
+        description: Database and fetch_types, comma-separated, from supabase-false, supabase-true, neon-false, hyperdrive-true; all runs the four targets the release gate uses
         default: supabase-false
       ab_base:
         description: Ref whose cloudflare:sockets build this branch is compared against

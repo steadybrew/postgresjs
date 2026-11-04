@@ -205,8 +205,10 @@ async function ab(base, roundsArg, targetsArg, baseRef, gated) {
       const sent = Date.now()
       try {
         const { res } = await fetchWorker(new URL('/?' + query, base), headers)
-        const body = await res.json().catch(() => null)
-        body?.passed ? served[v].set(n, body.result) : failures.push({ v, n, status: res.status, error: body?.error?.message })
+        const text = await res.text().catch(() => '')
+        let body = null
+        try { body = JSON.parse(text) } catch {}
+        body?.passed ? served[v].set(n, body.result) : failures.push({ v, n, status: res.status, error: body?.error?.message || text.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').slice(0, 400) })
       } catch (error) {
         failures.push({ v, n, error: error.message })
       }
