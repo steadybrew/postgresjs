@@ -70,6 +70,7 @@ jobs:
           while IFS= read -r key; do
             name=$(node -p 'JSON.parse(process.argv[1])' "$key")
             before=$(wc -l < "$out")
+            psql -qtA -c "select count(pg_terminate_backend(pid)) from pg_stat_activity where datname = 'postgres_js_test' and pid <> pg_backend_pid()" > /dev/null || true
             ONLY_TEST="$name" RESULTS_FILE="$out" timeout 60 node --unhandled-rejections=warn tests/index.js > "$RUNNER_TEMP/last.log" 2>&1 && code=0 || code=$?
             if [ "$(wc -l < "$out")" = "$before" ]; then
               node -e 'console.log(JSON.stringify({ name: JSON.parse(process.argv[1]), passed: false, error: "no result, exit " + process.argv[2] + ": " + require("fs").readFileSync(process.argv[3], "utf8").slice(-300) }))' "$key" "$code" "$RUNNER_TEMP/last.log" >> "$out"
