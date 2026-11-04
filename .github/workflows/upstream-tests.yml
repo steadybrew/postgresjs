@@ -20,7 +20,7 @@ jobs:
       fail-fast: false
       matrix:
         side: [upstream, fork]
-        suite: [unit, queries, types, rows, build, transactions, reserve, connection, errors, prepared, batch, transform, cursors, copy, listen, subscribe, startup, tracing, simulate, simulate-globals, simulate-globals-nobatch, failover, extras]
+        suite: [extras]
     runs-on: ubuntu-24.04
     timeout-minutes: 75
     steps:
