@@ -78,7 +78,7 @@ jobs:
           done < "$RUNNER_TEMP/tests.txt"
       - name: Scenario suites
         run: |
-          timeout 300 node tests-startup/run.js --integration > "$RUNNER_TEMP/integration.txt" 2>&1 && code=0 || code=$?
+          RESULTS_FILE="$RUNNER_TEMP/results/integration-parts.jsonl" timeout 300 node tests-startup/run.js --integration > "$RUNNER_TEMP/integration.txt" 2>&1 && code=0 || code=$?
           node -e 'console.log(JSON.stringify({ name: "integration", passed: process.argv[1] === "0", error: require("fs").readFileSync(process.argv[2], "utf8").slice(0, 1500) }))' "$code" "$RUNNER_TEMP/integration.txt" > "$RUNNER_TEMP/results/integration.log"
           cat "$RUNNER_TEMP/integration.txt" | cut -c1-3000
           for mode in reports ownership regressions; do

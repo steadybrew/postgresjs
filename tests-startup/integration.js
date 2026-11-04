@@ -1,22 +1,39 @@
 import assert from 'assert'
+import fs from 'fs'
 import net from 'net'
 import { prepareName } from './compat.js'
 import { bounded, quiet } from './bounded.js'
 
+const failures = []
+
+async function part(name, fn) {
+  if (!process.env.RESULTS_FILE)
+    return fn()
+  const record = x => fs.appendFileSync(process.env.RESULTS_FILE, JSON.stringify({ name: 'integration:' + name, ...x }) + '\n')
+  try {
+    await fn()
+    record({ passed: true })
+  } catch (error) {
+    failures.push(name)
+    record({ passed: false, error: String(error && error.stack || error).slice(0, 800) })
+  }
+}
+
 export async function integration(postgres) {
-  await firstTypes(postgres)
-  await cursorReconnect(postgres)
-  await preferStandby(postgres)
-  await targetSessionAttrs(postgres)
+  await part('first-types', () => firstTypes(postgres))
+  await part('cursor-reconnect', () => cursorReconnect(postgres))
+  await part('prefer-standby', () => preferStandby(postgres))
+  await part('target-session-attrs', () => targetSessionAttrs(postgres))
   await leases(postgres)
-  await endAfterTerminate(postgres)
-  await prepareName(postgres)
+  await part('end-after-terminate', () => endAfterTerminate(postgres))
+  await part('prepare-name', () => prepareName(postgres))
   for (const max of [1, 3]) {
     for (const fetch_types of [true, false]) {
       for (const prepare of [true, false])
-        await combination(postgres, { max, fetch_types, prepare })
+        await part(`combination-max${ max }-fetch${ fetch_types }-prepare${ prepare }`, () => combination(postgres, { max, fetch_types, prepare }))
     }
   }
+  assert.deepStrictEqual(failures, [])
 }
 
 async function combination(postgres, { max, fetch_types, prepare }) {
@@ -263,18 +280,20 @@ async function leases(postgres) {
   await admin`drop table if exists lease_probe`
   await admin`create table lease_probe (x int)`
   try {
-    await staleTransaction(postgres, admin)
-    await staleReservation(postgres, admin)
-    for (const options of [{ max_pipeline: 0 }, { socket: pressured }, {}]) {
-      refusals.count = 0
-      await ownedTransaction(postgres, admin, options)
-      options.socket && assert(refusals.count >= 1, 'Backpressure was never applied')
+    await part('leases-stale-transaction', () => staleTransaction(postgres, admin))
+    await part('leases-stale-reservation', () => staleReservation(postgres, admin))
+    for (const [label, options] of [['pipeline0', { max_pipeline: 0 }], ['pressured', { socket: pressured }], ['default', {}]]) {
+      await part('leases-owned-transaction-' + label, async() => {
+        refusals.count = 0
+        await ownedTransaction(postgres, admin, options)
+        options.socket && assert(refusals.count >= 1, 'Backpressure was never applied')
+      })
     }
-    await finishedHandles(postgres, admin)
-    await rawBegin(postgres)
-    await copyFailure(postgres, admin)
-    await starvation(postgres)
-    await endingSlot(postgres)
+    await part('leases-finished-handles', () => finishedHandles(postgres, admin))
+    await part('leases-raw-begin', () => rawBegin(postgres))
+    await part('leases-copy-failure', () => copyFailure(postgres, admin))
+    await part('leases-starvation', () => starvation(postgres))
+    await part('leases-ending-slot', () => endingSlot(postgres))
   } finally {
     await admin`drop table lease_probe`
     await admin.end({ timeout: 0 })

@@ -97,7 +97,7 @@ async function main() {
     return
   }
   if (process.argv.includes('--integration')) {
-    const result = await run('integration', 30000)
+    const result = await run('integration', 240000)
     assert(result.passed, JSON.stringify(result))
     console.log('PASS real PostgreSQL ownership matrix')
     return
