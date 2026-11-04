@@ -1,5 +1,6 @@
 /* eslint no-console: 0, no-process-env: 0 */
 import assert from 'node:assert/strict'
+import { existsSync } from 'node:fs'
 import { appendFile, cp, mkdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 
@@ -21,19 +22,22 @@ const gate = { median: 1, p95: 1, exceeded: 0.02, p: 0.01, failures: 0.02 }
 async function prepare(out, compatibilityDate, base) {
   await mkdir(out, { recursive: true })
   await cp(path.join(repo, 'cf'), path.join(out, 'cf'), { recursive: true })
-  base && await cp(path.join(base, 'cf'), path.join(out, 'base/cf'), { recursive: true })
+  const built = base && existsSync(path.join(base, 'cf/src/index.js'))
+  const [baseDir, baseEntry] = built ? ['cf', 'cf/src/index.js'] : ['src', 'src/cf.js']
+  base && assert(existsSync(path.join(base, baseEntry)), base + ' has neither cf/src/index.js nor src/cf.js')
+  base && await cp(path.join(base, baseDir), path.join(out, 'base', baseDir), { recursive: true })
   await cp(path.join(repo, 'tests-startup/workerd-worker.js'), path.join(out, 'worker.js'))
   const copies = Array.from({ length: Number(process.env.AB_COPIES) || 0 }, (_, i) => i)
   for (const i of copies) {
     await cp(path.join(repo, 'cf'), path.join(out, 'copies/cf-' + i + '/cf'), { recursive: true })
-    base && await cp(path.join(base, 'cf'), path.join(out, 'copies/base-' + i + '/cf'), { recursive: true })
+    base && await cp(path.join(base, baseDir), path.join(out, 'copies/base-' + i, baseDir), { recursive: true })
   }
   await writeFile(path.join(out, 'driver.js'), [
     'export { default } from \'./cf/src/index.js\'',
     'export { default as cf } from \'./cf/src/index.js\'',
-    ...(base ? ['export { default as base } from \'./base/cf/src/index.js\''] : []),
+    ...(base ? ['export { default as base } from \'./base/' + baseEntry + '\''] : []),
     ...copies.flatMap((i) => (base ? ['cf', 'base'] : ['cf']).map((b) =>
-      'export { default as ' + b + '_' + i + ' } from \'./copies/' + b + '-' + i + '/cf/src/index.js\''
+      'export { default as ' + b + '_' + i + ' } from \'./copies/' + b + '-' + i + '/' + (b === 'base' ? baseEntry : 'cf/src/index.js') + '\''
     )),
     ''
   ].join('\n'))

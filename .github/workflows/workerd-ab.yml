@@ -14,6 +14,9 @@ on:
       ab_base:
         description: Ref whose cloudflare:sockets build this branch is compared against
         default: main
+      ab_base_repo:
+        description: Repository of ab_base, such as porsager/postgres (default this repository)
+        default: ''
       ab_copies:
         description: Separate copies of each build bundled into the Worker; each round runs on an unused copy, so it measures the driver's first use
         default: '0'
@@ -31,7 +34,7 @@ concurrency:
 
 jobs:
   ab:
-    name: Workers CPU A/B against ${{ inputs.ab_base }} on ${{ inputs.ab_target }}${{ inputs.ab_gate && ', gated' || '' }}
+    name: Workers CPU A/B against ${{ inputs.ab_base_repo && format('{0}@', inputs.ab_base_repo) || '' }}${{ inputs.ab_base }} on ${{ inputs.ab_target }}${{ inputs.ab_gate && ', gated' || '' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     env:
@@ -45,10 +48,12 @@ jobs:
       - run: npx --yes wrangler@4.151.1 whoami
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
+          repository: ${{ inputs.ab_base_repo || github.repository }}
           ref: ${{ inputs.ab_base }}
           path: ab-base
+          persist-credentials: false
       - run: npm run build:cf
-      - run: npm run build:cf
+      - run: npm run build:cf --if-present
         working-directory: ab-base
       - run: node tests-startup/workerd-edge.mjs prepare "$RUNNER_TEMP/edge" 2026-10-12 ab-base
         env:
@@ -59,7 +64,7 @@ jobs:
           SUPABASE_DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
           AB_ROUNDS: ${{ inputs.ab_rounds }}
           AB_TARGET: ${{ inputs.ab_target }}
-          AB_BASE: ${{ inputs.ab_base }}
+          AB_BASE: ${{ inputs.ab_base_repo && format('{0}@', inputs.ab_base_repo) || '' }}${{ inputs.ab_base }}
           AB_COPIES: ${{ inputs.ab_copies }}
           AB_GATE: ${{ inputs.ab_gate }}
         run: |
