@@ -1,5 +1,13 @@
 # Changelog
 
+## v4.8.0 - 2026-11-04
+
+Promotes `4.8.0-rc1` unchanged; its entry below lists the changes: tracing channels for APM and OpenTelemetry tools, and a serializer that throws a frozen error no longer stalls its connection. In production for five days on one Node.js app with a Sentry subscriber on every channel, the query spans matched the app's own query timings at median, p95 and p99, with no query errors. Nothing breaks.
+
+### Known limitations
+
+- **Postgres.js 4.0.0 publishes channels with the same names, `postgres:query`, `postgres:connect` and `postgres:transaction`, with different fields.** A subscriber written for it reads the query text from `query` and the server from `host` and `port`; on this driver they are `query.text` and `client.host` and `client.port`. Check which shape an APM integration expects before relying on it here. See [Tracing channels](docs/api.md#tracing-channels).
+
 ## v4.8.0-rc1 - 2026-10-30
 
 APM and OpenTelemetry tools can now trace queries, connections, pool waits and transactions through `diagnostics_channel`, without patching the driver. Nothing breaks, and nothing is published while no one subscribes.

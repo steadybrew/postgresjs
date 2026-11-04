@@ -1512,7 +1512,7 @@ After release, queries through that reserved handle reject with [`CONNECTION_REL
 
 ## Tracing channels
 
-The driver publishes `diagnostics_channel` events for queries, connections, pool checkouts and transactions, so an APM or OpenTelemetry integration can subscribe without patching the driver. The names and fields follow the tracing channels of node-postgres, so a subscriber written for one driver reads the other with few changes. Nothing is built or published while no one subscribes: a query costs one `hasSubscribers` check.
+The driver publishes `diagnostics_channel` events for queries, connections, pool checkouts and transactions, so an APM or OpenTelemetry integration can subscribe without patching the driver. The names and fields follow the tracing channels of node-postgres, so a subscriber written for one driver reads the other with few changes. Postgres.js 4.0.0 publishes channels with the same names but its own fields, so a subscriber written for it needs changes to read these. Nothing is built or published while no one subscribes: a query costs one `hasSubscribers` check.
 
 ### TracingChannels
 
