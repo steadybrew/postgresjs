@@ -196,10 +196,13 @@ async function ab(base, roundsArg, targetsArg, baseRef, gated) {
   const from = Date.now() - 60000
   const failures = []
   const served = variants.map(() => new Map())
+  const wall = variants.map(() => [])
+  const started = Date.now()
   for (let n = -2; n < rounds; n++) {
     for (const [v, x] of shuffled([...variants.entries()])) {
       const build = copies && n >= 0 ? x.build + '_' + (n % copies) : x.build
       const query = new URLSearchParams({ case: 'cpu', build, target: x.target, fetch_types: x.types, run, v, n })
+      const sent = Date.now()
       try {
         const { res } = await fetchWorker(new URL('/?' + query, base), headers)
         const body = await res.json().catch(() => null)
@@ -207,7 +210,12 @@ async function ab(base, roundsArg, targetsArg, baseRef, gated) {
       } catch (error) {
         failures.push({ v, n, error: error.message })
       }
+      wall[v].push(Date.now() - sent)
+      const failure = failures.find((f) => f.v === v && f.n === n)
+      failure && !failures.some((f) => f.v === v && f.n < n) && console.log('First failure of ' + x.build + ' ' + x.target + '-' + x.types + ': ' + JSON.stringify(failure))
     }
+    if (n % 10 === 0 || n < 1)
+      console.log('Round ' + n + ' after ' + Math.round((Date.now() - started) / 1000) + ' s; client wall median ms per variant ' + JSON.stringify(variants.map((x, v) => x.build + ' ' + x.target + '-' + x.types + ': ' + [...wall[v]].sort((p, q) => p - q)[Math.floor(wall[v].length / 2)])) + '; ' + failures.length + ' failed')
   }
 
   const { measured, missing } = await collect(run, from, rounds, failures, variants)

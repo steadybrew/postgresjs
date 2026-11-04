@@ -36,7 +36,7 @@ jobs:
   ab:
     name: Workers CPU A/B against ${{ inputs.ab_base_repo && format('{0}@', inputs.ab_base_repo) || '' }}${{ inputs.ab_base }} on ${{ inputs.ab_target }}${{ inputs.ab_gate && ', gated' || '' }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 40
+    timeout-minutes: 150
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
