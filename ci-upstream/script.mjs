@@ -22,10 +22,12 @@ const result = await new Promise(resolve => {
   child.stderr.pipe(sink, { end: false })
   let killed = false
   const timer = setTimeout(() => (killed = true, child.kill('SIGKILL')), 40 * 60 * 1000)
-  child.on('close', (code, signal) => (clearTimeout(timer), sink.end(), resolve({ code, signal, killed, ms: Date.now() - started })))
+  child.on('close', (code, signal) => {
+    clearTimeout(timer)
+    sink.end(() => resolve({ code, signal, killed, ms: Date.now() - started }))
+  })
 })
 
-await new Promise(r => sink.on('finish', r))
 const text = fs.readFileSync(log, 'utf8')
 const seeds = []
 const re = /⛔️ SEED=(\d+) \(([^)]+)\)\n((?: {2}.*\n?)*)/g

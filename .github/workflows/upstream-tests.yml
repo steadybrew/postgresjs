@@ -20,7 +20,7 @@ jobs:
       fail-fast: false
       matrix:
         side: [upstream, fork]
-        suite: [unit, queries, types, rows, build, transactions, reserve, connection, errors, prepared, batch, transform, cursors, copy, listen, subscribe, startup, tracing, simulate, simulate-globals, simulate-globals-nobatch, failover]
+        suite: [unit, queries, types, rows, build, transactions, reserve, connection, errors, prepared, batch, transform, cursors, copy, listen, subscribe, startup, tracing, simulate, simulate-globals, simulate-globals-nobatch, failover, extras]
     runs-on: ubuntu-24.04
     timeout-minutes: 75
     steps:
@@ -60,6 +60,7 @@ jobs:
           SUITE: ${{ matrix.suite }}
         run: |
           case "$SUITE" in
+            extras) node ci-upstream/extras.mjs "$SIDE" "$RUNNER_TEMP/ws" "$RUNNER_TEMP/out" ;;
             simulate*|failover) node ci-upstream/script.mjs "$SIDE" "$SUITE" "$RUNNER_TEMP/ws" "$RUNNER_TEMP/out" ;;
             *) node ci-upstream/run.mjs "$SIDE" "$SUITE" "$RUNNER_TEMP/ws" "$RUNNER_TEMP/out" ;;
           esac
