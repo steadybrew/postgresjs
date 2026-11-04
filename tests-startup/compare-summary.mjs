@@ -22,7 +22,7 @@ for (const file of fs.readdirSync(dir).sort()) {
       suite,
       name: x.line ? x.name + ' @' + x.line : x.name,
       passed: x.passed,
-      error: (x.error || (x.passed ? '' : x.output || (x.timedOut ? 'timed out' : ''))).replace(/\s+/g, ' ').slice(0, 300)
+      error: (x.error || (x.passed ? '' : x.output || (x.timedOut ? 'timed out' : ''))).replace(/\s+/g, ' ').slice(0, 800)
     })
   }
 }

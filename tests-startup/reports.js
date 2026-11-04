@@ -510,7 +510,7 @@ async function reservedInflightTerminate(postgres) {
     const ended = await bounded(sql.end().then(() => 'resolved'), 5000)
     await turn()
     assert.deepStrictEqual(fault.errors, [])
-    assert(['CONNECTION_CLOSED', '57P01'].includes(inflight), inflight)
+    assert.strictEqual(inflight, 'CONNECTION_CLOSED')
     assert.strictEqual(next, 1)
     assert.strictEqual(ended, 'resolved')
   } finally {
@@ -632,7 +632,7 @@ async function terminatedInflightThenQuery(postgres, prepare) {
     const next = await bounded(sql`select 1 as x`.then(x => x[0].x, error => error.code))
     await turn()
     assert.deepStrictEqual(fault.errors, [])
-    assert(['CONNECTION_CLOSED', '57P01'].includes(inflight), inflight)
+    assert.strictEqual(inflight, 'CONNECTION_CLOSED')
     assert.strictEqual(next, 1)
   } finally {
     fault.stop()

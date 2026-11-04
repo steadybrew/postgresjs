@@ -259,7 +259,7 @@ function netConnect(port) {
       return Promise.resolve()
     },
     writable: { getWriter: () => ({ ready: Promise.resolve(), write: data => new Promise(resolve => socket.write(data, resolve)),
-                                    releaseLock() { /* Fake. */ } }) },
+                                    close: () => new Promise(resolve => socket.end(resolve)), releaseLock() { /* Fake. */ } }) },
     readable: { getReader: () => ({ read, releaseLock() { /* Fake. */ } }) }
   })
   const lifetime = () => {
@@ -280,7 +280,7 @@ function netConnect(port) {
 async function core(ssl) {
   const server = await peer({ sslReply: ssl ? 'S' : '' })
   const dir = await patched()
-  globalThis.__sockets = async() => ({ connect: (address) => netConnect(Number(address.split(':')[1])) })
+  globalThis.__sockets = async() => ({ connect: address => netConnect(Number(typeof address === 'string' ? address.split(':')[1] : address.port)) })
   const { default: postgres } = await import(pathToFileURL(path.join(dir, 'cf/src/index.js')).href)
   const sql = postgres({ host: '127.0.0.1', port: server.port, user: 'fixture', database: 'fixture', ssl: ssl ? 'require' : false,
                          fetch_types: false, max: 1, connect_timeout: 2 })

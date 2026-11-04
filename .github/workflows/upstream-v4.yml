@@ -19,7 +19,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [fork, upstream-v4.0.0]
+        include:
+          - target: fork
+          - target: upstream-v4.0.0
+            sha: 570be764d96c8c13e6a1a262103bf60974571b67
+          - target: upstream-master
+            sha: c32cf5ac852f4f02150d3cc03f34621cc86a03b7
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
@@ -33,16 +38,28 @@ jobs:
       - name: Build the fork's Workers bundle
         if: matrix.target == 'fork'
         run: npm run build:cf
-      - name: Swap in upstream v4.0.0 src
+      - name: Swap in upstream src
         if: matrix.target != 'fork'
         run: |
-          git fetch --no-tags --depth=1 https://github.com/porsager/postgres.git refs/tags/v4.0.0
-          git rev-parse FETCH_HEAD
+          git fetch --no-tags --depth=1 https://github.com/porsager/postgres.git ${{ matrix.sha }}
+          test "$(git rev-parse FETCH_HEAD)" = "${{ matrix.sha }}"
           git rm -rq src
           git checkout FETCH_HEAD -- src
           echo 'export const Stage = {}' >> src/query.js
-          echo "export function vercelPool() { throw new Error('vercelPool is not in upstream v4') }" > src/vercel.js
+          echo "export function vercelPool() { throw new Error('vercelPool is not in upstream') }" > src/vercel.js
           ls src
+      - name: Build the upstream Workers entry
+        if: matrix.target != 'fork'
+        run: |
+          rm -rf cf/src
+          mkdir cf/src
+          cp src/*.js cf/src/
+          mv cf/src/index.js cf/src/postgres.js
+          mv cf/src/cf.js cf/src/index.js
+          sed -i "s#from './index.js'#from './postgres.js'#" cf/src/*.js
+          sed -i "s#^import { connect } from 'cloudflare:sockets'#const { connect } = await globalThis.__sockets()#" cf/src/index.js
+          echo 'export {}' > cf/polyfills.js
+          head -3 cf/src/index.js
       - name: tests/index.js, one test per process
         run: |
           mkdir "$RUNNER_TEMP/results"
@@ -60,8 +77,9 @@ jobs:
           done < "$RUNNER_TEMP/tests.txt"
       - name: Scenario suites
         run: |
-          if timeout 300 node tests-startup/run.js --integration; then passed=true; else passed=false; fi
-          echo "{\"name\":\"integration\",\"passed\":$passed}" > "$RUNNER_TEMP/results/integration.log"
+          timeout 300 node tests-startup/run.js --integration > "$RUNNER_TEMP/integration.txt" 2>&1 && code=0 || code=$?
+          node -e 'console.log(JSON.stringify({ name: "integration", passed: process.argv[1] === "0", error: require("fs").readFileSync(process.argv[2], "utf8").slice(0, 1500) }))' "$code" "$RUNNER_TEMP/integration.txt" > "$RUNNER_TEMP/results/integration.log"
+          cat "$RUNNER_TEMP/integration.txt" | cut -c1-3000
           for mode in reports ownership regressions; do
             timeout 2400 node tests-startup/run.js --$mode > "$RUNNER_TEMP/results/$mode.log" 2>&1 || echo "--$mode exited $?"
           done
