@@ -1,0 +1,90 @@
+name: upstream-tests
+
+on:
+  push:
+    branches: [check/upstream-tests-on-fork]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  UPSTREAM_SHA: c32cf5ac852f4f02150d3cc03f34621cc86a03b7
+  PGUSER: postgres
+  PGSOCKET: /var/run/postgresql
+
+jobs:
+  run:
+    name: ${{ matrix.side }} src, ${{ matrix.suite }}
+    strategy:
+      fail-fast: false
+      matrix:
+        side: [upstream, fork]
+        suite: [unit, queries, types, rows, build, transactions, reserve, connection, errors, prepared, batch, transform, cursors, copy, listen, subscribe, startup, tracing, simulate, simulate-globals, simulate-globals-nobatch, failover]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: porsager/postgres
+          ref: ${{ env.UPSTREAM_SHA }}
+          path: upstream
+          persist-credentials: false
+      - if: ${{ matrix.suite != 'unit' && !startsWith(matrix.suite, 'simulate') }}
+        uses: ./.github/actions/setup-postgres
+        with:
+          version: '18'
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+      - name: Build the workspace
+        env:
+          SIDE: ${{ matrix.side }}
+          SUITE: ${{ matrix.suite }}
+        run: |
+          ws="$RUNNER_TEMP/ws"
+          mkdir -p "$ws"
+          cp -R upstream/tests "$ws/tests"
+          cp upstream/package.json "$ws/package.json"
+          if [ "$SIDE" = upstream ]; then cp -R upstream/src "$ws/src"; else cp -R src "$ws/src"; fi
+          node ci-upstream/instrument.mjs "$ws/tests/test.js"
+          if [ "$SUITE" = simulate-globals-nobatch ]; then
+            sed -i "s/, 'batch'\]/]/g" "$ws/tests/simulate.js"
+            if grep -n "'batch'\]" "$ws/tests/simulate.js"; then exit 1; fi
+          fi
+          if [ "$SUITE" = failover ]; then echo /usr/lib/postgresql/18/bin >> "$GITHUB_PATH"; fi
+      - name: Run
+        env:
+          SIDE: ${{ matrix.side }}
+          SUITE: ${{ matrix.suite }}
+        run: |
+          case "$SUITE" in
+            simulate*|failover) node ci-upstream/script.mjs "$SIDE" "$SUITE" "$RUNNER_TEMP/ws" "$RUNNER_TEMP/out" ;;
+            *) node ci-upstream/run.mjs "$SIDE" "$SUITE" "$RUNNER_TEMP/ws" "$RUNNER_TEMP/out" ;;
+          esac
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: results-${{ matrix.side }}-${{ matrix.suite }}
+          path: ${{ runner.temp }}/out
+          retention-days: 14
+
+  report:
+    needs: run
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+      - uses: actions/download-artifact@v4
+        with:
+          path: ${{ runner.temp }}/results
+      - run: node ci-upstream/report.mjs "$RUNNER_TEMP/results" "$RUNNER_TEMP/report" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: report
+          path: ${{ runner.temp }}/report
